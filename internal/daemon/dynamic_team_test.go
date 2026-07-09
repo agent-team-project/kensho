@@ -1150,7 +1150,7 @@ func assertCharteredChildShimAllows(t *testing.T, teamDir, instance, verb string
 	parts := strings.Split(verb, ".")
 	args := append([]string{}, parts...)
 	args = append(args, "gh155-dynteam")
-	shim := filepath.Join(teamDir, "state", instance, "runtime", "bin", "agent-team")
+	shim := charteredChildShimPath(t, teamDir, instance)
 	out, err := exec.Command(shim, args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("shim denied %s unexpectedly: %v; output=%s", verb, err, out)
@@ -1162,7 +1162,7 @@ func assertCharteredChildShimDenies(t *testing.T, teamDir, instance, verb string
 	parts := strings.Split(verb, ".")
 	args := append([]string{}, parts...)
 	args = append(args, "gh155-dynteam")
-	shim := filepath.Join(teamDir, "state", instance, "runtime", "bin", "agent-team")
+	shim := charteredChildShimPath(t, teamDir, instance)
 	out, err := exec.Command(shim, args...).CombinedOutput()
 	if err == nil {
 		t.Fatalf("shim allowed %s; output=%s", verb, out)
@@ -1174,6 +1174,20 @@ func assertCharteredChildShimDenies(t *testing.T, teamDir, instance, verb string
 	if exitErr.ExitCode() != 3 || !strings.Contains(string(out), "denied verb "+verb) {
 		t.Fatalf("shim denial for %s = code %d output %q", verb, exitErr.ExitCode(), out)
 	}
+}
+
+func charteredChildShimPath(t *testing.T, teamDir, instance string) string {
+	t.Helper()
+	if snapshot, err := ReadInstanceLaunchEnv(DaemonRoot(teamDir), instance); err == nil {
+		if path := lastEnvValue(snapshot.Env, "PATH"); path != "" {
+			first := strings.Split(path, string(os.PathListSeparator))[0]
+			shim := filepath.Join(first, "agent-team")
+			if _, err := os.Stat(shim); err == nil {
+				return shim
+			}
+		}
+	}
+	return filepath.Join(teamDir, "state", instance, "runtime", "bin", "agent-team")
 }
 
 func shellQuoteTest(value string) string {

@@ -19,7 +19,7 @@ const (
 	dockerGHConfigDir     = "/root/.config/gh"
 )
 
-func (r *EventResolver) prepareDockerAgentArgs(rt runtimebin.Runtime, agentName, instance, hostStateDir, workspace, prompt string, env []string) ([]string, error) {
+func (r *EventResolver) prepareDockerAgentArgs(rt runtimebin.Runtime, agentName, instance, hostStateDir, hostLaunchRoot, workspace, prompt string, env []string) ([]string, error) {
 	image := strings.TrimSpace(rt.Image)
 	if image == "" {
 		image = runtimebin.DefaultImageForKind(runtimebin.KindDocker)
@@ -35,11 +35,18 @@ func (r *EventResolver) prepareDockerAgentArgs(rt runtimebin.Runtime, agentName,
 	if hostStateDir == "" {
 		return nil, errors.New("docker runtime: state dir is required")
 	}
+	hostLaunchRoot = strings.TrimSpace(hostLaunchRoot)
+	if hostLaunchRoot == "" {
+		return nil, errors.New("docker runtime: launch root is required")
+	}
+	if rel, err := filepath.Rel(hostStateDir, hostLaunchRoot); err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("docker runtime: launch root %q is outside state dir %q", hostLaunchRoot, hostStateDir)
+	}
 	containerStateDir := dockerContainerStateDir(workspace, instance)
 	if err := os.MkdirAll(containerStateDir, 0o755); err != nil {
 		return nil, fmt.Errorf("docker runtime: create state mount point: %w", err)
 	}
-	promptFile := filepath.Join(hostStateDir, "runtime", "docker-prompt.md")
+	promptFile := filepath.Join(hostLaunchRoot, "docker-prompt.md")
 	if err := os.MkdirAll(filepath.Dir(promptFile), 0o755); err != nil {
 		return nil, fmt.Errorf("docker runtime: create prompt dir: %w", err)
 	}

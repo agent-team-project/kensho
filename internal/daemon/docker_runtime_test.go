@@ -50,6 +50,10 @@ func TestPrepareDockerAgentArgsMountsWorktreeStateAndAuth(t *testing.T) {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	launchRoot := filepath.Join(stateDir, "runtime", "launch-test")
+	if err := os.MkdirAll(launchRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	env := []string{
 		"MAIN_REPO=" + repoRoot,
 		"AGENT_TEAM_ROOT=" + filepath.Join(repoRoot, ".agent_team"),
@@ -66,6 +70,7 @@ func TestPrepareDockerAgentArgsMountsWorktreeStateAndAuth(t *testing.T) {
 		"worker",
 		instance,
 		stateDir,
+		launchRoot,
 		worktree,
 		"do a trivial job",
 		env,
@@ -90,7 +95,7 @@ func TestPrepareDockerAgentArgsMountsWorktreeStateAndAuth(t *testing.T) {
 		"--target",
 		worktree,
 		"--prompt-file",
-		filepath.Join(containerStateDir, "runtime", "docker-prompt.md"),
+		filepath.Join(containerStateDir, "runtime", "launch-test", "docker-prompt.md"),
 		runtimebin.CodexAutonomousExecArgs()[0],
 	} {
 		if !containsString(args, want) {
@@ -129,7 +134,7 @@ func TestPrepareDockerAgentArgsMountsWorktreeStateAndAuth(t *testing.T) {
 			t.Fatalf("docker args forwarded host-only env %q:\n%v", forbidden, args)
 		}
 	}
-	body, err := os.ReadFile(filepath.Join(stateDir, "runtime", "docker-prompt.md"))
+	body, err := os.ReadFile(filepath.Join(launchRoot, "docker-prompt.md"))
 	if err != nil {
 		t.Fatalf("prompt file: %v", err)
 	}
@@ -141,11 +146,13 @@ func TestPrepareDockerAgentArgsMountsWorktreeStateAndAuth(t *testing.T) {
 func TestPrepareDockerAgentArgsRequiresDaemonHTTPURL(t *testing.T) {
 	stateDir := t.TempDir()
 	workspace := t.TempDir()
+	launchRoot := filepath.Join(stateDir, "runtime", "launch-test")
 	_, err := (&EventResolver{}).prepareDockerAgentArgs(
 		runtimebin.Runtime{Kind: runtimebin.KindDocker, Binary: "docker", Image: "agent-team:test"},
 		"worker",
 		"worker-squ-131",
 		stateDir,
+		launchRoot,
 		workspace,
 		"go",
 		nil,

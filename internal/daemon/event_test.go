@@ -148,6 +148,17 @@ func assertEventRuntimeCommandSurface(t *testing.T, runtimeDir string, env []str
 	}
 }
 
+func assertLaunchRootUnderRuntime(t *testing.T, runtimeDir, launchRoot string) {
+	t.Helper()
+	rel, err := filepath.Rel(runtimeDir, launchRoot)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		t.Fatalf("launch root = %q, want child under runtime dir %q", launchRoot, runtimeDir)
+	}
+	if !strings.HasPrefix(filepath.Base(launchRoot), "launch-") {
+		t.Fatalf("launch root = %q, want launch-* child", launchRoot)
+	}
+}
+
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
@@ -1689,7 +1700,12 @@ func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
 	}
 	env := fake.lastEnv()
 	runtimeDir := filepath.Join(teamDir, "state", "worker-squ-42", "runtime")
-	assertEventRuntimeCommandSurface(t, runtimeDir, env)
+	addDir, ok := argValue(call, "--add-dir")
+	if !ok {
+		t.Fatalf("codex spawn call missing --add-dir value: %#v", call)
+	}
+	assertLaunchRootUnderRuntime(t, runtimeDir, addDir)
+	assertEventRuntimeCommandSurface(t, addDir, env)
 	for _, want := range []string{
 		"shell_environment_policy.set.AGENT_TEAM_ROOT=" + strconv.Quote(teamDir),
 		"shell_environment_policy.set.AGENT_TEAM_INSTANCE=" + strconv.Quote("worker-squ-42"),
@@ -1717,6 +1733,82 @@ func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
 	}
 	_, _ = m.Stop("worker-squ-42")
 	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
+}
+
+func TestEvent_EphemeralDispatchUsesPerLaunchRootAndPreservesPersistentPrompt(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindClaude))
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	writeFixtureRuntimeCommandSkills(t, teamDir, "worker")
+	instance := "worker-squ-42"
+	stateDir := filepath.Join(teamDir, "state", instance)
+	runtimeDir := filepath.Join(stateDir, "runtime")
+	stablePrompt := filepath.Join(runtimeDir, "system_prompt.md")
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
+		t.Fatalf("mkdir runtime dir: %v", err)
+	}
+	if err := os.WriteFile(stablePrompt, []byte("persistent resume prompt"), 0o644); err != nil {
+		t.Fatalf("write stable prompt: %v", err)
+	}
+
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-42","kickoff":"implement SQU-42"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	call := fake.lastCall()
+	addDir, ok := argValue(call, "--add-dir")
+	if !ok {
+		t.Fatalf("claude spawn call missing --add-dir value: %#v", call)
+	}
+	assertLaunchRootUnderRuntime(t, runtimeDir, addDir)
+	promptFile, ok := argValue(call, "--append-system-prompt-file")
+	if !ok {
+		t.Fatalf("claude spawn call missing prompt file value: %#v", call)
+	}
+	if filepath.Dir(promptFile) != addDir {
+		t.Fatalf("prompt file = %q, want inside add-dir %q", promptFile, addDir)
+	}
+	assertEventRuntimeCommandSurface(t, addDir, fake.lastEnv())
+	stableBody, err := os.ReadFile(stablePrompt)
+	if err != nil {
+		t.Fatalf("read stable prompt: %v", err)
+	}
+	if string(stableBody) != "persistent resume prompt" {
+		t.Fatalf("stable prompt changed to %q", string(stableBody))
+	}
+	launchBody, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("read launch prompt: %v", err)
+	}
+	if !strings.Contains(string(launchBody), "You are fixture worker.") {
+		t.Fatalf("launch prompt missing agent prompt:\n%s", string(launchBody))
+	}
+	if got := launchArgValue(call, "-p"); !strings.Contains(got, "implement SQU-42") {
+		t.Fatalf("claude task prompt = %q, want kickoff", got)
+	}
+	snapshot, err := ReadInstanceLaunchEnv(root, instance)
+	if err != nil {
+		t.Fatalf("read launch snapshot: %v", err)
+	}
+	if got := launchArgValue(snapshot.Args, "--append-system-prompt-file"); got != promptFile {
+		t.Fatalf("snapshot prompt = %q, want %q", got, promptFile)
+	}
+
+	_, _ = m.Stop(instance)
+	_ = m.WaitForReaper(instance, 5*time.Second)
+	if _, err := os.Stat(addDir); !os.IsNotExist(err) {
+		t.Fatalf("launch root should be cleaned after reap, stat err=%v", err)
+	}
+	if body, err := os.ReadFile(stablePrompt); err != nil || string(body) != "persistent resume prompt" {
+		t.Fatalf("stable prompt after cleanup = %q err=%v", string(body), err)
+	}
 }
 
 func TestEvent_EphemeralDispatchIgnoresModelForCodexRuntime(t *testing.T) {
@@ -2863,7 +2955,13 @@ match.target = "worker"
 			t.Fatalf("env missing %q in %v", want, env)
 		}
 	}
-	assertEventRuntimeCommandSurface(t, filepath.Join(stateDir, "runtime"), env)
+	call := fake.lastCall()
+	addDir, ok := argValue(call, "--add-dir")
+	if !ok {
+		t.Fatalf("spawn call missing --add-dir value: %#v", call)
+	}
+	assertLaunchRootUnderRuntime(t, filepath.Join(stateDir, "runtime"), addDir)
+	assertEventRuntimeCommandSurface(t, addDir, env)
 	if meta, err := ReadMetadata(root, id); err != nil || meta.Workspace != repoRoot {
 		t.Fatalf("metadata workspace = %+v err=%v, want repo root %s", meta, err, repoRoot)
 	}

@@ -321,11 +321,11 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *top
 		Worktree: workspace,
 		Build:    buildinfo.Current(""),
 	}
-	args, stdin, rt, env, err := r.prepareEphemeralAgentArgs(inst, inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, inst.EnvAllow, runtime.mailboxInjection, nil, runtime.otelConfig, otelCtx, "")
+	args, stdin, rt, env, cleanupPaths, err := r.prepareEphemeralAgentArgs(inst, inst.Agent, inst.Name, runtime.stateDir, workspace, prompt, env, inst.EnvAllow, runtime.mailboxInjection, false, nil, runtime.otelConfig, otelCtx, "")
 	if err != nil {
 		return nil, false, err
 	}
-	return m.launchPrepared(DispatchInput{
+	meta, launched, err := m.launchPrepared(DispatchInput{
 		Agent:         inst.Agent,
 		Name:          inst.Name,
 		Workspace:     workspace,
@@ -338,7 +338,13 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *top
 		EnvComplete:   envComplete,
 		StripOTelEnv:  runtime.otelConfig.Configured(),
 		Stdin:         stdin,
+		CleanupPaths:  cleanupPaths,
+		CleanupRoot:   runtime.stateDir,
 	}, expected)
+	if !launched {
+		cleanupLaunchPaths(cleanupPaths)
+	}
+	return meta, launched, err
 }
 
 func installWatcherForRevivedAdoption(m *InstanceManager, meta *Metadata, teamDir string, topo *topology.Topology) {

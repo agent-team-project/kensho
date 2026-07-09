@@ -165,6 +165,9 @@ type DispatchInput struct {
 	// CleanupPaths are launch-time scratch paths the daemon owns after a
 	// successful spawn. They are removed only after the child has been reaped.
 	CleanupPaths []string
+	// CleanupRoot is the resolved state dir that owns CleanupPaths when the
+	// caller prepared runtime files outside the daemon root's default state dir.
+	CleanupRoot string
 	// Budget, if > 0, is a hard wall-clock runtime budget for the dispatched
 	// instance. When it elapses before the process exits on its own, a watchdog
 	// finalises the instance as Crashed and force-kills its process group (see
@@ -310,7 +313,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		return nil, err
 	}
 	logPath := filepath.Join(instanceDir(m.daemonRoot, in.Name), "child.log")
-	cleanupPaths, err := m.validCleanupPaths(in.CleanupPaths)
+	cleanupPaths, err := m.validCleanupPaths(in.CleanupPaths, in.CleanupRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -1716,7 +1719,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 		return nil, false, err
 	}
 	logPath := filepath.Join(instanceDir(m.daemonRoot, in.Name), "child.log")
-	cleanupPaths, err := m.validCleanupPaths(in.CleanupPaths)
+	cleanupPaths, err := m.validCleanupPaths(in.CleanupPaths, in.CleanupRoot)
 	if err != nil {
 		return nil, false, err
 	}
@@ -2197,11 +2200,21 @@ func (m *InstanceManager) reap(instance string, proc *os.Process, reaped chan<- 
 	}
 }
 
-func (m *InstanceManager) validCleanupPaths(paths []string) ([]string, error) {
+func (m *InstanceManager) validCleanupPaths(paths []string, extraRoots ...string) ([]string, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	stateRoot := canonicalCleanupPath(filepath.Join(filepath.Dir(m.daemonRoot), "state"))
+	roots := []string{canonicalCleanupPath(filepath.Join(filepath.Dir(m.daemonRoot), "state"))}
+	for _, raw := range extraRoots {
+		root := strings.TrimSpace(raw)
+		if root == "" {
+			continue
+		}
+		if !filepath.IsAbs(root) {
+			return nil, fmt.Errorf("dispatch: cleanup root %q must be absolute", root)
+		}
+		roots = append(roots, canonicalCleanupPath(root))
+	}
 	out := make([]string, 0, len(paths))
 	for _, raw := range paths {
 		path := strings.TrimSpace(raw)
@@ -2212,9 +2225,16 @@ func (m *InstanceManager) validCleanupPaths(paths []string) ([]string, error) {
 			return nil, fmt.Errorf("dispatch: cleanup path %q must be absolute", path)
 		}
 		clean := canonicalCleanupPath(path)
-		rel, err := filepath.Rel(stateRoot, clean)
-		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return nil, fmt.Errorf("dispatch: cleanup path %q must be under %s", path, stateRoot)
+		ok := false
+		for _, root := range roots {
+			rel, err := filepath.Rel(root, clean)
+			if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return nil, fmt.Errorf("dispatch: cleanup path %q must be under %s", path, strings.Join(roots, " or "))
 		}
 		out = append(out, clean)
 	}
