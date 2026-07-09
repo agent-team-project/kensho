@@ -302,6 +302,43 @@ func TestClient_StartInstance(t *testing.T) {
 	stopAndWaitForTest(t, m, "mgr")
 }
 
+func TestClient_StartInstanceWithFreshOption(t *testing.T) {
+	var payload struct {
+		Instance string `json:"instance"`
+		Fresh    bool   `json:"fresh"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/start" {
+			t.Fatalf("path = %s, want /v1/start", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"instance_id":     "mgr",
+			"session_resumed": false,
+			"fresh_fallback":  true,
+			"pid":             123,
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer srv.Close()
+	c := &daemonClient{
+		hc:      newDaemonHTTPClient(srv.Client().Transport, 0, ""),
+		baseURL: srv.URL,
+		teamDir: t.TempDir(),
+	}
+
+	if err := c.StartInstanceWithOptions("mgr", true); err != nil {
+		t.Fatalf("start fresh: %v", err)
+	}
+	if payload.Instance != "mgr" || !payload.Fresh {
+		t.Fatalf("payload = %+v, want fresh start for mgr", payload)
+	}
+}
+
 func TestClient_StopInstanceWithOptions(t *testing.T) {
 	root := t.TempDir()
 	m := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, time.Second))

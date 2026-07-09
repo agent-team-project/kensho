@@ -2032,6 +2032,7 @@ Flags:
       --commands             With --dry-run, print the matching instance up apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run              Preview planned start/resume actions without changing daemon state.
       --format string        Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
+      --fresh                Bypass managed resume and launch a fresh declared instance.
       --json                 Emit machine-readable JSON.
   -n, --last int             Start or resume the N most recently started instances after other filters (0 = all).
       --latest               Start or resume the most recently started instance after other filters.
@@ -8398,6 +8399,7 @@ Flags:
       --commands                 With --dry-run, print the matching apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.
       --dry-run                  Preview planned start/resume actions without changing daemon state.
       --format string            Render each action result with a Go template, e.g. '{{.Instance}} {{.Action}}'.
+      --fresh                    Bypass managed resume and launch a fresh declared instance.
       --json                     Emit machine-readable JSON.
   -n, --last int                 Start or resume the N most recently started instances after other filters (0 = all).
       --latest                   Start or resume the most recently started instance after other filters.

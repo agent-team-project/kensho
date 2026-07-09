@@ -551,6 +551,67 @@ func TestHTTP_StartResumesSession(t *testing.T) {
 	waitForStatusNot(t, m, "mgr", StatusRunning)
 }
 
+func TestHTTP_StartFreshBypassesResume(t *testing.T) {
+	t.Setenv("AGENT_TEAM_RUNTIME", "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+runtime = "claude"
+description = "Recoverable Claude manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := DaemonRoot(teamDir)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	defer srv.Close()
+
+	now := time.Now().UTC()
+	if err := WriteMetadata(root, &Metadata{
+		Instance:      "mgr",
+		Agent:         "manager",
+		Runtime:       "claude",
+		RuntimeBinary: "claude",
+		Workspace:     t.TempDir(),
+		PID:           123,
+		SessionID:     "resume-session",
+		StartedAt:     now,
+		StoppedAt:     now,
+		Status:        StatusStopped,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := mustPost(t, srv.URL+"/v1/start", `{"instance":"mgr","fresh":true}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("start fresh: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	var body struct {
+		SessionResumed bool `json:"session_resumed"`
+		FreshFallback  bool `json:"fresh_fallback"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode start fresh response: %v", err)
+	}
+	if body.SessionResumed || !body.FreshFallback {
+		t.Fatalf("start fresh response = %+v, want fresh fallback without resume", body)
+	}
+	args := fake.lastCall()
+	if containsString(args, "--resume") {
+		t.Fatalf("fresh start should not use --resume: %v", args)
+	}
+	promptFile := filepath.Join(teamDir, "state", "mgr", "runtime", "system_prompt.md")
+	if got, ok := argValue(args, "--append-system-prompt-file"); !ok || filepath.Clean(got) != filepath.Clean(promptFile) {
+		t.Fatalf("fresh prompt arg = %q, %v; want %s in args %v", got, ok, promptFile, args)
+	}
+
+	mustPost(t, srv.URL+"/v1/stop", `{"instance":"mgr"}`)
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
 func TestHTTP_RestartResumesSession(t *testing.T) {
 	root := t.TempDir()
 	fake := newFakeSpawner(30 * time.Second)

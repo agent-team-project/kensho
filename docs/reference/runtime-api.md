@@ -108,6 +108,10 @@ POST /v1/remove
 POST /v1/reconcile
 ```
 
+`POST /v1/start` accepts `{"instance":"<name>","fresh":true}` to bypass managed
+resume and launch a fresh declared persistent instance when a runtime session is
+wedged.
+
 ## Messages
 
 ```http

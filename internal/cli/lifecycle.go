@@ -35,6 +35,7 @@ func newStartCmd() *cobra.Command {
 		staleOnly      bool
 		runtimeStale   bool
 		unhealthyOnly  bool
+		fresh          bool
 		wait           bool
 		timeout        time.Duration
 		readyTimeout   time.Duration
@@ -198,6 +199,7 @@ func newStartCmd() *cobra.Command {
 				Stale:          staleOnly,
 				RuntimeStale:   runtimeStale,
 				Unhealthy:      unhealthyOnly,
+				Fresh:          fresh,
 				Wait:           wait,
 				Timeout:        timeout,
 				DryRun:         dryRun,
@@ -222,6 +224,7 @@ func newStartCmd() *cobra.Command {
 					Stale:           staleOnly,
 					RuntimeStale:    runtimeStale,
 					Unhealthy:       unhealthyOnly,
+					Fresh:           fresh,
 					Prompt:          prompt,
 					PromptSet:       cmd.Flags().Changed("prompt"),
 					PromptFile:      promptFile,
@@ -247,6 +250,7 @@ func newStartCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Only start or resume instances whose status.toml is stale.")
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Only start or resume running instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Only start or resume instances that are crashed, status-stale, or runtime-stale.")
+	cmd.Flags().BoolVar(&fresh, "fresh", false, "Bypass managed resume and launch a fresh declared instance.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for selected instances to become healthy after starting. With no scoped selection, waits for the fleet.")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "Maximum time to wait with --wait (0 = no timeout).")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for implicit daemon readiness (0 = no timeout).")

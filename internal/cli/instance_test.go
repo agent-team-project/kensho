@@ -1306,6 +1306,68 @@ func TestInstanceUpLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	}
 }
 
+func TestInstanceUpFreshDryRunCommands(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[instances.manager]
+agent = "manager"
+description = "Persistent manager."
+`)
+	if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), &daemon.Metadata{
+		Instance:  "manager",
+		Agent:     "manager",
+		Status:    daemon.StatusStopped,
+		Runtime:   "claude",
+		Workspace: tmp,
+		SessionID: "resume-session",
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--dry-run", "--commands", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("instance up --fresh --dry-run --commands: %v\nstderr=%s", err, stderr.String())
+	}
+	wantCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team",
+		"instance",
+		"up",
+		"--repo",
+		tmp,
+		"manager",
+		"--fresh",
+	}), " ")
+	if got := strings.TrimSpace(out.String()); got != wantCommand {
+		t.Fatalf("instance up --fresh --dry-run --commands = %q, want %q", got, wantCommand)
+	}
+
+	start := NewRootCmd()
+	startOut, startErr := &bytes.Buffer{}, &bytes.Buffer{}
+	start.SetOut(startOut)
+	start.SetErr(startErr)
+	start.SetArgs([]string{"start", "manager", "--fresh", "--dry-run", "--commands", "--target", tmp})
+	if err := start.Execute(); err != nil {
+		t.Fatalf("start --fresh --dry-run --commands: %v\nstderr=%s", err, startErr.String())
+	}
+	wantStartCommand := strings.Join(shellQuoteArgs([]string{
+		"agent-team",
+		"start",
+		"--repo",
+		tmp,
+		"manager",
+		"--fresh",
+	}), " ")
+	if got := strings.TrimSpace(startOut.String()); got != wantStartCommand {
+		t.Fatalf("start --fresh --dry-run --commands = %q, want %q", got, wantStartCommand)
+	}
+}
+
 func TestStartDeclaredInstanceUsesInstanceRuntime(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")

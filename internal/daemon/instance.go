@@ -193,6 +193,7 @@ type StartOptions struct {
 	ResumePrompt             string
 	DisallowFreshFallback    bool
 	AllowFreshWithoutSession bool
+	ForceFresh               bool
 }
 
 // RestartOptions controls the stop half of a restart. By default restart
@@ -1170,6 +1171,10 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 	}
 
 	base := *t.meta
+	if opts.ForceFresh {
+		m.mu.Unlock()
+		return m.resumeFallbackFresh(instance, &base, errors.New("fresh start requested"), opts.ResumePrompt)
+	}
 	baseRuntime := metadataRuntimeKind(&base)
 	if !runtimeKindSupportsManagedResume(baseRuntime) {
 		m.mu.Unlock()
@@ -1507,7 +1512,11 @@ func (m *InstanceManager) resumeFallbackFresh(instance string, base *Metadata, c
 		return nil, fmt.Errorf("start: resume preflight failed (%v); %q is not a declared persistent instance", cause, instance)
 	}
 	if base != nil {
-		m.recordEvent("resume_fallback", base, fmt.Sprintf("managed resume preflight failed; launching fresh: %v", cause))
+		msg := fmt.Sprintf("managed resume preflight failed; launching fresh: %v", cause)
+		if strings.Contains(cause.Error(), "fresh start requested") {
+			msg = "fresh start requested; launching declared instance without managed resume"
+		}
+		m.recordEvent("resume_fallback", base, msg)
 	}
 	meta, launched, err := launchDeclaredFreshWithPrompt(teamDir, m, topo, inst, base, extraPrompt)
 	if err != nil {

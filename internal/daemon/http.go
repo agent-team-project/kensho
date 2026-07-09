@@ -237,6 +237,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		}
 		var body struct {
 			Instance      string `json:"instance"`
+			Fresh         bool   `json:"fresh"`
 			Force         bool   `json:"force"`
 			TimeoutMillis int64  `json:"timeout_ms"`
 		}
@@ -251,14 +252,17 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		if !authorize(w, r, "instance.start", "instance:"+body.Instance, origin.Envelope{}) {
 			return
 		}
-		meta, err := m.Start(body.Instance)
+		meta, err := m.StartWithOptions(body.Instance, StartOptions{
+			ForceFresh: body.Fresh || body.Force,
+		})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"instance_id":     meta.Instance,
-			"session_resumed": true,
+			"session_resumed": !meta.FreshFallback,
+			"fresh_fallback":  meta.FreshFallback,
 			"pid":             meta.PID,
 		})
 	})

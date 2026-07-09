@@ -1401,10 +1401,70 @@ description = "Recoverable Claude manager."
 		t.Fatalf("fresh fallback should not use stale resume args: %v", args)
 	}
 	promptFile := filepath.Join(teamDir, "state", "mgr", "runtime", "system_prompt.md")
+	if got, ok := argValue(args, "--append-system-prompt-file"); !ok || filepath.Clean(got) != filepath.Clean(promptFile) {
+		t.Fatalf("fresh fallback prompt arg = %q, %v; want %s in args %v", got, ok, promptFile, args)
+	}
 	if body, err := os.ReadFile(promptFile); err != nil {
 		t.Fatalf("fresh fallback prompt file: %v", err)
 	} else if !strings.Contains(string(body), "You are the `mgr` instance of the `manager` agent.") {
 		t.Fatalf("fresh fallback prompt missing kickoff:\n%s", string(body))
+	}
+
+	_, _ = m.Stop("mgr")
+	waitForStatusNot(t, m, "mgr", StatusRunning)
+}
+
+func TestInstance_StartClaudeForceFreshBypassesResume(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "claude")
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.mgr]
+agent = "manager"
+runtime = "claude"
+description = "Recoverable Claude manager."
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := DaemonRoot(teamDir)
+	workspace := t.TempDir()
+	now := time.Now().UTC()
+	if err := WriteMetadata(root, &Metadata{
+		Instance:       "mgr",
+		Agent:          "manager",
+		Runtime:        string(runtimebin.KindClaude),
+		RuntimeBinary:  "claude",
+		Workspace:      workspace,
+		PID:            123,
+		SessionID:      "resume-session",
+		StartedAt:      now,
+		StoppedAt:      now,
+		Status:         StatusStopped,
+		ResumeCount:    4,
+		FreshFallbacks: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	fresh, err := m.StartWithOptions("mgr", StartOptions{ForceFresh: true})
+	if err != nil {
+		t.Fatalf("start fresh: %v", err)
+	}
+	if fresh.Status != StatusRunning || !fresh.FreshFallback || fresh.FreshFallbacks != 3 || fresh.ResumeCount != 5 {
+		t.Fatalf("fresh metadata = %+v, want explicit fresh fallback count", fresh)
+	}
+	args := fake.lastCall()
+	if containsString(args, "--resume") {
+		t.Fatalf("explicit fresh should not use stale resume args: %v", args)
+	}
+	promptFile := filepath.Join(teamDir, "state", "mgr", "runtime", "system_prompt.md")
+	if got, ok := argValue(args, "--append-system-prompt-file"); !ok || filepath.Clean(got) != filepath.Clean(promptFile) {
+		t.Fatalf("fresh prompt arg = %q, %v; want %s in args %v", got, ok, promptFile, args)
+	}
+	if _, err := os.Stat(promptFile); err != nil {
+		t.Fatalf("fresh prompt file: %v", err)
 	}
 
 	_, _ = m.Stop("mgr")
