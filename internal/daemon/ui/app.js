@@ -24,6 +24,7 @@ const els = {
   resourcesBody: document.getElementById("resourcesBody"),
   schedulesBody: document.getElementById("schedulesBody"),
   deadlinesBody: document.getElementById("deadlinesBody"),
+  orgView: document.getElementById("orgView"),
   instanceUpdated: document.getElementById("instanceUpdated"),
   jobUpdated: document.getElementById("jobUpdated"),
   pipelineUpdated: document.getElementById("pipelineUpdated"),
@@ -32,12 +33,13 @@ const els = {
   resourceUpdated: document.getElementById("resourceUpdated"),
   scheduleUpdated: document.getElementById("scheduleUpdated"),
   deadlineUpdated: document.getElementById("deadlineUpdated"),
+  orgUpdated: document.getElementById("orgUpdated"),
   refreshState: document.getElementById("refreshState"),
 };
 
 const tokenKey = "agent-team.daemonToken";
 const autoRefreshKey = "agent-team.autoRefresh";
-const refreshIntervalMs = 15000;
+const refreshIntervalMs = 5000;
 const endpoints = {
   instances: { path: "/v1/instances", label: "instances" },
   jobs: { path: "/v1/jobs", label: "jobs" },
@@ -273,7 +275,7 @@ function activeJob(job) {
 
 function toneForStatus(value) {
   const normalized = slug(value);
-  if (["running", "done", "connected", "active", "healthy"].includes(normalized)) {
+  if (["running", "working", "done", "connected", "active", "healthy"].includes(normalized)) {
     return "positive";
   }
   if (["queued", "planning", "implementing", "awaiting_review", "checking"].includes(normalized)) {
@@ -284,6 +286,9 @@ function toneForStatus(value) {
   }
   if (["degraded", "warning", "warn", "stale"].includes(normalized)) {
     return "warning";
+  }
+  if (["idle", "exited", "stopped", "observed"].includes(normalized)) {
+    return "neutral";
   }
   return "neutral";
 }
@@ -377,6 +382,370 @@ function stepList(steps) {
     wrap.appendChild(item);
   }
   return wrap;
+}
+
+function instanceIdentity(instance) {
+  return field(instance, "uri", "URI", "instance_uri", "InstanceURI") || field(instance, "instance", "Instance");
+}
+
+function timestampValue(value) {
+  if (!value) {
+    return 0;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function instanceActivityTime(instance) {
+  return Math.max(
+    timestampValue(field(instance, "started_at", "StartedAt")),
+    timestampValue(field(instance, "stopped_at", "StoppedAt")),
+    timestampValue(field(instance, "exited_at", "ExitedAt"))
+  );
+}
+
+function dedupeInstances(instances) {
+  const byID = new Map();
+  for (const instance of instances) {
+    const id = instanceIdentity(instance);
+    if (!id) {
+      continue;
+    }
+    const existing = byID.get(id);
+    if (!existing || instanceActivityTime(instance) >= instanceActivityTime(existing)) {
+      byID.set(id, instance);
+    }
+  }
+  return [...byID.values()];
+}
+
+function declaredInstanceName(runtime, declaredNames) {
+  const name = field(runtime, "instance", "Instance");
+  if (!name) {
+    return "";
+  }
+  if (declaredNames.includes(name)) {
+    return name;
+  }
+  let best = "";
+  for (const declared of declaredNames) {
+    if (name.startsWith(`${declared}-`) && declared.length > best.length) {
+      best = declared;
+    }
+  }
+  return best;
+}
+
+function stateStatus(resources, instance) {
+  const data = resourceData(resources, field(instance, "state_uri", "StateURI"));
+  return data && data.status && typeof data.status === "object" ? data.status : {};
+}
+
+function instancePhase(resources, instance) {
+  return field(stateStatus(resources, instance), "phase", "Phase") || field(instance, "phase", "Phase");
+}
+
+function instanceDescription(resources, instance) {
+  return field(stateStatus(resources, instance), "description", "Description", "last_action", "LastAction");
+}
+
+function instanceLifecycle(instance) {
+  return text(field(instance, "status", "Status", "lifecycle", "Lifecycle"), "unknown").toLowerCase();
+}
+
+function activeRuntimeInstance(instance) {
+  const lifecycle = instanceLifecycle(instance);
+  return lifecycle === "running" || lifecycle === "crashed" || lifecycle === "stopped";
+}
+
+function runningPhase(phase) {
+  const normalized = slug(phase || "");
+  return Boolean(normalized && !["idle", "done"].includes(normalized));
+}
+
+function laneScheduleMatches(declared, schedule) {
+  const triggers = asArray(field(declared, "triggers", "Triggers"));
+  const scheduleName = field(schedule, "name", "Name");
+  const scheduleKind = field(field(schedule, "payload", "Payload"), "kind", "Kind");
+  return triggers.some((trigger) => {
+    if (field(trigger, "event", "Event") !== "schedule") {
+      return false;
+    }
+    const match = field(trigger, "match", "Match");
+    return field(match, "name", "Name") === scheduleName || field(match, "kind", "Kind") === scheduleKind;
+  });
+}
+
+function laneSchedules(declared, schedules) {
+  return schedules.filter((schedule) => laneScheduleMatches(declared, schedule));
+}
+
+function laneCapacity(declared) {
+  const replicas = field(declared, "replicas", "Replicas");
+  const running = field(declared, "running", "Running");
+  const queued = field(declared, "queued", "Queued");
+  const parts = [];
+  if (replicas) {
+    parts.push(`${running || 0}/${replicas} running`);
+  } else if (running) {
+    parts.push(`${running} running`);
+  }
+  if (queued) {
+    parts.push(`${queued} queued`);
+  }
+  return parts.join(" / ");
+}
+
+function laneScheduleSummary(schedules) {
+  if (!schedules.length) {
+    return "";
+  }
+  return schedules
+    .slice(0, 2)
+    .map((schedule) => `${field(schedule, "name", "Name")} ${field(schedule, "every", "Every") || "scheduled"}`)
+    .join(" / ");
+}
+
+function createLane(name, agent, declared = null) {
+  return {
+    name,
+    agent,
+    declared,
+    active: [],
+    latest: null,
+    schedules: [],
+  };
+}
+
+function latestInstance(a, b) {
+  if (!a) {
+    return b;
+  }
+  if (!b) {
+    return a;
+  }
+  return instanceActivityTime(b) > instanceActivityTime(a) ? b : a;
+}
+
+function orgLanes(instances, declaredInstances, schedules) {
+  const declaredNames = declaredInstances.map((instance) => field(instance, "name", "Name")).filter(Boolean);
+  const lanes = new Map();
+  for (const declared of declaredInstances) {
+    const name = field(declared, "name", "Name");
+    if (!name) {
+      continue;
+    }
+    const lane = createLane(name, field(declared, "agent", "Agent") || "unknown", declared);
+    lane.schedules = laneSchedules(declared, schedules);
+    lanes.set(name, lane);
+  }
+
+  for (const instance of dedupeInstances(instances)) {
+    const name = field(instance, "instance", "Instance");
+    const declaredName = declaredInstanceName(instance, declaredNames);
+    const laneName = declaredName || name;
+    if (!laneName) {
+      continue;
+    }
+    let lane = lanes.get(laneName);
+    if (!lane) {
+      lane = createLane(laneName, field(instance, "agent", "Agent") || "unknown");
+      lanes.set(laneName, lane);
+    }
+    lane.agent ||= field(instance, "agent", "Agent") || "unknown";
+    if (activeRuntimeInstance(instance)) {
+      lane.active.push(instance);
+    } else {
+      lane.latest = latestInstance(lane.latest, instance);
+    }
+  }
+
+  return [...lanes.values()].sort((a, b) => a.agent.localeCompare(b.agent) || a.name.localeCompare(b.name));
+}
+
+function laneVisibleInstances(lane) {
+  if (lane.active.length) {
+    return lane.active.sort((a, b) => instanceActivityTime(b) - instanceActivityTime(a));
+  }
+  return lane.latest ? [lane.latest] : [];
+}
+
+function laneState(lane, resources) {
+  const visible = laneVisibleInstances(lane);
+  if (visible.some((instance) => instanceLifecycle(instance) === "crashed")) {
+    return "crashed";
+  }
+  if (visible.some((instance) => instanceLifecycle(instance) === "running")) {
+    return visible.some((instance) => runningPhase(instancePhase(resources, instance))) ? "working" : "idle";
+  }
+  const queued = Number(field(lane.declared, "queued", "Queued"));
+  if (Number.isFinite(queued) && queued > 0) {
+    return "queued";
+  }
+  return "idle";
+}
+
+function roleTitle(role) {
+  const value = text(role, "unknown");
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function laneMeta(lane) {
+  const parts = [];
+  const capacity = laneCapacity(lane.declared);
+  const schedule = laneScheduleSummary(lane.schedules);
+  if (capacity) {
+    parts.push(capacity);
+  }
+  if (schedule) {
+    parts.push(schedule);
+  }
+  if (field(lane.declared, "ephemeral", "Ephemeral") === false) {
+    parts.push("persistent");
+  }
+  return parts.join(" / ");
+}
+
+function instanceDetail(resources, instance) {
+  const bits = [];
+  const job = field(instance, "job", "Job");
+  const ticket = field(instance, "ticket", "Ticket");
+  const description = instanceDescription(resources, instance);
+  if (job) {
+    bits.push(job);
+  }
+  if (ticket && ticket !== job) {
+    bits.push(ticket);
+  }
+  if (description) {
+    bits.push(description);
+  }
+  return bits.join(" / ") || "no active job";
+}
+
+function renderOrgInstance(line, resources, instance) {
+  const name = field(instance, "instance", "Instance");
+  const lifecycle = instanceLifecycle(instance);
+  const phase = instancePhase(resources, instance);
+  const row = document.createElement("div");
+  const copy = document.createElement("div");
+  const title = document.createElement("strong");
+  const detail = document.createElement("span");
+  const pills = document.createElement("div");
+  row.className = "org-instance";
+  copy.className = "org-instance-copy";
+  title.textContent = name;
+  detail.textContent = instanceDetail(resources, instance);
+  copy.append(title, detail);
+  pills.className = "org-instance-state";
+  if (phase) {
+    pills.appendChild(pill(phase));
+  }
+  pills.appendChild(statusPill(lifecycle));
+  row.append(copy, pills);
+  line.appendChild(row);
+}
+
+function renderOrgLane(group, lane, resources) {
+  const row = document.createElement("div");
+  const main = document.createElement("div");
+  const title = document.createElement("div");
+  const name = document.createElement("strong");
+  const meta = document.createElement("span");
+  const state = document.createElement("div");
+  const details = document.createElement("div");
+  const visible = laneVisibleInstances(lane);
+  row.className = "org-row";
+  main.className = "org-row-main";
+  title.className = "org-lane-title";
+  name.textContent = lane.name;
+  meta.textContent = laneMeta(lane) || "no declared activity";
+  title.append(name, meta);
+  state.className = "org-row-state";
+  state.appendChild(pill(laneState(lane, resources)));
+  main.append(title, state);
+  details.className = "org-row-details";
+  if (visible.length) {
+    for (const instance of visible.slice(0, 4)) {
+      renderOrgInstance(details, resources, instance);
+    }
+    if (visible.length > 4) {
+      const more = document.createElement("span");
+      more.className = "org-more";
+      more.textContent = `+${visible.length - 4} more`;
+      details.appendChild(more);
+    }
+  } else {
+    const idle = document.createElement("span");
+    idle.className = "org-idle";
+    idle.textContent = "idle";
+    details.appendChild(idle);
+  }
+  row.append(main, details);
+  group.appendChild(row);
+}
+
+function renderOrg(result, topologyResult, resources, instances, declaredInstances, schedules) {
+  els.orgView.replaceChildren();
+  if (!result.ok && !topologyResult.ok) {
+    const empty = document.createElement("div");
+    empty.className = "org-empty";
+    empty.textContent = `Org view unavailable. ${humanError(result.error)} ${humanError(topologyResult.error)}`;
+    els.orgView.appendChild(empty);
+    return;
+  }
+  const lanes = orgLanes(instances, declaredInstances, schedules);
+  if (!lanes.length) {
+    const empty = document.createElement("div");
+    empty.className = "org-empty";
+    empty.textContent = "No declared or runtime instances reported.";
+    els.orgView.appendChild(empty);
+    return;
+  }
+  const byRole = new Map();
+  for (const lane of lanes) {
+    const role = lane.agent || "unknown";
+    if (!byRole.has(role)) {
+      byRole.set(role, []);
+    }
+    byRole.get(role).push(lane);
+  }
+  for (const [role, roleLanes] of byRole.entries()) {
+    const section = document.createElement("section");
+    const heading = document.createElement("div");
+    const title = document.createElement("h3");
+    const counts = document.createElement("div");
+    const body = document.createElement("div");
+    const states = roleLanes.reduce(
+      (acc, lane) => {
+        const state = laneState(lane, resources);
+        acc[state] = (acc[state] || 0) + 1;
+        return acc;
+      },
+      { working: 0, idle: 0, queued: 0, crashed: 0 }
+    );
+    section.className = "org-role";
+    heading.className = "org-role-heading";
+    title.textContent = roleTitle(role);
+    counts.className = "org-role-counts";
+    counts.append(
+      pill(`${states.working || 0} working`, states.working ? "positive" : "neutral"),
+      pill(`${states.idle || 0} idle`, "neutral")
+    );
+    if (states.queued) {
+      counts.appendChild(pill(`${states.queued} queued`, "info"));
+    }
+    if (states.crashed) {
+      counts.appendChild(pill(`${states.crashed} crashed`, "negative"));
+    }
+    heading.append(title, counts);
+    body.className = "org-role-body";
+    for (const lane of roleLanes) {
+      renderOrgLane(body, lane, resources);
+    }
+    section.append(heading, body);
+    els.orgView.appendChild(section);
+  }
 }
 
 function renderInstances(result, instances) {
@@ -867,6 +1236,7 @@ function resourceFailureSummary(resources) {
 }
 
 function updatePanelTimes(results, resources, stamp) {
+  els.orgUpdated.textContent = results.instances.ok || results.topology.ok ? stamp : "unavailable";
   els.instanceUpdated.textContent = results.instances.ok ? stamp : "unavailable";
   els.jobUpdated.textContent = results.jobs.ok ? stamp : "unavailable";
   els.pipelineUpdated.textContent = results.topology.ok ? stamp : "unavailable";
@@ -895,8 +1265,10 @@ async function refresh() {
     const safeBudgets = topologyArray(results.topology, "budgets");
     const safeTeams = topologyArray(results.topology, "teams");
     const safeSchedules = topologyArray(results.topology, "schedules");
+    const safeDeclaredInstances = topologyArray(results.topology, "instances");
     const resources = await loadResources(safeInstances, safeJobs);
 
+    renderOrg(results.instances, results.topology, resources, safeInstances, safeDeclaredInstances, safeSchedules);
     renderInstances(results.instances, safeInstances);
     renderJobs(results.jobs, safeJobs);
     renderResources(resources, safeInstances, safeJobs);
@@ -941,7 +1313,7 @@ function setAutoRefresh(enabled) {
   if (enabled) {
     refreshTimer = setInterval(refresh, refreshIntervalMs);
   }
-  els.refreshState.textContent = enabled ? "Every 15s" : "Manual";
+  els.refreshState.textContent = enabled ? "Every 5s" : "Manual";
 }
 
 els.saveToken.addEventListener("click", () => {
