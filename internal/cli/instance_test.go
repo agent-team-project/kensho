@@ -1663,6 +1663,272 @@ description = "Persistent manager."
 	}
 }
 
+// waitForClaudeChildLogForTest polls the daemon child log until the fake
+// claude reports either its running marker or the production prompt-not-found
+// signature, then returns the log contents. The fake sleeps before reading
+// its prompt file, so callers must poll rather than read once.
+func waitForClaudeChildLogForTest(t *testing.T, logPath string) string {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	var body []byte
+	for time.Now().Before(deadline) {
+		body, _ = os.ReadFile(logPath)
+		if strings.Contains(string(body), "fake claude running with prompt") ||
+			strings.Contains(string(body), "Append system prompt file not found") {
+			return string(body)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return string(body)
+}
+
+func instanceMetaForTest(mgr *daemon.InstanceManager, name string) *daemon.Metadata {
+	for _, meta := range mgr.List() {
+		if meta.Instance == name {
+			copied := *meta
+			return &copied
+		}
+	}
+	return nil
+}
+
+func assertPromptFileInsideRuntimeDirForTest(t *testing.T, teamDir, instance, promptFile string) {
+	t.Helper()
+	runtimeDir := filepath.Join(teamDir, "state", instance, "runtime")
+	if eval, err := filepath.EvalSymlinks(runtimeDir); err == nil {
+		runtimeDir = eval
+	}
+	resolved := promptFile
+	if eval, err := filepath.EvalSymlinks(promptFile); err == nil {
+		resolved = eval
+	}
+	rel, err := filepath.Rel(runtimeDir, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		t.Fatalf("prompt file %q not under persistent runtime dir %q", promptFile, runtimeDir)
+	}
+	body, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("prompt file must be readable while the child runs: %v", err)
+	}
+	if !strings.Contains(string(body), "You are the `"+instance+"` instance") {
+		t.Fatalf("prompt file missing kickoff body:\n%s", string(body))
+	}
+}
+
+// TestInstanceUpFreshLaunchStartsClaudeChildThatReadsPrompt is the load-bearing
+// regression test for GH316: `instance up <persistent-claude-instance>` with no
+// prior daemon metadata must leave system_prompt.md readable at the moment the
+// daemon-spawned runtime reads it. Unlike the arg-shape tests above, this
+// drives the REAL launch end to end — a real daemon manager with the default
+// spawner starts a fake `claude` that boots first and only then reads
+// --append-system-prompt-file, exiting non-zero with the production error
+// signature iff the file is gone. Prior fixes passed review without ever
+// launching a runtime; this fails on any regression that hands the daemon a
+// launch root that dies with the dispatching CLI.
+func TestInstanceUpFreshLaunchStartsClaudeChildThatReadsPrompt(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	t.Setenv("AGENT_TEAM_DAEMON_URL", "")
+	t.Setenv(daemon.DaemonTokenFileEnv, "")
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-instance-up-claude-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	fakeClaude := writePromptCheckingClaudeForRunTest(t, t.TempDir())
+	// Advisor-shaped declaration: persistent, claude runtime pinned at the
+	// instance level — the exact production shape that crashed on fresh up.
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[instances.manager]
+agent       = "manager"
+runtime     = "claude"
+runtime_bin = "`+fakeClaude+`"
+description = "Persistent claude manager."
+`)
+
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, nil) // nil spawner = real child process
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	defer func() {
+		if meta := instanceMetaForTest(mgr, "manager"); meta != nil && meta.Status == daemon.StatusRunning {
+			stopAndWaitForTest(t, mgr, "manager")
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"instance", "up", "manager", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("instance up manager: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []lifecycleActionResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode instance up json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "start" || rows[0].Instance != "manager" || rows[0].Error != "" {
+		t.Fatalf("instance up result = %+v, want one started manager", rows)
+	}
+
+	// The CLI command has returned — any deferred launch-root cleanup has run.
+	// The fake claude is still booting and has not yet read the prompt file.
+	logBody := waitForClaudeChildLogForTest(t, filepath.Join(root, "manager", "child.log"))
+	if strings.Contains(logBody, "Append system prompt file not found") {
+		t.Fatalf("daemon-spawned claude could not read its prompt file:\n%s", logBody)
+	}
+	if !strings.Contains(logBody, "fake claude running with prompt") {
+		t.Fatalf("fake claude never reached its running marker:\n%s", logBody)
+	}
+	meta := instanceMetaForTest(mgr, "manager")
+	if meta == nil || meta.Status != daemon.StatusRunning || !daemon.PidLiveCheck(meta.PID) {
+		t.Fatalf("manager metadata = %+v, want live running instance", meta)
+	}
+
+	// The argv the daemon actually spawned must reference a prompt file inside
+	// the persistent per-instance runtime dir, still readable right now.
+	snapshot, err := daemon.ReadInstanceLaunchEnv(root, "manager")
+	if err != nil {
+		t.Fatalf("read launch snapshot: %v", err)
+	}
+	promptFile, ok := argValue(snapshot.Args, "--append-system-prompt-file")
+	if !ok {
+		t.Fatalf("spawned argv missing --append-system-prompt-file: %v", snapshot.Args)
+	}
+	assertPromptFileInsideRuntimeDirForTest(t, teamDir, "manager", promptFile)
+
+	stopAndWaitForTest(t, mgr, "manager")
+}
+
+// TestInstanceUpFreshFlagRelaunchesWedgedClaudeInstance reproduces the wedged
+// production state that motivated the --fresh escape hatch: daemon metadata
+// for a persistent claude instance whose recorded launch snapshot points at a
+// deleted OS tempdir prompt file (the pre-fix transient launch root).
+// `instance up <name> --fresh` must bypass managed resume, fresh-launch the
+// declared instance through the daemon, and spawn a real child that finds its
+// prompt file in the persistent state runtime dir.
+func TestInstanceUpFreshFlagRelaunchesWedgedClaudeInstance(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	t.Setenv("AGENT_TEAM_DAEMON_URL", "")
+	t.Setenv(daemon.DaemonTokenFileEnv, "")
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-instance-up-fresh-claude-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	fakeClaude := writePromptCheckingClaudeForRunTest(t, t.TempDir())
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[instances.manager]
+agent       = "manager"
+runtime     = "claude"
+runtime_bin = "`+fakeClaude+`"
+description = "Persistent claude manager."
+`)
+
+	root := daemon.DaemonRoot(teamDir)
+	// Wedged incarnation: crashed after the transient launch root vanished.
+	// The snapshot argv references the long-gone OS tempdir — exactly what a
+	// pre-fix dispatch recorded.
+	stalePromptDir := filepath.Join(os.TempDir(), "agent-team-gone-3291893409")
+	exitCode := 1
+	wedged := &daemon.Metadata{
+		Instance:      "manager",
+		Agent:         "manager",
+		Runtime:       string(runtimebin.KindClaude),
+		RuntimeBinary: fakeClaude,
+		Workspace:     tmp,
+		PID:           99999998,
+		SessionID:     "11111111-2222-3333-4444-555555555555",
+		StartedAt:     time.Now().UTC().Add(-time.Hour),
+		ExitedAt:      time.Now().UTC().Add(-59 * time.Minute),
+		Status:        daemon.StatusCrashed,
+		ExitCode:      &exitCode,
+	}
+	if err := daemon.WriteMetadata(root, wedged); err != nil {
+		t.Fatalf("write wedged metadata: %v", err)
+	}
+	if err := daemon.WriteInstanceLaunchEnv(root, "manager", &daemon.LaunchEnv{
+		Bin: fakeClaude,
+		Args: []string{
+			fakeClaude,
+			"--session-id", wedged.SessionID,
+			"--add-dir", stalePromptDir,
+			"--append-system-prompt-file", filepath.Join(stalePromptDir, "system_prompt.md"),
+		},
+		Dir:        tmp,
+		Env:        []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")},
+		RecordedAt: wedged.StartedAt,
+		PID:        wedged.PID,
+		Version:    1,
+	}); err != nil {
+		t.Fatalf("write wedged launch snapshot: %v", err)
+	}
+
+	mgr := daemon.NewInstanceManager(root, nil) // nil spawner = real child process
+	if err := daemon.Reconcile(root, mgr); err != nil {
+		t.Fatalf("reconcile wedged metadata: %v", err)
+	}
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	defer func() {
+		if meta := instanceMetaForTest(mgr, "manager"); meta != nil && meta.Status == daemon.StatusRunning {
+			stopAndWaitForTest(t, mgr, "manager")
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("instance up manager --fresh: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []lifecycleActionResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode instance up json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "fresh" || rows[0].Instance != "manager" || rows[0].Error != "" {
+		t.Fatalf("instance up --fresh result = %+v, want one fresh manager", rows)
+	}
+
+	logBody := waitForClaudeChildLogForTest(t, filepath.Join(root, "manager", "child.log"))
+	if strings.Contains(logBody, "Append system prompt file not found") {
+		t.Fatalf("fresh relaunch still fed claude a missing prompt file:\n%s", logBody)
+	}
+	if !strings.Contains(logBody, "fake claude running with prompt") {
+		t.Fatalf("fake claude never reached its running marker:\n%s", logBody)
+	}
+	meta := instanceMetaForTest(mgr, "manager")
+	if meta == nil || meta.Status != daemon.StatusRunning || !daemon.PidLiveCheck(meta.PID) {
+		t.Fatalf("manager metadata = %+v, want live running instance", meta)
+	}
+	if !meta.FreshFallback {
+		t.Fatalf("manager metadata = %+v, want fresh_fallback marked", meta)
+	}
+
+	snapshot, err := daemon.ReadInstanceLaunchEnv(root, "manager")
+	if err != nil {
+		t.Fatalf("read launch snapshot: %v", err)
+	}
+	promptFile, ok := argValue(snapshot.Args, "--append-system-prompt-file")
+	if !ok {
+		t.Fatalf("fresh argv missing --append-system-prompt-file: %v", snapshot.Args)
+	}
+	if strings.HasPrefix(promptFile, stalePromptDir) {
+		t.Fatalf("fresh relaunch reused the dead tempdir prompt path %q", promptFile)
+	}
+	assertPromptFileInsideRuntimeDirForTest(t, teamDir, "manager", promptFile)
+
+	stopAndWaitForTest(t, mgr, "manager")
+}
+
 func TestStartDeclaredInstanceUsesInstanceRuntime(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")

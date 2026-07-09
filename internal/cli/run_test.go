@@ -1094,6 +1094,16 @@ func appendRuntimeConfigForRunTest(t *testing.T, repo, kind, binary string) {
 	}
 }
 
+// writePromptCheckingClaudeForRunTest writes a fake `claude` that mimics the
+// real runtime's prompt handling: it boots for a moment FIRST, and only then
+// reads --append-system-prompt-file. The boot delay is load-bearing — the
+// production bug class (GH316 and five prior attempts) was a dispatching CLI
+// deleting its launch tmpdir when it returned, before the daemon-spawned
+// runtime had read the prompt file. A fake that checks the file immediately
+// can win that race on a fast machine and pass against buggy code; sleeping
+// first guarantees the dispatcher has returned (and run any deferred cleanup)
+// before the file is read, so a transient launch root fails deterministically
+// with the production error signature.
 func writePromptCheckingClaudeForRunTest(t *testing.T, dir string) string {
 	t.Helper()
 	path := filepath.Join(dir, "claude")
@@ -1110,8 +1120,9 @@ while [ "$#" -gt 0 ]; do
     shift
   fi
 done
+sleep 1
 if [ -z "$prompt_file" ] || [ ! -s "$prompt_file" ]; then
-  echo "Append system prompt file not found: $prompt_file" >&2
+  echo "Error: Append system prompt file not found: $prompt_file" >&2
   exit 44
 fi
 echo "fake claude running with prompt $prompt_file" >&2
