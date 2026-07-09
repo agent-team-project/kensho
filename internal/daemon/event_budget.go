@@ -165,23 +165,86 @@ func (r *EventResolver) recordBudgetClampEvent(payload map[string]any, eventOrig
 // Claude children that wedge on the model backend and hold a replica slot.
 const envInstanceMaxRuntime = "AGENT_TEAM_INSTANCE_MAX_RUNTIME"
 
-// ephemeralRuntimeBudget resolves the wall-clock budget for an ephemeral spawn,
-// in precedence order: the per-step `timeout` threaded through the payload, then
-// the AGENT_TEAM_INSTANCE_MAX_RUNTIME env default, else 0 (watchdog disabled).
-// Unparseable values are ignored so a bad config never accidentally arms — or,
-// worse, never disarms by erroring — the watchdog; it simply falls through.
+// ephemeralRuntimeBudget resolves the wall-clock budget for an ephemeral spawn.
+// Any configured wall-clock ceiling can arm the watchdog: time_budget, timeout,
+// or the AGENT_TEAM_INSTANCE_MAX_RUNTIME env default. The earliest positive
+// ceiling wins so existing timeout/env backstops stay active while time_budget
+// becomes a hard budget. Unparseable values are ignored so one bad source never
+// accidentally arms or disarms the watchdog; it simply falls through.
 func ephemeralRuntimeBudget(payload map[string]any) time.Duration {
+	return ephemeralRuntimeBudgetWithInstance(nil, payload)
+}
+
+func ephemeralRuntimeBudgetForInstance(inst *topology.Instance, payload map[string]any) time.Duration {
+	return ephemeralRuntimeBudgetWithInstance(inst, payload)
+}
+
+func ephemeralRuntimeBudgetWithInstance(inst *topology.Instance, payload map[string]any) time.Duration {
+	var budget time.Duration
+	fallbackMultiplier := 0.0
+	if inst != nil {
+		fallbackMultiplier = inst.HardMultiplier
+	}
+	if tb := payloadHardTimeBudget(payload, fallbackMultiplier); tb > 0 {
+		budget = minPositiveDuration(budget, tb)
+	} else if inst != nil && inst.TimeBudget > 0 {
+		tb := hardTimeBudgetDuration(inst.TimeBudget, inst.HardMultiplier)
+		budget = minPositiveDuration(budget, tb)
+	}
 	if ts := strings.TrimSpace(payloadString(payload, "timeout")); ts != "" {
 		if d, err := time.ParseDuration(ts); err == nil && d > 0 {
-			return d
+			budget = minPositiveDuration(budget, d)
 		}
 	}
 	if env := strings.TrimSpace(os.Getenv(envInstanceMaxRuntime)); env != "" {
 		if d, err := time.ParseDuration(env); err == nil && d > 0 {
-			return d
+			budget = minPositiveDuration(budget, d)
 		}
 	}
-	return 0
+	return budget
+}
+
+func payloadHardTimeBudget(payload map[string]any, fallbackMultiplier float64) time.Duration {
+	if payload == nil {
+		return 0
+	}
+	raw := strings.TrimSpace(payloadString(payload, "budget_time"))
+	if raw == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	multiplier := payloadBudgetHardMultiplier(payload)
+	if multiplier <= 0 {
+		multiplier = fallbackMultiplier
+	}
+	return hardTimeBudgetDuration(d, multiplier)
+}
+
+func hardTimeBudgetDuration(budget time.Duration, multiplier float64) time.Duration {
+	if budget <= 0 {
+		return 0
+	}
+	if multiplier <= 0 {
+		return budget
+	}
+	limit := allowance.HardLimit(int64(budget), true, multiplier)
+	if limit <= 0 {
+		return 0
+	}
+	return time.Duration(limit)
+}
+
+func minPositiveDuration(a, b time.Duration) time.Duration {
+	if a <= 0 {
+		return b
+	}
+	if b <= 0 || a <= b {
+		return a
+	}
+	return b
 }
 
 func applyPayloadBudgetToJob(j *jobstore.Job, payload map[string]any) {

@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 const helperWedgedEnv = "AGENTTEAM_HELPER_WEDGED"
@@ -298,8 +300,8 @@ func TestInstance_NoWatchdogWhenBudgetZero(t *testing.T) {
 }
 
 // TestEphemeralRuntimeBudget exercises the policy resolver that the ephemeral
-// spawn path uses: per-step `timeout` wins, then the env default, else disabled,
-// with unparseable values ignored (never accidentally arming or disarming).
+// spawn path uses: time_budget, timeout, and the env default all contribute
+// wall-clock ceilings; the earliest valid one arms the watchdog.
 func TestEphemeralRuntimeBudget(t *testing.T) {
 	t.Run("none", func(t *testing.T) {
 		t.Setenv(envInstanceMaxRuntime, "")
@@ -313,18 +315,55 @@ func TestEphemeralRuntimeBudget(t *testing.T) {
 			t.Fatalf("env default: got %s, want 40m", got)
 		}
 	})
-	t.Run("step timeout overrides env", func(t *testing.T) {
+	t.Run("time budget beats longer timeout", func(t *testing.T) {
+		t.Setenv(envInstanceMaxRuntime, "40m")
+		got := ephemeralRuntimeBudget(map[string]any{"budget_time": "15m", "timeout": "30m"})
+		if got != 15*time.Minute {
+			t.Fatalf("time budget: got %s, want 15m", got)
+		}
+	})
+	t.Run("timeout still beats longer time budget", func(t *testing.T) {
+		t.Setenv(envInstanceMaxRuntime, "40m")
+		got := ephemeralRuntimeBudget(map[string]any{"budget_time": "30m", "timeout": "15m"})
+		if got != 15*time.Minute {
+			t.Fatalf("shorter timeout: got %s, want 15m", got)
+		}
+	})
+	t.Run("timeout beats env default", func(t *testing.T) {
 		t.Setenv(envInstanceMaxRuntime, "40m")
 		got := ephemeralRuntimeBudget(map[string]any{"timeout": "15m"})
 		if got != 15*time.Minute {
-			t.Fatalf("step override: got %s, want 15m", got)
+			t.Fatalf("timeout: got %s, want 15m", got)
+		}
+	})
+	t.Run("hard multiplier stretches time budget", func(t *testing.T) {
+		t.Setenv(envInstanceMaxRuntime, "")
+		got := ephemeralRuntimeBudget(map[string]any{"budget_time": "10m", "budget_hard_multiplier": 1.5})
+		if got != 15*time.Minute {
+			t.Fatalf("multiplied time budget: got %s, want 15m", got)
+		}
+	})
+	t.Run("instance hard multiplier stretches payload time budget", func(t *testing.T) {
+		t.Setenv(envInstanceMaxRuntime, "")
+		inst := &topology.Instance{HardMultiplier: 1.5}
+		got := ephemeralRuntimeBudgetForInstance(inst, map[string]any{"budget_time": "10m"})
+		if got != 15*time.Minute {
+			t.Fatalf("instance-multiplied time budget: got %s, want 15m", got)
+		}
+	})
+	t.Run("instance time budget default arms watchdog", func(t *testing.T) {
+		t.Setenv(envInstanceMaxRuntime, "")
+		inst := &topology.Instance{TimeBudget: 10 * time.Minute, HardMultiplier: 1.5}
+		got := ephemeralRuntimeBudgetForInstance(inst, map[string]any{})
+		if got != 15*time.Minute {
+			t.Fatalf("instance default time budget: got %s, want 15m", got)
 		}
 	})
 	t.Run("unparseable step falls through to env", func(t *testing.T) {
 		t.Setenv(envInstanceMaxRuntime, "40m")
-		got := ephemeralRuntimeBudget(map[string]any{"timeout": "soon"})
+		got := ephemeralRuntimeBudget(map[string]any{"budget_time": "soon", "timeout": "later"})
 		if got != 40*time.Minute {
-			t.Fatalf("bad step timeout should fall through to env: got %s, want 40m", got)
+			t.Fatalf("bad step budget should fall through to env: got %s, want 40m", got)
 		}
 	})
 	t.Run("unparseable env is ignored", func(t *testing.T) {

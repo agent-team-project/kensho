@@ -152,10 +152,21 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 			deliverableMissing = true
 		}
 	}
+	var timeoutData map[string]string
+	if status == jobstore.StatusFailed {
+		if exceeded, timeoutMessage, data := jobTimeBudgetExceeded(meta, j, completedStep, now); exceeded {
+			eventType = managerOverdueWakeEventType
+			message = timeoutMessage
+			timeoutData = data
+		}
+	}
 	j.LastEvent = eventType
 	j.LastStatus = message
 	j.UpdatedAt = now
 	data := map[string]string{"instance": meta.Instance}
+	for k, v := range timeoutData {
+		data[k] = v
+	}
 	if meta.Branch != "" {
 		data["branch"] = meta.Branch
 	}
@@ -195,6 +206,60 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	r.tryAutoAdvancePipeline(j, meta, status)
 	r.publishManagerCompletionEvents(j, completedStep, meta, status)
 	r.autoReapJob(meta.Job, worktreepolicy.OnClose)
+}
+
+func jobTimeBudgetExceeded(meta *Metadata, j *jobstore.Job, step *jobstore.Step, now time.Time) (bool, string, map[string]string) {
+	if meta == nil || j == nil || meta.Status != StatusCrashed || meta.StartedAt.IsZero() || meta.RuntimeDeadline.IsZero() {
+		return false, "", nil
+	}
+	finishedAt := now.UTC()
+	if !meta.ExitedAt.IsZero() {
+		finishedAt = meta.ExitedAt.UTC()
+	}
+	startedAt := meta.StartedAt.UTC()
+	if finishedAt.Before(startedAt) {
+		return false, "", nil
+	}
+	budget, multiplier, stepID := jobTimeBudgetTarget(j, step)
+	limit := hardTimeBudgetDuration(budget, multiplier)
+	if limit <= 0 {
+		return false, "", nil
+	}
+	elapsed := finishedAt.Sub(startedAt)
+	if elapsed < limit {
+		return false, "", nil
+	}
+	subject := "job " + j.ID
+	if stepID != "" {
+		subject = "pipeline step " + stepID
+	}
+	message := fmt.Sprintf("%s exceeded time budget after %s (threshold %s); instance killed", subject, roundedManagerWakeDuration(elapsed), roundedManagerWakeDuration(limit))
+	data := map[string]string{
+		"instance":         meta.Instance,
+		"age":              roundedManagerWakeDuration(elapsed),
+		"timeout":          roundedManagerWakeDuration(limit),
+		"runtime_budget":   meta.RuntimeBudget,
+		"runtime_deadline": meta.RuntimeDeadline.UTC().Format(time.RFC3339),
+	}
+	if stepID != "" {
+		data["step"] = stepID
+	}
+	if multiplier > 0 {
+		data["hard_multiplier"] = fmt.Sprintf("%g", multiplier)
+	}
+	return true, message, data
+}
+
+func jobTimeBudgetTarget(j *jobstore.Job, step *jobstore.Step) (time.Duration, float64, string) {
+	if step != nil {
+		if budget := parseBudgetNoticeDuration(step.TimeBudget); budget > 0 {
+			return budget, step.HardMultiplier, step.ID
+		}
+	}
+	if j == nil {
+		return 0, 0, ""
+	}
+	return parseBudgetNoticeDuration(j.TimeBudget), j.HardMultiplier, ""
 }
 
 func (r *EventResolver) publishManagerCompletionEvents(j *jobstore.Job, completedStep *jobstore.Step, meta *Metadata, status jobstore.Status) {

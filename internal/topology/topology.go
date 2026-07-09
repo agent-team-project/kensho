@@ -123,8 +123,9 @@ type Instance struct {
 	// persistent instances. Defaults to true for persistent instances and false
 	// for ephemeral instances.
 	Brief bool
-	// TokenBudget and TimeBudget are soft per-run allowances surfaced to the
-	// spawned agent. They do not enforce cutoffs.
+	// TokenBudget is a soft per-run allowance surfaced to the spawned agent.
+	// TimeBudget is also surfaced to the agent and, for ephemeral dispatches,
+	// arms a hard wall-clock watchdog cutoff.
 	TokenBudget    int64
 	TimeBudget     time.Duration
 	HardBudget     bool

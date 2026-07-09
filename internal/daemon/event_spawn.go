@@ -135,7 +135,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		EnvAllow:            inst.EnvAllow,
 		StripOTelEnv:        runtime.otelConfig.Configured(),
 		Stdin:               stdin,
-		Budget:              ephemeralRuntimeBudget(payload),
+		Budget:              ephemeralRuntimeBudgetForInstance(inst, payload),
 	})
 	if err != nil {
 		cleanupWorkspace()

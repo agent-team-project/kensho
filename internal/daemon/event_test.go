@@ -4073,6 +4073,142 @@ timeout = "500ms"
 	}
 }
 
+func TestEvent_PipelineStepTimeBudgetHardKillsBusyWorker(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top, err := topology.Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.budgeted]
+trigger.event = "ticket.created"
+
+[[pipelines.budgeted.steps]]
+id = "implement"
+target = "worker"
+timeout = "30s"
+time_budget = "100ms"
+`))
+	if err != nil {
+		t.Fatalf("parse topology: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	start := time.Now()
+	result, err := resolver.EventWithResult("ticket.created", map[string]any{
+		"ticket":    "SQU-502",
+		"kickoff":   "implement SQU-502",
+		"workspace": "repo",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-502" {
+		t.Fatalf("outcomes = %+v, want dispatched worker-squ-502", result.Outcomes)
+	}
+	if err := m.WaitForReaper("worker-squ-502", 8*time.Second); err != nil {
+		t.Fatalf("wait reaper: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("time budget watchdog took too long: %s", elapsed)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-502")
+	if err != nil {
+		t.Fatalf("metadata: %v", err)
+	}
+	if meta.RuntimeBudget != "100ms" || meta.RuntimeDeadline.IsZero() || meta.Status != StatusCrashed {
+		t.Fatalf("metadata = %+v, want crashed with 100ms runtime budget", meta)
+	}
+	j, err := jobstore.Read(teamDir, "squ-502")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.LastEvent != managerOverdueWakeEventType || !strings.Contains(j.LastStatus, "exceeded time budget") {
+		t.Fatalf("job last event/status = %q/%q, want time budget exceeded", j.LastEvent, j.LastStatus)
+	}
+	if len(j.Steps) != 1 || j.Steps[0].Status != jobstore.StatusFailed {
+		t.Fatalf("job steps after time budget kill = %+v, want failed implement", j.Steps)
+	}
+	events, err := jobstore.ListEvents(teamDir, "squ-502")
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if !jobEventsContain(events, managerOverdueWakeEventType, j.LastStatus) {
+		t.Fatalf("job events missing %s: %+v", managerOverdueWakeEventType, events)
+	}
+}
+
+func TestEvent_PipelineStepWithinTimeBudgetUntouched(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top, err := topology.Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.budgeted]
+trigger.event = "ticket.created"
+
+[[pipelines.budgeted.steps]]
+id = "implement"
+target = "worker"
+timeout = "10s"
+time_budget = "3s"
+`))
+	if err != nil {
+		t.Fatalf("parse topology: %v", err)
+	}
+	fake := newFakeSpawner(time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	result, err := resolver.EventWithResult("ticket.created", map[string]any{
+		"ticket":    "SQU-503",
+		"kickoff":   "implement SQU-503",
+		"workspace": "repo",
+	})
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-503" {
+		t.Fatalf("outcomes = %+v, want dispatched worker-squ-503", result.Outcomes)
+	}
+	if err := m.WaitForReaper("worker-squ-503", 8*time.Second); err != nil {
+		t.Fatalf("wait reaper: %v", err)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-503")
+	if err != nil {
+		t.Fatalf("metadata: %v", err)
+	}
+	if meta.RuntimeBudget != "3s" || meta.RuntimeDeadline.IsZero() {
+		t.Fatalf("metadata budget = %+v, want 3s runtime budget", meta)
+	}
+	if meta.Status != StatusExited {
+		t.Fatalf("metadata status = %s, want exited", meta.Status)
+	}
+	j, err := jobstore.Read(teamDir, "squ-503")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.LastEvent == managerOverdueWakeEventType {
+		t.Fatalf("job unexpectedly timed out: %+v", j)
+	}
+	if j.Status != jobstore.StatusDone || len(j.Steps) != 1 || j.Steps[0].Status != jobstore.StatusDone {
+		t.Fatalf("job after within-budget exit = %+v, want done", j)
+	}
+}
+
 func TestEvent_PipelineInitialManualGateBlocksWithoutDispatch(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
