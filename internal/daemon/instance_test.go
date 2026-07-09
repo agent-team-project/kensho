@@ -989,7 +989,7 @@ description = "Recoverable Codex manager."
 	if resumed.Status != StatusRunning || resumed.SessionID != sessionID {
 		t.Fatalf("resumed metadata = %+v", resumed)
 	}
-	if got, want := fake.lastCall(), []string{"codex", "exec", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
+	if got, want := fake.lastCall(), []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
 		t.Fatalf("resume args = %v, want %v", got, want)
 	}
 	if stdin := fake.lastStdin(); !strings.Contains(stdin, "# Instance brief: mgr") || !strings.Contains(stdin, "Recoverable Codex manager.") {
@@ -1051,7 +1051,7 @@ func TestInstance_InterruptCodexResumesSameSessionWithMailboxPrompt(t *testing.T
 	if result.Metadata == nil || result.Metadata.SessionID != sessionID {
 		t.Fatalf("interrupt metadata = %+v, want same session %s", result.Metadata, sessionID)
 	}
-	if got, want := fake.lastCall(), []string{"codex", "exec", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
+	if got, want := fake.lastCall(), []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
 		t.Fatalf("resume args = %v, want %v", got, want)
 	}
 	stdin := fake.lastStdin()

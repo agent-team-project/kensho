@@ -469,7 +469,7 @@ match.target = "manager"
 	if len(got.Dispatched) != 1 || got.Dispatched[0]["instance_id"] != "manager" || len(got.Queued) != 0 || len(got.Messaged) != 0 {
 		t.Fatalf("outcome = %+v, want dispatched manager", got)
 	}
-	if got, want := fake.lastCall(), []string{"codex", "exec", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
+	if got, want := fake.lastCall(), []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
 		t.Fatalf("resume args = %v, want %v", got, want)
 	}
 	meta, err := ReadMetadata(root, "manager")

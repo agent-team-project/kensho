@@ -295,12 +295,14 @@ func firstNonEmpty(values ...string) string {
 }
 
 // CodexAutonomousExecArgs are the `codex exec` flags that let a daemon-spawned
-// worker actually do its job. `codex exec` defaults to a read-only,
-// network-disabled sandbox, which makes an autonomous worker a no-op — it
-// cannot write files, reach the network (Linear / GitHub), build (write
-// ~/.cargo), or push. The daemon exists to run autonomous agents on a trusted,
-// operator-controlled machine, so it bypasses the in-process sandbox;
-// isolation comes from the per-worker git worktree, not from Codex's sandbox.
+// agent actually do its job. `codex exec` defaults to a read-only,
+// network-disabled sandbox, which makes an autonomous worker or manager a
+// no-op: it cannot write files, reach provider APIs, call the local daemon,
+// build, or push. The daemon exists to run autonomous agents on a trusted,
+// operator-controlled machine, so it bypasses the in-process sandbox. Workers
+// still get code isolation from per-worker git worktrees; persistent managers
+// run at the trusted repo root so they can dispatch jobs and merge through the
+// review/CI gates.
 func CodexAutonomousExecArgs() []string {
 	return []string{"--dangerously-bypass-approvals-and-sandbox"}
 }
