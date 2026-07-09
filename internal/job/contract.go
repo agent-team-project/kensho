@@ -15,6 +15,7 @@ const (
 
 var (
 	contractClauseIDPattern      = regexp.MustCompile(`^[A-Z][A-Z0-9_-]*[0-9]+$`)
+	freeformCriterionIDPattern   = regexp.MustCompile(`^AC[0-9]+$`)
 	explicitCriterionLinePattern = regexp.MustCompile(`^\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?([A-Za-z][A-Za-z0-9_-]*[0-9]+)[\).:\-]\s+(.+)$`)
 	numberedCriterionLinePattern = regexp.MustCompile(`^\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?(?:[0-9]+[\).])\s+(.+)$`)
 	requiredTrailerPattern       = regexp.MustCompile("(?i)required(?:\\s+pr)?\\s+trailer\\s*:\\s*(?:`([^`]+)`|([^\\n]+))")
@@ -315,6 +316,9 @@ func parseCriteriaLines(section string, allowNumbered bool) []ContractCriterion 
 		}
 		if m := explicitCriterionLinePattern.FindStringSubmatch(line); len(m) == 3 {
 			id := strings.ToUpper(strings.TrimSpace(m[1]))
+			if !allowNumbered && !freeformCriterionIDPattern.MatchString(id) {
+				continue
+			}
 			text, verify := splitVerifyHint(m[2])
 			if text == "" {
 				continue

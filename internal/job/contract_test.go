@@ -152,6 +152,21 @@ func TestCompileContractIgnoresNumberedProseOutsideCriteriaHeading(t *testing.T)
 	}
 }
 
+func TestCompileContractIgnoresTicketPrefixedKickoffOutsideCriteriaHeading(t *testing.T) {
+	j, err := New("SQU-14", "worker", "mechanical fix", time.Now())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	j.DeliveryContract = "ticket_to_pr"
+	contract := CompileContract(j, ContractCompileOptions{Text: "SQU-14: Fix the durable dispatcher."})
+	if contract == nil {
+		t.Fatalf("CompileContract returned nil")
+	}
+	if len(contract.Criteria) != 0 {
+		t.Fatalf("criteria = %+v, want no criteria from normal ticket-prefix kickoff", contract.Criteria)
+	}
+}
+
 func TestCompileContractParsesIntentionalCriteriaSources(t *testing.T) {
 	j, err := New("https://github.com/agent-team-project/kensho/issues/42", "worker", "mechanical fix", time.Now())
 	if err != nil {
