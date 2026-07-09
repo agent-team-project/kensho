@@ -604,8 +604,15 @@ func runLaunchRootShouldPersist(teamDir, instance, agent string) bool {
 	if err != nil || topo == nil {
 		return false
 	}
-	inst := topo.FindRuntimeInstance(instance, agent)
-	return inst != nil && !inst.Ephemeral
+	inst := topo.Find(strings.TrimSpace(instance))
+	if inst == nil {
+		return false
+	}
+	declaredAgent := strings.TrimSpace(inst.Agent)
+	if agent = strings.TrimSpace(agent); agent != "" && declaredAgent != "" && declaredAgent != agent {
+		return false
+	}
+	return !inst.Ephemeral
 }
 
 func prepareRunLaunchRoot(stateDir string, mode runLaunchRootMode) (runLaunchRoot, error) {
