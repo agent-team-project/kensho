@@ -320,6 +320,24 @@ function firstField(sources, ...names) {
   return "";
 }
 
+function telemetrySources(sources) {
+  const out = [];
+  const nestedKeys = ["telemetry", "Telemetry", "outcome", "Outcome", "outcome_record", "OutcomeRecord"];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") {
+      continue;
+    }
+    out.push(source);
+    for (const key of nestedKeys) {
+      const nested = source[key];
+      if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+        out.push(nested);
+      }
+    }
+  }
+  return out;
+}
+
 function tierForModel(model) {
   switch (text(model, "").toLowerCase()) {
     case "claude-fable-5":
@@ -335,42 +353,13 @@ function tierForModel(model) {
   }
 }
 
-function tierForUnit(target, agent, runtime) {
-  const haystack = `${text(target, "")} ${text(agent, "")}`.toLowerCase();
-  if (haystack.includes("advisor") || haystack.includes("org-review")) {
-    return "T0";
-  }
-  if (haystack.includes("reviewer") || haystack.includes("manager") || haystack.includes("harness-review")) {
-    return "T1";
-  }
-  if (haystack.includes("verifier") || haystack.includes("ticket-manager") || haystack.includes("sentinel") || haystack.includes("product-verify")) {
-    return "T3";
-  }
-  if (haystack.includes("worker") || haystack.includes("docs") || haystack.includes("comms") || haystack.includes("feedback") || haystack.includes("auditor")) {
-    return "T2";
-  }
-  if (text(runtime, "").toLowerCase() === "codex") {
-    return "T2";
-  }
-  return "";
-}
-
-function modelForRuntime(runtime) {
-  return text(runtime, "");
-}
-
-function modelTierFromSources(sources, target, agent) {
-  const runtime = firstField(sources, "effective_runtime", "EffectiveRuntime", "runtime", "Runtime");
-  let model = firstField(sources, "model", "Model");
-  let tier = firstField(sources, "tier", "Tier", "model_tier", "ModelTier");
+function modelTierFromSources(sources) {
+  const flattened = telemetrySources(sources);
+  const runtime = firstField(flattened, "effective_runtime", "EffectiveRuntime", "runtime", "Runtime");
+  const model = firstField(flattened, "model", "Model");
+  let tier = firstField(flattened, "tier", "Tier", "model_tier", "ModelTier");
   if (!tier) {
     tier = tierForModel(model);
-  }
-  if (!model) {
-    model = modelForRuntime(runtime);
-  }
-  if (!tier) {
-    tier = tierForUnit(target, agent, runtime);
   }
   return {
     runtime: text(runtime, ""),
@@ -379,7 +368,15 @@ function modelTierFromSources(sources, target, agent) {
   };
 }
 
-function modelTierLabel(telemetry, fallback = "not reported") {
+function hasModelTier(telemetry) {
+  return Boolean(text(telemetry && telemetry.model, "") || text(telemetry && telemetry.tier, ""));
+}
+
+function modelTierTone(telemetry) {
+  return hasModelTier(telemetry) ? "info" : "neutral";
+}
+
+function modelTierLabel(telemetry, fallback = "model/tier unknown") {
   const model = text(telemetry && telemetry.model, "");
   const tier = text(telemetry && telemetry.tier, "");
   if (model && tier) {
@@ -392,8 +389,8 @@ function modelTierNode(telemetry) {
   const wrap = document.createElement("div");
   const label = modelTierLabel(telemetry);
   wrap.className = "telemetry-stack";
-  wrap.appendChild(pill(label, label === "not reported" ? "neutral" : "info"));
-  if (telemetry && telemetry.runtime && telemetry.runtime !== telemetry.model) {
+  wrap.appendChild(pill(label, modelTierTone(telemetry)));
+  if (telemetry && telemetry.runtime) {
     const runtime = document.createElement("span");
     runtime.textContent = `runtime ${telemetry.runtime}`;
     wrap.appendChild(runtime);
@@ -413,7 +410,7 @@ function instanceTelemetry(resources, instance, declaredInstances = []) {
   const declared = declaredForInstance(instance, declaredInstances);
   const agent = firstField([data, instance, declared], "agent", "Agent");
   const target = firstField([instance, declared], "instance", "Instance", "name", "Name") || agent;
-  return modelTierFromSources([data, instance, declared], target, agent);
+  return modelTierFromSources([data, instance, declared, { target, agent }]);
 }
 
 function jobResourceData(resources, job) {
@@ -462,14 +459,30 @@ function primaryJobStep(job, data) {
   );
 }
 
+function primaryStepRun(job, data, step) {
+  const runs = asArray(firstField(telemetrySources([data, job]), "step_runs", "StepRuns"));
+  if (!runs.length) {
+    return null;
+  }
+  const stepID = text(field(step, "id", "ID"), "").toLowerCase();
+  const primary = text(field(job, "implementation_agent", "ImplementationAgent", "target", "Target"), "").toLowerCase();
+  return (
+    runs.find((run) => stepID && text(field(run, "id", "ID")).toLowerCase() === stepID) ||
+    runs.find((run) => primary && text(firstField([run], "target", "Target", "agent", "Agent")).toLowerCase() === primary) ||
+    runs.find(stepProgressed) ||
+    runs[0]
+  );
+}
+
 function jobTelemetry(job, resources, instances) {
   const data = jobResourceData(resources, job);
   const step = primaryJobStep(job, data);
+  const stepRun = primaryStepRun(job, data, step);
   const instance = matchingJobInstance(job, step, instances) || {};
   const instanceData = resourceData(resources, field(instance, "uri", "URI", "instance_uri", "InstanceURI"));
-  const target = firstField([step, job, data, instance], "target", "Target", "implementation_agent", "ImplementationAgent", "agent", "Agent");
-  const agent = firstField([instanceData, instance, step, job, data], "agent", "Agent", "target", "Target");
-  return modelTierFromSources([data, job, step, instanceData, instance], target, agent);
+  const target = firstField([stepRun, step, job, data, instance], "target", "Target", "implementation_agent", "ImplementationAgent", "agent", "Agent");
+  const agent = firstField([stepRun, instanceData, instance, step, job, data], "agent", "Agent", "target", "Target");
+  return modelTierFromSources([stepRun, data, job, step, instanceData, instance, { target, agent }]);
 }
 
 function addCount(map, key, count = 1) {
@@ -564,11 +577,12 @@ function parseBounceClasses(kickoff) {
 
 function bounceClassesForJob(job, resources) {
   const data = jobResourceData(resources, job);
-  const explicit = countMapFromValue(firstField([data, job], "bounce_classes", "BounceClasses", "bounceClasses"));
+  const sources = telemetrySources([data, job]);
+  const explicit = countMapFromValue(firstField(sources, "bounce_classes", "BounceClasses", "bounceClasses"));
   if (explicit.size) {
     return explicit;
   }
-  const bounces = countMapFromValue(firstField([data, job], "bounces", "Bounces"));
+  const bounces = countMapFromValue(firstField(sources, "bounces", "Bounces"));
   if (bounces.size) {
     return bounces;
   }
@@ -945,8 +959,10 @@ function renderOrgInstance(line, resources, instance, declared = null) {
   detail.textContent = instanceDetail(resources, instance);
   copy.append(title, detail);
   pills.className = "org-instance-state";
-  if (telemetry.model || telemetry.tier || telemetry.runtime) {
+  if (hasModelTier(telemetry)) {
     pills.appendChild(pill(modelTierLabel(telemetry), "info"));
+  } else if (telemetry.runtime) {
+    pills.appendChild(pill(`runtime ${telemetry.runtime}`, "neutral"));
   }
   if (phase) {
     pills.appendChild(pill(phase));
@@ -1168,7 +1184,7 @@ function renderTelemetry(result, jobs, resources, instances) {
     for (const [label, row] of modelRows) {
       const tr = document.createElement("tr");
       tr.append(
-        cell(pill(label, label === "not reported" ? "neutral" : "info")),
+        cell(pill(label, label === "model/tier unknown" || label === "not reported" ? "neutral" : "info")),
         cell(row.jobs),
         cell(row.active ? pill(`${row.active} active`, "positive") : pill("idle", "neutral")),
         cell(row.bounces || "-")
