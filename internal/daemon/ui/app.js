@@ -463,6 +463,14 @@ function runningPhase(phase) {
   return Boolean(normalized && !["idle", "done"].includes(normalized));
 }
 
+function runningInstanceWorking(resources, instance) {
+  if (instanceLifecycle(instance) !== "running") {
+    return false;
+  }
+  const phase = instancePhase(resources, instance);
+  return phase ? runningPhase(phase) : true;
+}
+
 function laneScheduleMatches(declared, schedule) {
   const triggers = asArray(field(declared, "triggers", "Triggers"));
   const scheduleName = field(schedule, "name", "Name");
@@ -576,7 +584,7 @@ function laneState(lane, resources) {
     return "crashed";
   }
   if (visible.some((instance) => instanceLifecycle(instance) === "running")) {
-    return visible.some((instance) => runningPhase(instancePhase(resources, instance))) ? "working" : "idle";
+    return visible.some((instance) => runningInstanceWorking(resources, instance)) ? "working" : "idle";
   }
   const queued = Number(field(lane.declared, "queued", "Queued"));
   if (Number.isFinite(queued) && queued > 0) {
