@@ -1270,7 +1270,10 @@ func runtimeKindSupportsManagedResume(kind runtimebin.Kind) bool {
 
 func managedResumeArgs(kind runtimebin.Kind, bin, sessionID string) []string {
 	if kind == runtimebin.KindCodex {
-		return []string{bin, "exec", "resume", sessionID, "-"}
+		args := []string{bin, "exec"}
+		args = append(args, runtimebin.CodexAutonomousExecArgs()...)
+		args = append(args, "resume", sessionID, "-")
+		return args
 	}
 	return []string{bin, "--resume", sessionID}
 }

@@ -236,7 +236,7 @@ gate = "manual"
 	if fake.callCount() != 3 {
 		t.Fatalf("spawn calls=%d, want worker, reviewer, manager resume", fake.callCount())
 	}
-	if got, want := fake.lastCall(), []string{"codex", "exec", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
+	if got, want := fake.lastCall(), []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "resume", sessionID, "-"}; !stringSlicesEqual(got, want) {
 		t.Fatalf("manager resume args = %v, want %v", got, want)
 	}
 	meta, err := ReadMetadata(root, "manager")

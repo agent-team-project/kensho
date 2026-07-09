@@ -575,6 +575,43 @@ restart = "always"
 	waitForStatusNot(t, m, "manager", StatusRunning)
 }
 
+func TestLaunchDeclaredFreshCodexManagerBypassesSandbox(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	teamDir := fixtureTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+ephemeral = false
+restart = "always"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		t.Fatalf("load topology: %v", err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(DaemonRoot(teamDir), fake.spawn)
+	meta, launched, err := launchDeclaredFresh(teamDir, m, topo, topo.Find("manager"), nil)
+	if err != nil {
+		t.Fatalf("launch declared fresh: %v", err)
+	}
+	if !launched || meta == nil {
+		t.Fatalf("launch result meta=%+v launched=%t", meta, launched)
+	}
+	call := fake.lastCall()
+	if len(call) < 2 || call[0] != "codex" || call[1] != "exec" {
+		t.Fatalf("spawn call = %#v, want codex exec", call)
+	}
+	if !containsString(call, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Fatalf("persistent codex manager spawn missing sandbox bypass: %#v", call)
+	}
+
+	_, _ = m.Stop("manager")
+	waitForStatusNot(t, m, "manager", StatusRunning)
+}
+
 func TestLaunchDeclaredFreshUsesPersistedLaunchEnvSnapshot(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "claude")
 	teamDir := fixtureTeamDir(t)
