@@ -125,6 +125,7 @@ type Step struct {
 	Workspace          string         `toml:"workspace,omitempty"`
 	Runtime            string         `toml:"runtime,omitempty"`
 	RuntimeBin         string         `toml:"runtime_bin,omitempty"`
+	Model              string         `toml:"model,omitempty"`
 	Status             Status         `toml:"status"`
 	Instance           string         `toml:"instance,omitempty"`
 	InstanceURI        string         `toml:"instance_uri,omitempty"`

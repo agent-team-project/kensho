@@ -490,6 +490,7 @@ target = "manager"
 workspace = "repo"
 runtime = "codex"
 runtime_bin = "codex-dev"
+model = "claude-sonnet-5"
 after = ["implement"]
 gate = "pr"
 optional = true
@@ -525,7 +526,7 @@ retry_on_crash = true
 	if p.InfraSignatures["disk_exhaustion"] != "No space left on device" || p.InfraSignatures["missing_binary"] != "error: test binary .* not found" {
 		t.Fatalf("pipeline infra signatures = %+v", p.InfraSignatures)
 	}
-	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].TokenBudget != 10000000 || p.Steps[1].TimeBudget != 20*time.Minute || !reflect.DeepEqual(p.Steps[1].ReminderLevels, []int{50, 75, 100}) || p.Steps[1].MaxAttempts != 2 || !p.Steps[1].RetryOnCrash {
+	if len(p.Steps) != 2 || p.Steps[0].Model != "" || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].Model != "claude-sonnet-5" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].TokenBudget != 10000000 || p.Steps[1].TimeBudget != 20*time.Minute || !reflect.DeepEqual(p.Steps[1].ReminderLevels, []int{50, 75, 100}) || p.Steps[1].MaxAttempts != 2 || !p.Steps[1].RetryOnCrash {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
 	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" || worker.Runtime != "codex" || worker.RuntimeBin != "codex-dev" || worker.Model != "claude-fable-5" || worker.TokenBudget != 40000000 || worker.TimeBudget != 45*time.Minute {
@@ -564,6 +565,29 @@ runtime = "docker"
 	}
 	if got := top.Pipelines["ticket_to_pr"].Steps[0].Runtime; got != "docker" {
 		t.Fatalf("step runtime = %q, want docker", got)
+	}
+}
+
+func TestParse_PipelineStepModelRequiresString(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+model = 42
+`))
+	if err == nil || !strings.Contains(err.Error(), "pipeline \"ticket_to_pr\" step[0]: model must be a string") {
+		t.Fatalf("Parse error = %v, want model type error", err)
 	}
 }
 

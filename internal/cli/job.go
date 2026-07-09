@@ -794,6 +794,7 @@ func jobStepsFromPipeline(p *topology.Pipeline) []job.Step {
 			Workspace:        step.Workspace,
 			Runtime:          step.Runtime,
 			RuntimeBin:       step.RuntimeBin,
+			Model:            step.Model,
 			Status:           status,
 			After:            append([]string(nil), step.After...),
 			Gate:             step.Gate,
@@ -10022,6 +10023,7 @@ func jobReadyRowFromJob(j *job.Job, next jobNextResult) jobReadyRow {
 		row.Workspace = next.Step.Workspace
 		row.Runtime = next.Step.Runtime
 		row.RuntimeBin = next.Step.RuntimeBin
+		row.Model = next.Step.Model
 		row.StepStatus = next.Step.Status
 		row.Instance = next.Step.Instance
 		row.Gate = next.Step.Gate
@@ -12352,6 +12354,7 @@ type jobExplainNext struct {
 	Workspace    string     `json:"workspace,omitempty"`
 	Runtime      string     `json:"runtime,omitempty"`
 	RuntimeBin   string     `json:"runtime_bin,omitempty"`
+	Model        string     `json:"model,omitempty"`
 	Status       job.Status `json:"status,omitempty"`
 	Instance     string     `json:"instance,omitempty"`
 	WaitingFor   []string   `json:"waiting_for,omitempty"`
@@ -12368,6 +12371,7 @@ type jobExplainStep struct {
 	Workspace        string             `json:"workspace,omitempty"`
 	Runtime          string             `json:"runtime,omitempty"`
 	RuntimeBin       string             `json:"runtime_bin,omitempty"`
+	Model            string             `json:"model,omitempty"`
 	Status           job.Status         `json:"status"`
 	State            string             `json:"state"`
 	Ready            bool               `json:"ready,omitempty"`
@@ -12420,6 +12424,7 @@ type jobReadyRow struct {
 	Workspace          string             `json:"workspace,omitempty"`
 	Runtime            string             `json:"runtime,omitempty"`
 	RuntimeBin         string             `json:"runtime_bin,omitempty"`
+	Model              string             `json:"model,omitempty"`
 	StepStatus         job.Status         `json:"step_status,omitempty"`
 	Instance           string             `json:"instance,omitempty"`
 	Gate               string             `json:"gate,omitempty"`
@@ -12619,6 +12624,9 @@ func buildJobStepDispatchPayload(teamDir string, j *job.Job, step *job.Step, wor
 	}
 	if err := applyDispatchRuntimeSelection(teamDir, payload, runtimeSelectionForJobStep(step, selection)); err != nil {
 		return nil, "", err
+	}
+	if model := strings.TrimSpace(step.Model); model != "" {
+		payload["model"] = model
 	}
 	return payload, requestedName, nil
 }
@@ -12842,6 +12850,7 @@ func explainJobPipeline(j *job.Job) jobExplainResult {
 			Workspace:    step.Workspace,
 			Runtime:      step.Runtime,
 			RuntimeBin:   step.RuntimeBin,
+			Model:        step.Model,
 			Status:       step.Status,
 			Ready:        ready[step.ID],
 			Instance:     step.Instance,
@@ -12882,6 +12891,7 @@ func jobExplainNextFromResult(next jobNextResult) jobExplainNext {
 		out.Workspace = next.Step.Workspace
 		out.Runtime = next.Step.Runtime
 		out.RuntimeBin = next.Step.RuntimeBin
+		out.Model = next.Step.Model
 		out.Status = next.Step.Status
 		out.Instance = next.Step.Instance
 	}
@@ -15980,6 +15990,7 @@ var jobShowJSONStepLegacyKeys = map[string]struct{}{
 	"Workspace":        {},
 	"Runtime":          {},
 	"RuntimeBin":       {},
+	"Model":            {},
 	"Status":           {},
 	"Instance":         {},
 	"After":            {},

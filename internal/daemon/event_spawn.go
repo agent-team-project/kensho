@@ -130,7 +130,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		StateURI:            payloadString(payload, "state_uri"),
 		Runtime:             string(rt.Kind),
 		RuntimeBinary:       rt.Binary,
-		Model:               inst.Model,
+		Model:               dispatchModelForPayload(inst, payload),
 		Args:                args,
 		Env:                 env,
 		EnvAllow:            inst.EnvAllow,
@@ -488,7 +488,7 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 
 func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
 	data := map[string]string{}
-	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "deployment_uri", "deployment_parent_uri", "charter_uri", "child_deployment_uri", "capability_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
+	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "model", "deployment_uri", "deployment_parent_uri", "charter_uri", "child_deployment_uri", "capability_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
 		if value := payloadString(payload, key); value != "" {
 			data[key] = value
 		}
@@ -506,6 +506,16 @@ func dispatchJobEventData(payload map[string]any, branch, worktreePath string) m
 		return nil
 	}
 	return data
+}
+
+func dispatchModelForPayload(inst *topology.Instance, payload map[string]any) string {
+	if model := strings.TrimSpace(payloadString(payload, "model")); model != "" {
+		return model
+	}
+	if inst == nil {
+		return ""
+	}
+	return strings.TrimSpace(inst.Model)
 }
 
 func (r *EventResolver) backfillDispatchPayloadResourceURIs(inst *topology.Instance, instance string, payload map[string]any, branch, workspace string) {

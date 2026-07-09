@@ -160,6 +160,7 @@ target = "ticket-manager"
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
 target = "worker"
+model = "claude-sonnet-5"
 after = ["triage"]
 
 [[pipelines.ticket_to_pr.steps]]
@@ -178,6 +179,8 @@ Use `gate = "pr"` when a later step should wait for PR metadata. The step remain
 Use `agent-team job step <job-id> <step-id> --skip` when a stage is intentionally bypassed. The job stores that step as `status = "done"` plus `skipped = true`, allowing dependent steps to continue while preserving the operator decision.
 
 Use `optional = true` when a stage is useful but should not block the workflow if it fails. Optional failures still appear in `job explain`, `pipeline explain`, and retry views, but downstream `after` dependencies are treated as satisfied.
+
+Pipeline steps may set `runtime`, `runtime_bin`, and `model` to override the spawned runtime for that step. `model` is passed only to Claude-runtime launches; leave it empty to keep the target instance's existing default model behavior.
 
 Use `[pipelines.<name>.infra_signatures]` to classify failed gate signatures
 reported with `agent-team job gate set`. These regexes only classify explicit

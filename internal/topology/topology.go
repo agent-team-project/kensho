@@ -221,6 +221,7 @@ type PipelineStep struct {
 	Workspace        string
 	Runtime          string
 	RuntimeBin       string
+	Model            string
 	After            []string
 	Gate             string
 	ApprovalRequired bool
@@ -1986,6 +1987,10 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
+		model, err := parseOptionalText(body["model"], "model")
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
 		label, err := parseStepText(body["label"], "label")
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
@@ -2053,7 +2058,7 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Locks: locks, Workspace: workspace, Runtime: runtime, RuntimeBin: runtimeBin, After: after, Gate: gate, ApprovalRequired: approvalRequired, Optional: optional, Timeout: timeout, TokenBudget: tokenBudget, TimeBudget: timeBudget, HardBudget: hardBudget, HardMultiplier: hardMultiplier, ReminderLevels: reminderLevels, MaxAttempts: maxAttempts, RetryOnCrash: retryOnCrash})
+		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Locks: locks, Workspace: workspace, Runtime: runtime, RuntimeBin: runtimeBin, Model: model, After: after, Gate: gate, ApprovalRequired: approvalRequired, Optional: optional, Timeout: timeout, TokenBudget: tokenBudget, TimeBudget: timeBudget, HardBudget: hardBudget, HardMultiplier: hardMultiplier, ReminderLevels: reminderLevels, MaxAttempts: maxAttempts, RetryOnCrash: retryOnCrash})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {

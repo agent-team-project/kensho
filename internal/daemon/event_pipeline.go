@@ -315,6 +315,15 @@ func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topolog
 	if !payloadIsProbe(dispatchPayload) && payloadString(dispatchPayload, "workspace") == "" && strings.TrimSpace(step.Workspace) != "" {
 		dispatchPayload["workspace"] = strings.TrimSpace(step.Workspace)
 	}
+	if runtime := strings.TrimSpace(step.Runtime); runtime != "" {
+		dispatchPayload["runtime"] = runtime
+	}
+	if runtimeBin := strings.TrimSpace(step.RuntimeBin); runtimeBin != "" {
+		dispatchPayload["runtime_binary"] = runtimeBin
+	}
+	if model := strings.TrimSpace(step.Model); model != "" {
+		dispatchPayload["model"] = model
+	}
 	if payloadString(dispatchPayload, "reap_worktree") == "" && pipeline.ReapWorktree != worktreepolicy.Never {
 		dispatchPayload["reap_worktree"] = pipeline.ReapWorktree
 	}
@@ -438,6 +447,9 @@ func pipelineJobSteps(pipeline *topology.Pipeline) []jobstore.Step {
 			Target:           step.Target,
 			Workspace:        step.Workspace,
 			Status:           status,
+			Runtime:          step.Runtime,
+			RuntimeBin:       step.RuntimeBin,
+			Model:            step.Model,
 			After:            append([]string(nil), step.After...),
 			Gate:             step.Gate,
 			ApprovalRequired: step.ApprovalRequired,

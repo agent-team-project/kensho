@@ -3660,6 +3660,7 @@ trigger.event = "ticket.created"
 id = "implement"
 instructions = "Implement the ticket with regression coverage."
 target = "worker"
+model = "claude-sonnet-5"
 token_budget = 80
 time_budget = "45m"
 reminder_levels = [50, 80, 100]
@@ -3743,7 +3744,7 @@ tokens_per_day = 100
 	if j.Origin.Project != "project-1" || j.Origin.Team != "platform" || j.Origin.Job != "squ-92" || j.Origin.Trigger != "ticket.created" {
 		t.Fatalf("job origin = %+v", j.Origin)
 	}
-	if j.Steps[0].ID != "implement" || j.Steps[0].Instructions != "Implement the ticket with regression coverage." || j.Steps[0].Status != jobstore.StatusRunning || j.Steps[0].Instance != "worker-squ-92" || j.Steps[0].TokenBudget != 30 || j.Steps[0].TimeBudget != "45m0s" || !reflect.DeepEqual(j.Steps[0].ReminderLevels, []int{50, 80, 100}) {
+	if j.Steps[0].ID != "implement" || j.Steps[0].Instructions != "Implement the ticket with regression coverage." || j.Steps[0].Status != jobstore.StatusRunning || j.Steps[0].Instance != "worker-squ-92" || j.Steps[0].Model != "claude-sonnet-5" || j.Steps[0].TokenBudget != 30 || j.Steps[0].TimeBudget != "45m0s" || !reflect.DeepEqual(j.Steps[0].ReminderLevels, []int{50, 80, 100}) {
 		t.Fatalf("first step = %+v", j.Steps[0])
 	}
 	if j.Steps[1].ID != "review" || j.Steps[1].Label != "Manager review" || j.Steps[1].Description != "Review the worker output." || j.Steps[1].Instructions != "Prepare review notes for the implementation branch." || !j.Steps[1].Optional || j.Steps[1].Timeout != "2h0m0s" {
@@ -3767,9 +3768,13 @@ tokens_per_day = 100
 	if !containsString(env, "AGENT_TEAM_SPEC_URI="+stepSpecURI) {
 		t.Fatalf("env missing step spec URI: %#v", env)
 	}
-	prompt, ok := argValue(fake.lastCall(), "-p")
+	call := fake.lastCall()
+	if got, ok := argValue(call, "--model"); !ok || got != "claude-sonnet-5" {
+		t.Fatalf("spawn call model = %q, %v; want claude-sonnet-5 in %#v", got, ok, call)
+	}
+	prompt, ok := argValue(call, "-p")
 	if !ok {
-		t.Fatalf("spawn call missing -p prompt: %#v", fake.lastCall())
+		t.Fatalf("spawn call missing -p prompt: %#v", call)
 	}
 	if !strings.Contains(prompt, `"spec_uri":"`+stepSpecURI+`"`) {
 		t.Fatalf("prompt missing step spec URI:\n%s", prompt)
