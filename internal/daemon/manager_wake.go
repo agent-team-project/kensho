@@ -190,7 +190,7 @@ func managerIdleBacklogJob(inst *topology.Instance, jobs []*jobstore.Job, metas 
 		return nil
 	}
 	for _, j := range jobs {
-		if !managerOwnsIncompleteJob(inst, j) {
+		if !managerOwnsPendingWork(inst, j) {
 			continue
 		}
 		if managerHasActiveChildWork(inst.Name, j, jobs, metas) {
@@ -199,6 +199,10 @@ func managerIdleBacklogJob(inst *topology.Instance, jobs []*jobstore.Job, metas 
 		return j
 	}
 	return nil
+}
+
+func managerOwnsPendingWork(inst *topology.Instance, j *jobstore.Job) bool {
+	return managerOwnsIncompleteJob(inst, j) || managerOwnsCompletedDeliverable(inst, j)
 }
 
 func managerOwnsIncompleteJob(inst *topology.Instance, j *jobstore.Job) bool {
@@ -219,6 +223,41 @@ func managerOwnsIncompleteJob(inst *topology.Instance, j *jobstore.Job) bool {
 		}
 	}
 	return false
+}
+
+func managerOwnsCompletedDeliverable(inst *topology.Instance, j *jobstore.Job) bool {
+	if inst == nil || j == nil || !jobHasPendingManagerDeliverable(j) {
+		return false
+	}
+	name := strings.TrimSpace(inst.Name)
+	if name == "" {
+		return false
+	}
+	if strings.TrimSpace(j.Origin.Instance) == name || managerTarget(name, j.Target, j.Instance) {
+		return true
+	}
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if managerTarget(name, step.Target, step.Instance) {
+			return true
+		}
+	}
+	return false
+}
+
+func jobHasPendingManagerDeliverable(j *jobstore.Job) bool {
+	if j == nil || j.Status != jobstore.StatusDone {
+		return false
+	}
+	if strings.TrimSpace(j.PR) == "" && strings.TrimSpace(j.Branch) == "" && strings.TrimSpace(j.Worktree) == "" {
+		return false
+	}
+	switch strings.TrimSpace(j.LastEvent) {
+	case "merged", "pr.merged", "pr.closed", "closed", "cleanup":
+		return false
+	default:
+		return true
+	}
 }
 
 func managerHasActiveChildWork(manager string, candidate *jobstore.Job, jobs []*jobstore.Job, metas []*Metadata) bool {
@@ -328,17 +367,25 @@ func managerIdleWakeDue(now time.Time, state *managerIdleWakeState, j *jobstore.
 	if j == nil {
 		return false, managerIdleWakeDefaultBackoff, "no job"
 	}
+	reason := managerIdleWakeReason(j)
 	if state == nil || state.JobID != j.ID || j.UpdatedAt.After(state.LastObservedJobUpdatedAt) {
-		return true, managerIdleWakeDefaultBackoff, "unfinished manager-owned job"
+		return true, managerIdleWakeDefaultBackoff, reason
 	}
 	backoff := parseManagerBackoff(state.Backoff)
 	if state.LastWakeAt.IsZero() {
-		return true, backoff, "unfinished manager-owned job"
+		return true, backoff, reason
 	}
 	if now.Before(state.LastWakeAt.Add(backoff)) {
 		return false, backoff, "backoff until " + state.LastWakeAt.Add(backoff).UTC().Format(time.RFC3339)
 	}
-	return true, clampManagerBackoff(backoff * 2), "unfinished manager-owned job without observed progress"
+	return true, clampManagerBackoff(backoff * 2), reason + " without observed progress"
+}
+
+func managerIdleWakeReason(j *jobstore.Job) string {
+	if jobHasPendingManagerDeliverable(j) {
+		return "completed job has PR or branch awaiting manager action"
+	}
+	return "unfinished manager-owned job"
 }
 
 func parseManagerBackoff(raw string) time.Duration {

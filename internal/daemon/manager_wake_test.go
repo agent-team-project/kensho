@@ -125,6 +125,120 @@ func TestManagerWakeSweepSuppressesWhenChildWorkActive(t *testing.T) {
 	}
 }
 
+func TestManagerWakeSweepWakesStoppedManagerForManualGateWithEmptyQueue(t *testing.T) {
+	teamDir, root, _, fake, resolver := managerWakeFixture(t)
+	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	j, err := jobstore.New("GH-300", "worker", "approve completed work", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	j.Status = jobstore.StatusRunning
+	j.Pipeline = "ticket_to_pr"
+	j.Origin = origin.Envelope{Instance: "manager", Agent: "manager"}
+	j.Steps = []jobstore.Step{
+		{ID: "implement", Target: "worker", Status: jobstore.StatusDone, FinishedAt: now.Add(-30 * time.Minute)},
+		{ID: "review", Target: "reviewer", Status: jobstore.StatusDone, After: []string{"implement"}, FinishedAt: now.Add(-20 * time.Minute)},
+		{ID: "approve", Target: "manager", Status: jobstore.StatusBlocked, After: []string{"review"}, Gate: jobstore.StepGateManual},
+	}
+	j.PR = "https://github.com/acme/repo/pull/300"
+	j.Branch = "worker-gh-300"
+	j.UpdatedAt = now.Add(-20 * time.Minute)
+	writeManagerWakeJob(t, teamDir, j)
+
+	result, err := resolver.SweepManagerWakeupsWithResult(now)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if fake.callCount() != 1 {
+		t.Fatalf("spawn calls = %d, want manager resume for manual gate", fake.callCount())
+	}
+	if len(result.IdleWakeups) != 1 || result.IdleWakeups[0].Action != "dispatched" || result.IdleWakeups[0].JobID != j.ID {
+		t.Fatalf("idle wakeups = %+v, want dispatched manual-gate job %s", result.IdleWakeups, j.ID)
+	}
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, managerIdleWakeEventType) || !strings.Contains(messages[0].Body, `"job_id":"`+j.ID+`"`) {
+		t.Fatalf("messages = %+v, want idle wake for manual gate job %s", messages, j.ID)
+	}
+
+	_, _ = resolver.mgr.Stop("manager")
+	waitForStatusNot(t, resolver.mgr, "manager", StatusRunning)
+}
+
+func TestManagerWakeSweepWakesStoppedManagerForCompletedDeliverableWithEmptyQueue(t *testing.T) {
+	teamDir, root, _, fake, resolver := managerWakeFixture(t)
+	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	j, err := jobstore.New("GH-301", "worker", "merge completed branch", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	j.Status = jobstore.StatusDone
+	j.Origin = origin.Envelope{Instance: "manager", Agent: "manager"}
+	j.Instance = "worker-gh-301"
+	j.PR = "https://github.com/acme/repo/pull/301"
+	j.Branch = "worker-gh-301"
+	j.LastEvent = "instance_exited"
+	j.LastStatus = "instance exited successfully"
+	j.UpdatedAt = now.Add(-30 * time.Minute)
+	writeManagerWakeJob(t, teamDir, j)
+
+	result, err := resolver.SweepManagerWakeupsWithResult(now)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if fake.callCount() != 1 {
+		t.Fatalf("spawn calls = %d, want manager resume for completed deliverable", fake.callCount())
+	}
+	if len(result.IdleWakeups) != 1 || result.IdleWakeups[0].Action != "dispatched" || result.IdleWakeups[0].JobID != j.ID {
+		t.Fatalf("idle wakeups = %+v, want dispatched completed deliverable job %s", result.IdleWakeups, j.ID)
+	}
+	messages, err := ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, "completed job has PR or branch awaiting manager action") {
+		t.Fatalf("messages = %+v, want completed deliverable wake reason", messages)
+	}
+
+	_, _ = resolver.mgr.Stop("manager")
+	waitForStatusNot(t, resolver.mgr, "manager", StatusRunning)
+}
+
+func TestManagerWakeSweepIgnoresCompletedDeliverableAfterManagerAction(t *testing.T) {
+	for _, lastEvent := range []string{"merged", "pr.merged", "pr.closed", "closed", "cleanup"} {
+		t.Run(lastEvent, func(t *testing.T) {
+			teamDir, _, _, fake, resolver := managerWakeFixture(t)
+			now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+			j, err := jobstore.New("GH-302", "worker", "already handled", now.Add(-time.Hour))
+			if err != nil {
+				t.Fatalf("new job: %v", err)
+			}
+			j.Status = jobstore.StatusDone
+			j.Origin = origin.Envelope{Instance: "manager", Agent: "manager"}
+			j.Instance = "worker-gh-302"
+			j.PR = "https://github.com/acme/repo/pull/302"
+			j.Branch = "worker-gh-302"
+			j.LastEvent = lastEvent
+			j.LastStatus = "already handled"
+			j.UpdatedAt = now.Add(-30 * time.Minute)
+			writeManagerWakeJob(t, teamDir, j)
+
+			result, err := resolver.SweepManagerWakeupsWithResult(now)
+			if err != nil {
+				t.Fatalf("sweep: %v", err)
+			}
+			if fake.callCount() != 0 {
+				t.Fatalf("spawn calls = %d, want no manager resume after %s", fake.callCount(), lastEvent)
+			}
+			if len(result.IdleWakeups) != 0 {
+				t.Fatalf("idle wakeups = %+v, want none after %s", result.IdleWakeups, lastEvent)
+			}
+		})
+	}
+}
+
 func TestManagerWakeSweepBacksOffWithoutProgress(t *testing.T) {
 	teamDir, _, _, fake, resolver := managerWakeFixture(t)
 	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
