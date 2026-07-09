@@ -17,11 +17,15 @@ func TestBuildRecordDerivesTerminalOutcome(t *testing.T) {
 
 ## Review findings (bounce 1)
 
-Build failed because the behavior was missing a required test.
+Bounce class: capability
+
+The implementation missed an edge case and added only shallow tests.
 
 ## Review findings (bounce 2)
 
-CI timeout looked like infra, but the implementation still missed scope.`
+Bounce class: spec-ambiguity, scope, infra
+
+The ticket intent was ambiguous, the PR sprawled into unrelated scope, and CI timed out.`
 	j, err := jobstore.New("SQU-135", "worker", kickoff, now.Add(-2*time.Hour))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -40,7 +44,7 @@ CI timeout looked like infra, but the implementation still missed scope.`
 	j.Usage, _ = usage.MergeRecord(nil, usage.Record{
 		Instance:        "worker-squ-135",
 		Agent:           "worker",
-		Runtime:         "codex",
+		Runtime:         "claude",
 		TokensAvailable: true,
 		InputTokens:     120,
 		OutputTokens:    30,
@@ -79,10 +83,22 @@ CI timeout looked like infra, but the implementation still missed scope.`
 	if rec.Epic != "resource-governance" {
 		t.Fatalf("epic = %q", rec.Epic)
 	}
+	if rec.Runtime != "claude" || rec.Model != "claude-sonnet-5" || rec.Tier != "T2" {
+		t.Fatalf("model binding = runtime %q model %q tier %q", rec.Runtime, rec.Model, rec.Tier)
+	}
+	if len(rec.StepRuns) != 2 {
+		t.Fatalf("step runs = %+v", rec.StepRuns)
+	}
+	if got := rec.StepRuns[0]; got.ID != "implement" || got.Runtime != "claude" || got.Model != "claude-sonnet-5" || got.Tier != "T2" || got.TokensConsumed != 150 {
+		t.Fatalf("implement step run = %+v", got)
+	}
+	if got := rec.StepRuns[1]; got.ID != "review" || got.Model != "claude-opus-4-8" || got.Tier != "T1" {
+		t.Fatalf("review step run = %+v", got)
+	}
 	if rec.ReviewRounds != 3 || rec.BounceCount != 2 {
 		t.Fatalf("review/bounce = rounds %d bounces %d", rec.ReviewRounds, rec.BounceCount)
 	}
-	if rec.BounceClasses["content"] != 2 || rec.BounceClasses["validation"] != 1 || rec.BounceClasses["infra"] != 1 {
+	if rec.BounceClasses["capability"] != 1 || rec.BounceClasses["spec-ambiguity"] != 1 || rec.BounceClasses["scope"] != 1 || rec.BounceClasses["infra"] != 1 {
 		t.Fatalf("bounce classes = %+v", rec.BounceClasses)
 	}
 	if rec.TimeToMergeMS != int64((2*time.Hour).Milliseconds()) || rec.TimeToTerminalMS != rec.TimeToMergeMS {
@@ -315,7 +331,10 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 			}},
 			ReviewRounds:     2,
 			BounceCount:      1,
-			BounceClasses:    map[string]int{"content": 1},
+			BounceClasses:    map[string]int{"capability": 1},
+			Runtime:          "claude",
+			Model:            "claude-sonnet-5",
+			Tier:             "T2",
 			TokenBudget:      100,
 			TokensConsumed:   70,
 			TimeToMergeMS:    1000,
@@ -336,6 +355,9 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 			}},
 			ReviewRounds:     0,
 			BounceCount:      0,
+			Runtime:          "claude",
+			Model:            "claude-opus-4-8",
+			Tier:             "T1",
 			TokenBudget:      100,
 			TokensConsumed:   30,
 			TimeToTerminalMS: 800,
@@ -353,6 +375,12 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 	if row.TokensConsumed != 100 || row.TokenBudget != 200 || row.TokenBudgetRatio != 0.5 {
 		t.Fatalf("row budget = %+v", row)
 	}
+	if row.ModelTiers["claude\x00claude-sonnet-5\x00T2"] != 1 || row.ModelTiers["claude\x00claude-opus-4-8\x00T1"] != 1 {
+		t.Fatalf("row model tiers = %+v", row.ModelTiers)
+	}
+	if row.BounceClasses["capability"] != 1 {
+		t.Fatalf("row bounce classes = %+v", row.BounceClasses)
+	}
 	if row.AverageTimeToMergeMS != 1000 || row.AverageTimeToTerminalMS != 1000 {
 		t.Fatalf("row durations = %+v", row)
 	}
@@ -364,6 +392,9 @@ func TestBuildReportAggregatesTrends(t *testing.T) {
 	}
 	if report.Summary.EffectiveConcurrency != 1.33 || report.Summary.DeclaredReplicaCapacity != 2 {
 		t.Fatalf("summary concurrency = %+v", report.Summary)
+	}
+	if len(report.ModelTierRows) != 2 || len(report.BounceClassRows) != 1 {
+		t.Fatalf("detail rows = model %+v bounce %+v", report.ModelTierRows, report.BounceClassRows)
 	}
 }
 
@@ -445,6 +476,14 @@ provider = "none"
 agent = "worker"
 ephemeral = true
 replicas = 2
+runtime = "claude"
+model = "claude-sonnet-5"
+
+[instances.reviewer]
+agent = "reviewer"
+ephemeral = true
+runtime = "claude"
+model = "claude-opus-4-8"
 
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.status_changed"
@@ -454,7 +493,7 @@ id = "implement"
 target = "worker"
 
 [teams.delivery]
-instances = ["worker"]
+instances = ["worker", "reviewer"]
 pipelines = ["ticket_to_pr"]
 `
 	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topology), 0o644); err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -85,12 +86,18 @@ func renderOutcomesReport(w io.Writer, report outcomes.Report) {
 	}
 	if report.ByEpic {
 		renderOutcomesByEpicReport(w, report)
-		return
+	} else {
+		renderOutcomesTrendReport(w, report)
 	}
+	renderOutcomesModelTierReport(w, report)
+	renderOutcomesBounceClassReport(w, report)
+}
+
+func renderOutcomesTrendReport(w io.Writer, report outcomes.Report) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "WEEK\tTEAM\tAGENT\tJOBS\tDONE\tFAILED\tEFF_CONC\tPEAK_CONC\tCAPACITY\tBOUNCES\tAVG_BOUNCE\tREVIEWS\tAVG_REVIEW\tTOKENS\tAVG_TTM\tWATCHDOG\tBUDGET")
+	fmt.Fprintln(tw, "WEEK\tTEAM\tAGENT\tJOBS\tDONE\tFAILED\tEFF_CONC\tPEAK_CONC\tCAPACITY\tMODEL_TIER\tBOUNCE_CLASS\tBOUNCES\tAVG_BOUNCE\tREVIEWS\tAVG_REVIEW\tTOKENS\tAVG_TTM\tWATCHDOG\tBUDGET")
 	for _, row := range report.Rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%d\t%d\n",
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%d\t%d\n",
 			emptyDash(row.Week),
 			emptyDash(row.Team),
 			emptyDash(row.Agent),
@@ -100,6 +107,8 @@ func renderOutcomesReport(w io.Writer, report outcomes.Report) {
 			formatOutcomeFloat(row.EffectiveConcurrency),
 			formatOutcomeInt(row.PeakConcurrentWorkUnits),
 			formatOutcomeInt(row.DeclaredReplicaCapacity),
+			formatOutcomeCountMap(row.ModelTiers, formatOutcomeModelTierKey),
+			formatOutcomeCountMap(row.BounceClasses, formatOutcomePlainKey),
 			row.Bounces,
 			formatOutcomeFloat(row.AverageBounces),
 			row.ReviewRounds,
@@ -110,13 +119,15 @@ func renderOutcomesReport(w io.Writer, report outcomes.Report) {
 			row.BudgetExceededEvents)
 	}
 	summary := report.Summary
-	fmt.Fprintf(tw, "TOTAL\t-\t-\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%d\t%d\n",
+	fmt.Fprintf(tw, "TOTAL\t-\t-\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%d\t%s\t%s\t%s\t%d\t%d\n",
 		summary.Jobs,
 		summary.Done,
 		summary.Failed,
 		formatOutcomeFloat(summary.EffectiveConcurrency),
 		formatOutcomeInt(summary.PeakConcurrentWorkUnits),
 		formatOutcomeInt(summary.DeclaredReplicaCapacity),
+		formatOutcomeCountMap(summary.ModelTiers, formatOutcomeModelTierKey),
+		formatOutcomeCountMap(summary.BounceClasses, formatOutcomePlainKey),
 		summary.Bounces,
 		formatOutcomeFloat(summary.AverageBounces),
 		summary.ReviewRounds,
@@ -164,6 +175,90 @@ func renderOutcomesByEpicReport(w io.Writer, report outcomes.Report) {
 	_ = tw.Flush()
 }
 
+func renderOutcomesModelTierReport(w io.Writer, report outcomes.Report) {
+	if len(report.ModelTierRows) == 0 {
+		return
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "MODEL/TIER")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if report.ByEpic {
+		fmt.Fprintln(tw, "EPIC\tRUNTIME\tMODEL\tTIER\tJOBS\tDONE\tFAILED\tBOUNCES\tAVG_BOUNCE\tREVIEWS\tAVG_REVIEW\tTOKENS")
+		for _, row := range report.ModelTierRows {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%d\t%s\t%s\n",
+				emptyDash(row.Epic),
+				emptyDash(row.Runtime),
+				emptyDash(row.Model),
+				emptyDash(row.Tier),
+				row.Jobs,
+				row.Done,
+				row.Failed,
+				row.Bounces,
+				formatOutcomeFloat(row.AverageBounces),
+				row.ReviewRounds,
+				formatOutcomeFloat(row.AverageReviewRounds),
+				formatOutcomeTokenRatio(row.TokensConsumed, row.TokenBudget))
+		}
+	} else {
+		fmt.Fprintln(tw, "WEEK\tTEAM\tAGENT\tRUNTIME\tMODEL\tTIER\tJOBS\tDONE\tFAILED\tBOUNCES\tAVG_BOUNCE\tREVIEWS\tAVG_REVIEW\tTOKENS")
+		for _, row := range report.ModelTierRows {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%s\t%d\t%s\t%s\n",
+				emptyDash(row.Week),
+				emptyDash(row.Team),
+				emptyDash(row.Agent),
+				emptyDash(row.Runtime),
+				emptyDash(row.Model),
+				emptyDash(row.Tier),
+				row.Jobs,
+				row.Done,
+				row.Failed,
+				row.Bounces,
+				formatOutcomeFloat(row.AverageBounces),
+				row.ReviewRounds,
+				formatOutcomeFloat(row.AverageReviewRounds),
+				formatOutcomeTokenRatio(row.TokensConsumed, row.TokenBudget))
+		}
+	}
+	_ = tw.Flush()
+}
+
+func renderOutcomesBounceClassReport(w io.Writer, report outcomes.Report) {
+	if len(report.BounceClassRows) == 0 {
+		return
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "BOUNCE_CLASS")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if report.ByEpic {
+		fmt.Fprintln(tw, "EPIC\tCLASS\tJOBS\tDONE\tFAILED\tBOUNCES\tAVG_BOUNCE")
+		for _, row := range report.BounceClassRows {
+			fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d\t%s\n",
+				emptyDash(row.Epic),
+				emptyDash(row.Class),
+				row.Jobs,
+				row.Done,
+				row.Failed,
+				row.Bounces,
+				formatOutcomeFloat(row.AverageBounces))
+		}
+	} else {
+		fmt.Fprintln(tw, "WEEK\tTEAM\tAGENT\tCLASS\tJOBS\tDONE\tFAILED\tBOUNCES\tAVG_BOUNCE")
+		for _, row := range report.BounceClassRows {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%s\n",
+				emptyDash(row.Week),
+				emptyDash(row.Team),
+				emptyDash(row.Agent),
+				emptyDash(row.Class),
+				row.Jobs,
+				row.Done,
+				row.Failed,
+				row.Bounces,
+				formatOutcomeFloat(row.AverageBounces))
+		}
+	}
+	_ = tw.Flush()
+}
+
 func formatOutcomeFloat(v float64) string {
 	if v == 0 {
 		return "-"
@@ -193,4 +288,62 @@ func formatOutcomeDuration(ms int64) string {
 		return "-"
 	}
 	return (time.Duration(ms) * time.Millisecond).String()
+}
+
+func formatOutcomeCountMap(values map[string]int, label func(string) string) string {
+	if len(values) == 0 {
+		return "-"
+	}
+	keys := make([]string, 0, len(values))
+	for key, count := range values {
+		if count > 0 {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return "-"
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s:%d", label(key), values[key]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func formatOutcomePlainKey(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "-"
+	}
+	return key
+}
+
+func formatOutcomeModelTierKey(key string) string {
+	parts := strings.Split(key, "\x00")
+	for len(parts) < 3 {
+		parts = append(parts, "")
+	}
+	runtime := strings.TrimSpace(parts[0])
+	model := strings.TrimSpace(parts[1])
+	tier := strings.TrimSpace(parts[2])
+	switch {
+	case runtime != "" && model != "" && tier != "":
+		if runtime == model {
+			return runtime + "/" + tier
+		}
+		return runtime + ":" + model + "/" + tier
+	case model != "" && tier != "":
+		return model + "/" + tier
+	case runtime != "" && tier != "":
+		return runtime + "/" + tier
+	case tier != "":
+		return tier
+	case model != "":
+		return model
+	case runtime != "":
+		return runtime
+	default:
+		return "-"
+	}
 }

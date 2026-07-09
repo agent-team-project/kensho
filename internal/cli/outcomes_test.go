@@ -35,6 +35,9 @@ resource-governance = "200"
 		Week:        "2026-W28",
 		Team:        "delivery",
 		Agent:       "worker",
+		Runtime:     "claude",
+		Model:       "claude-sonnet-5",
+		Tier:        "T2",
 		CreatedAt:   now.Add(-2 * time.Hour),
 		FinalizedAt: now,
 		WorkUnits: []outcomes.WorkUnitRecord{{
@@ -45,6 +48,7 @@ resource-governance = "200"
 		}},
 		ReviewRounds:     2,
 		BounceCount:      1,
+		BounceClasses:    map[string]int{"capability": 1},
 		TokenBudget:      200,
 		TokensConsumed:   150,
 		TimeToMergeMS:    int64((2 * time.Hour).Milliseconds()),
@@ -69,6 +73,9 @@ resource-governance = "200"
 	if len(report.Rows) != 1 || report.Rows[0].Jobs != 1 || report.Rows[0].AverageBounces != 1 {
 		t.Fatalf("report = %+v", report)
 	}
+	if report.Rows[0].ModelTiers["claude\x00claude-sonnet-5\x00T2"] != 1 || len(report.ModelTierRows) != 1 || len(report.BounceClassRows) != 1 {
+		t.Fatalf("report detail rows = %+v model=%+v bounce=%+v", report.Rows[0].ModelTiers, report.ModelTierRows, report.BounceClassRows)
+	}
 	if report.Rows[0].EffectiveConcurrency != 1 || report.Rows[0].PeakConcurrentWorkUnits != 1 || report.Rows[0].DeclaredReplicaCapacity != 4 {
 		t.Fatalf("report concurrency = %+v", report.Rows[0])
 	}
@@ -82,7 +89,12 @@ resource-governance = "200"
 		t.Fatalf("outcomes report table: %v\nstderr=%s", err, tableErr.String())
 	}
 	text := tableOut.String()
-	if !strings.Contains(text, "EFF_CONC") || !strings.Contains(text, "CAPACITY") || !strings.Contains(text, "2026-W28") || !strings.Contains(text, "150/200") {
+	for _, want := range []string{"EFF_CONC", "CAPACITY", "MODEL_TIER", "BOUNCE_CLASS", "claude:claude-sonnet-5/T2:1", "capability:1", "MODEL/TIER", "150/200"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("table output missing %q: %q", want, text)
+		}
+	}
+	if !strings.Contains(text, "2026-W28") {
 		t.Fatalf("table output = %q", text)
 	}
 

@@ -37,6 +37,9 @@ type Record struct {
 	Pipeline                 string           `json:"pipeline,omitempty"`
 	Team                     string           `json:"team,omitempty"`
 	Agent                    string           `json:"agent,omitempty"`
+	Runtime                  string           `json:"runtime,omitempty"`
+	Model                    string           `json:"model,omitempty"`
+	Tier                     string           `json:"tier,omitempty"`
 	Status                   string           `json:"status"`
 	Week                     string           `json:"week,omitempty"`
 	CreatedAt                time.Time        `json:"created_at,omitempty"`
@@ -52,6 +55,7 @@ type Record struct {
 	WatchdogEvents           []EventRef       `json:"watchdog_events,omitempty"`
 	BudgetNoticeEvents       []EventRef       `json:"budget_notice_events,omitempty"`
 	BudgetExceededEvents     []EventRef       `json:"budget_exceeded_events,omitempty"`
+	StepRuns                 []StepRunRecord  `json:"step_runs,omitempty"`
 	WorkUnits                []WorkUnitRecord `json:"work_units,omitempty"`
 	WorkUnitsExhaustive      bool             `json:"work_units_exhaustive,omitempty"`
 	TokenBudget              int64            `json:"token_budget,omitempty"`
@@ -74,6 +78,25 @@ type Record struct {
 type BounceRecord struct {
 	Number  int      `json:"number"`
 	Classes []string `json:"classes,omitempty"`
+}
+
+// StepRunRecord captures the runtime/model/tier binding for one progressed
+// pipeline step in a job.
+type StepRunRecord struct {
+	ID             string    `json:"id,omitempty"`
+	Target         string    `json:"target,omitempty"`
+	Agent          string    `json:"agent,omitempty"`
+	Instance       string    `json:"instance,omitempty"`
+	Runtime        string    `json:"runtime,omitempty"`
+	RuntimeBinary  string    `json:"runtime_binary,omitempty"`
+	Model          string    `json:"model,omitempty"`
+	Tier           string    `json:"tier,omitempty"`
+	Status         string    `json:"status,omitempty"`
+	Attempts       int       `json:"attempts,omitempty"`
+	TokenBudget    int64     `json:"token_budget,omitempty"`
+	TokensConsumed int64     `json:"tokens_consumed,omitempty"`
+	StartedAt      time.Time `json:"started_at,omitempty"`
+	FinishedAt     time.Time `json:"finished_at,omitempty"`
 }
 
 // EventRef is the compact event shape persisted on outcome records.
@@ -115,11 +138,13 @@ type ReportOptions struct {
 
 // Report is the structured output for `agent-team outcomes report`.
 type Report struct {
-	GeneratedAt time.Time  `json:"generated_at"`
-	Since       time.Time  `json:"since,omitempty"`
-	ByEpic      bool       `json:"by_epic,omitempty"`
-	Rows        []TrendRow `json:"rows"`
-	Summary     TrendRow   `json:"summary"`
+	GeneratedAt     time.Time        `json:"generated_at"`
+	Since           time.Time        `json:"since,omitempty"`
+	ByEpic          bool             `json:"by_epic,omitempty"`
+	Rows            []TrendRow       `json:"rows"`
+	Summary         TrendRow         `json:"summary"`
+	ModelTierRows   []ModelTierRow   `json:"model_tier_rows,omitempty"`
+	BounceClassRows []BounceClassRow `json:"bounce_class_rows,omitempty"`
 }
 
 // TrendRow aggregates terminal outcomes by week, team, and agent.
@@ -141,6 +166,7 @@ type TrendRow struct {
 	Bounces                 int            `json:"bounces,omitempty"`
 	AverageBounces          float64        `json:"average_bounces,omitempty"`
 	BounceClasses           map[string]int `json:"bounce_classes,omitempty"`
+	ModelTiers              map[string]int `json:"model_tiers,omitempty"`
 	WatchdogEvents          int            `json:"watchdog_events,omitempty"`
 	BudgetNoticeEvents      int            `json:"budget_notice_events,omitempty"`
 	BudgetExceededEvents    int            `json:"budget_exceeded_events,omitempty"`
@@ -156,6 +182,41 @@ type TrendRow struct {
 	timeToMergeSamples    int
 	timeToTerminalSamples int
 	workIntervals         []workInterval
+}
+
+// ModelTierRow aggregates jobs by their primary implementation model/tier.
+type ModelTierRow struct {
+	Week                string  `json:"week,omitempty"`
+	Epic                string  `json:"epic,omitempty"`
+	Team                string  `json:"team,omitempty"`
+	Agent               string  `json:"agent,omitempty"`
+	Runtime             string  `json:"runtime,omitempty"`
+	Model               string  `json:"model,omitempty"`
+	Tier                string  `json:"tier,omitempty"`
+	Jobs                int     `json:"jobs"`
+	Done                int     `json:"done,omitempty"`
+	Failed              int     `json:"failed,omitempty"`
+	Bounces             int     `json:"bounces,omitempty"`
+	AverageBounces      float64 `json:"average_bounces,omitempty"`
+	ReviewRounds        int     `json:"review_rounds,omitempty"`
+	AverageReviewRounds float64 `json:"average_review_rounds,omitempty"`
+	TokenBudget         int64   `json:"token_budget,omitempty"`
+	TokensConsumed      int64   `json:"tokens_consumed,omitempty"`
+	TokenBudgetRatio    float64 `json:"token_budget_ratio,omitempty"`
+}
+
+// BounceClassRow aggregates bounce counts by model-economy bounce class.
+type BounceClassRow struct {
+	Week           string  `json:"week,omitempty"`
+	Epic           string  `json:"epic,omitempty"`
+	Team           string  `json:"team,omitempty"`
+	Agent          string  `json:"agent,omitempty"`
+	Class          string  `json:"class"`
+	Jobs           int     `json:"jobs"`
+	Done           int     `json:"done,omitempty"`
+	Failed         int     `json:"failed,omitempty"`
+	Bounces        int     `json:"bounces"`
+	AverageBounces float64 `json:"average_bounces,omitempty"`
 }
 
 // Directory returns the root outcomes directory for a team.
@@ -248,6 +309,8 @@ func BuildRecord(teamDir string, j *jobstore.Job, now time.Time) (*Record, error
 	rec.WatchdogEvents = selectEvents(events, isWatchdogEvent)
 	rec.BudgetNoticeEvents = selectEvents(events, isBudgetNoticeEvent)
 	rec.BudgetExceededEvents = selectEvents(events, isBudgetExceededEvent)
+	rec.StepRuns = stepRunsForJob(teamDir, j, rec.Agent)
+	rec.Runtime, rec.Model, rec.Tier = primaryRunBinding(rec.StepRuns, rec.Agent)
 	rec.WorkUnits = workUnitsForJob(j, rec.Agent)
 	rec.WorkUnitsExhaustive = true
 	var budgetConsumed int64
@@ -353,6 +416,8 @@ func BuildReport(records []Record, opts ReportOptions) Report {
 	}
 	report := Report{GeneratedAt: now.UTC(), Since: utcOrZero(opts.Since), ByEpic: opts.ByEpic}
 	byKey := map[string]*TrendRow{}
+	byModelTier := map[string]*ModelTierRow{}
+	byBounceClass := map[string]*BounceClassRow{}
 	capacities := declaredReplicaCapacities(opts.TeamDir)
 	summaryCapacityKeys := map[string]bool{}
 	allocations := epicAllocations(opts.TeamDir)
@@ -387,6 +452,8 @@ func BuildReport(records []Record, opts ReportOptions) Report {
 		}
 		row.add(rec)
 		report.Summary.add(rec)
+		addModelTierReportRow(byModelTier, rec, opts)
+		addBounceClassReportRows(byBounceClass, rec, opts)
 	}
 	report.Rows = make([]TrendRow, 0, len(byKey))
 	for _, row := range byKey {
@@ -406,6 +473,8 @@ func BuildReport(records []Record, opts ReportOptions) Report {
 		return report.Rows[i].Agent < report.Rows[j].Agent
 	})
 	report.Summary.finalize()
+	report.ModelTierRows = sortedModelTierRows(byModelTier, opts)
+	report.BounceClassRows = sortedBounceClassRows(byBounceClass, opts)
 	return report
 }
 
@@ -418,6 +487,120 @@ func trendRowForRecord(rec Record, opts ReportOptions, capacities map[string]int
 	row := &TrendRow{Week: rec.Week, Team: rec.Team, Agent: rec.Agent}
 	row.DeclaredReplicaCapacity = replicaCapacityFor(capacities, rec.Team, rec.Agent)
 	return row
+}
+
+func addModelTierReportRow(rows map[string]*ModelTierRow, rec Record, opts ReportOptions) {
+	bindingKey := modelTierKey(rec.Runtime, rec.Model, rec.Tier)
+	if bindingKey == "" {
+		return
+	}
+	key := reportScopeKey(rec, opts) + "\x00" + bindingKey
+	row := rows[key]
+	if row == nil {
+		row = &ModelTierRow{
+			Week:    rec.Week,
+			Epic:    strings.TrimSpace(rec.Epic),
+			Team:    rec.Team,
+			Agent:   rec.Agent,
+			Runtime: strings.TrimSpace(rec.Runtime),
+			Model:   strings.TrimSpace(rec.Model),
+			Tier:    strings.TrimSpace(rec.Tier),
+		}
+		rows[key] = row
+	}
+	row.Jobs++
+	switch rec.Status {
+	case string(jobstore.StatusDone):
+		row.Done++
+	case string(jobstore.StatusFailed):
+		row.Failed++
+	}
+	row.Bounces += rec.BounceCount
+	row.ReviewRounds += rec.ReviewRounds
+	row.TokenBudget += rec.TokenBudget
+	row.TokensConsumed += rec.TokensConsumed
+}
+
+func addBounceClassReportRows(rows map[string]*BounceClassRow, rec Record, opts ReportOptions) {
+	for class, count := range rec.BounceClasses {
+		class = strings.TrimSpace(class)
+		if class == "" || count <= 0 {
+			continue
+		}
+		key := reportScopeKey(rec, opts) + "\x00" + class
+		row := rows[key]
+		if row == nil {
+			row = &BounceClassRow{
+				Week:  rec.Week,
+				Epic:  strings.TrimSpace(rec.Epic),
+				Team:  rec.Team,
+				Agent: rec.Agent,
+				Class: class,
+			}
+			rows[key] = row
+		}
+		row.Jobs++
+		switch rec.Status {
+		case string(jobstore.StatusDone):
+			row.Done++
+		case string(jobstore.StatusFailed):
+			row.Failed++
+		}
+		row.Bounces += count
+	}
+}
+
+func reportScopeKey(rec Record, opts ReportOptions) string {
+	if opts.ByEpic {
+		return strings.TrimSpace(rec.Epic)
+	}
+	return rec.Week + "\x00" + rec.Team + "\x00" + rec.Agent
+}
+
+func sortedModelTierRows(rows map[string]*ModelTierRow, opts ReportOptions) []ModelTierRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]ModelTierRow, 0, len(rows))
+	for _, row := range rows {
+		row.finalize()
+		out = append(out, *row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return modelTierRowSortKey(out[i], opts) < modelTierRowSortKey(out[j], opts)
+	})
+	return out
+}
+
+func sortedBounceClassRows(rows map[string]*BounceClassRow, opts ReportOptions) []BounceClassRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]BounceClassRow, 0, len(rows))
+	for _, row := range rows {
+		row.finalize()
+		out = append(out, *row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return bounceClassRowSortKey(out[i], opts) < bounceClassRowSortKey(out[j], opts)
+	})
+	return out
+}
+
+func modelTierRowSortKey(row ModelTierRow, opts ReportOptions) string {
+	scope := row.Week + "\x00" + row.Team + "\x00" + row.Agent
+	if opts.ByEpic {
+		scope = row.Epic
+	}
+	return scope + "\x00" + row.Runtime + "\x00" + row.Model + "\x00" + row.Tier
+}
+
+func bounceClassRowSortKey(row BounceClassRow, opts ReportOptions) string {
+	scope := row.Week + "\x00" + row.Team + "\x00" + row.Agent
+	if opts.ByEpic {
+		scope = row.Epic
+	}
+	return scope + "\x00" + row.Class
 }
 
 // WeekKey returns an ISO week key for trend grouping.
@@ -452,13 +635,17 @@ func parseBounces(kickoff string) []BounceRecord {
 
 func classifyBounce(text string) []string {
 	lower := strings.ToLower(text)
+	if explicit := explicitBounceClasses(lower); len(explicit) > 0 {
+		return explicit
+	}
 	rules := []struct {
 		class string
 		keys  []string
 	}{
-		{"infra", []string{"infra", "flake", "flaky", "timeout", "rate limit", "credential", "auth", "network", "no space", "ci unavailable"}},
-		{"validation", []string{"test", "lint", "vet", "build", "compile", "gate", "typecheck", "format"}},
-		{"content", []string{"bug", "regression", "behavior", "requirement", "acceptance", "missing", "scope", "incorrect", "wrong"}},
+		{"infra", []string{"infra", "flake", "flaky", "timeout", "rate limit", "credential", "auth", "network", "no space", "ci unavailable", "base drift", "runner", "environment"}},
+		{"spec-ambiguity", []string{"spec ambiguity", "spec-ambiguity", "ambiguous", "ambiguity", "intent", "clarify", "not what was meant", "underspecified", "under-specified", "vague", "question"}},
+		{"scope", []string{"scope", "sprawl", "drive-by", "unrelated", "oversized", "split the ticket", "split ticket", "multiple concerns", "too broad", "out of scope", "owned path"}},
+		{"capability", []string{"capability", "logic error", "edge case", "misapplied", "missed", "missing test", "shallow test", "didn't understand", "did not understand", "incorrect", "wrong", "bug", "regression", "behavior", "requirement", "acceptance", "failed to", "doesn't", "does not"}},
 	}
 	var classes []string
 	for _, rule := range rules {
@@ -475,6 +662,32 @@ func classifyBounce(text string) []string {
 	return classes
 }
 
+func explicitBounceClasses(lower string) []string {
+	known := []string{"capability", "spec-ambiguity", "scope", "infra"}
+	var out []string
+	for _, line := range strings.Split(lower, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.Contains(line, "class") {
+			continue
+		}
+		for _, class := range known {
+			if strings.Contains(line, class) || class == "spec-ambiguity" && strings.Contains(line, "spec ambiguity") {
+				out = appendUniqueString(out, class)
+			}
+		}
+	}
+	return out
+}
+
+func appendUniqueString(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
 func countBounceClasses(bounces []BounceRecord) map[string]int {
 	if len(bounces) == 0 {
 		return nil
@@ -489,6 +702,295 @@ func countBounceClasses(bounces []BounceRecord) map[string]int {
 		}
 	}
 	return out
+}
+
+type usageRollup struct {
+	runtime  string
+	tokens   int64
+	started  time.Time
+	finished time.Time
+}
+
+func stepRunsForJob(teamDir string, j *jobstore.Job, primaryAgent string) []StepRunRecord {
+	if j == nil {
+		return nil
+	}
+	top, _ := topology.LoadFromTeamDir(teamDir)
+	defaultRuntime := defaultRuntimeForTeam(teamDir)
+	byInstance, byAgent := usageRollups(j)
+	out := make([]StepRunRecord, 0, len(j.Steps))
+	for _, step := range j.Steps {
+		if !stepProgressed(step) {
+			continue
+		}
+		inst := topologyInstanceForStep(top, step)
+		rollup := usageRollupForStep(step, inst, byInstance, byAgent)
+		runtime := firstNonEmpty(step.Runtime, rollup.runtime, instanceRuntime(inst), defaultRuntime)
+		model := strings.TrimSpace(instanceModel(inst))
+		tier := tierForModel(model)
+		agent := strings.TrimSpace(instanceAgent(inst))
+		if agent == "" {
+			agent = strings.TrimSpace(step.Target)
+		}
+		if tier == "" {
+			tier = tierForUnit(step.Target, agent, runtime)
+		}
+		if model == "" {
+			model = modelForRuntime(runtime)
+		}
+		out = append(out, StepRunRecord{
+			ID:             strings.TrimSpace(step.ID),
+			Target:         strings.TrimSpace(step.Target),
+			Agent:          agent,
+			Instance:       strings.TrimSpace(step.Instance),
+			Runtime:        runtime,
+			RuntimeBinary:  firstNonEmpty(step.RuntimeBin, instanceRuntimeBin(inst)),
+			Model:          model,
+			Tier:           tier,
+			Status:         string(step.Status),
+			Attempts:       step.Attempts,
+			TokenBudget:    step.TokenBudget,
+			TokensConsumed: rollup.tokens,
+			StartedAt:      stepRunStart(step, rollup),
+			FinishedAt:     stepRunFinish(step, rollup),
+		})
+	}
+	if len(out) == 0 && j.Usage != nil {
+		for _, rec := range j.Usage.Records {
+			if !usage.RecordUseful(rec) {
+				continue
+			}
+			runtime := firstNonEmpty(rec.Runtime, defaultRuntime)
+			agent := strings.TrimSpace(rec.Agent)
+			out = append(out, StepRunRecord{
+				ID:             usage.RecordKey(rec),
+				Target:         firstNonEmpty(agent, primaryAgent),
+				Agent:          agent,
+				Instance:       strings.TrimSpace(rec.Instance),
+				Runtime:        runtime,
+				Model:          modelForRuntime(runtime),
+				Tier:           tierForUnit(primaryAgent, agent, runtime),
+				TokensConsumed: rec.InputTokens + rec.OutputTokens,
+				StartedAt:      utcOrZero(rec.StartedAt),
+				FinishedAt:     utcOrZero(rec.EndedAt),
+			})
+		}
+	}
+	return out
+}
+
+func usageRollups(j *jobstore.Job) (map[string]usageRollup, map[string]usageRollup) {
+	byInstance := map[string]usageRollup{}
+	byAgent := map[string]usageRollup{}
+	if j == nil || j.Usage == nil {
+		return byInstance, byAgent
+	}
+	for _, rec := range j.Usage.Records {
+		rollup := usageRollup{
+			runtime:  strings.TrimSpace(rec.Runtime),
+			tokens:   rec.InputTokens + rec.OutputTokens,
+			started:  utcOrZero(rec.StartedAt),
+			finished: utcOrZero(rec.EndedAt),
+		}
+		if instance := strings.TrimSpace(rec.Instance); instance != "" {
+			byInstance[instance] = mergeUsageRollup(byInstance[instance], rollup)
+		}
+		if agent := strings.TrimSpace(rec.Agent); agent != "" {
+			byAgent[agent] = mergeUsageRollup(byAgent[agent], rollup)
+		}
+	}
+	return byInstance, byAgent
+}
+
+func mergeUsageRollup(a, b usageRollup) usageRollup {
+	if a.runtime == "" {
+		a.runtime = b.runtime
+	}
+	a.tokens += b.tokens
+	if a.started.IsZero() || !b.started.IsZero() && b.started.Before(a.started) {
+		a.started = b.started
+	}
+	if a.finished.IsZero() || b.finished.After(a.finished) {
+		a.finished = b.finished
+	}
+	return a
+}
+
+func usageRollupForStep(step jobstore.Step, inst *topology.Instance, byInstance, byAgent map[string]usageRollup) usageRollup {
+	if step.Instance != "" {
+		if rollup, ok := byInstance[strings.TrimSpace(step.Instance)]; ok {
+			return rollup
+		}
+	}
+	if inst != nil && strings.TrimSpace(inst.Agent) != "" {
+		if rollup, ok := byAgent[strings.TrimSpace(inst.Agent)]; ok {
+			return rollup
+		}
+	}
+	if step.Target != "" {
+		if rollup, ok := byAgent[strings.TrimSpace(step.Target)]; ok {
+			return rollup
+		}
+	}
+	return usageRollup{}
+}
+
+func stepProgressed(step jobstore.Step) bool {
+	if step.Attempts > 0 || strings.TrimSpace(step.Instance) != "" {
+		return true
+	}
+	if !step.RunningAt.IsZero() || !step.FinishedAt.IsZero() {
+		return true
+	}
+	switch step.Status {
+	case jobstore.StatusRunning, jobstore.StatusDone, jobstore.StatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func topologyInstanceForStep(top *topology.Topology, step jobstore.Step) *topology.Instance {
+	if top == nil {
+		return nil
+	}
+	if instance := strings.TrimSpace(step.Instance); instance != "" {
+		if inst := top.FindRuntimeInstance(instance, strings.TrimSpace(step.Target)); inst != nil {
+			return inst
+		}
+	}
+	if target := strings.TrimSpace(step.Target); target != "" {
+		if inst := top.FindRuntimeInstance(target, ""); inst != nil {
+			return inst
+		}
+		if inst := top.Find(target); inst != nil {
+			return inst
+		}
+	}
+	return nil
+}
+
+func instanceRuntime(inst *topology.Instance) string {
+	if inst == nil {
+		return ""
+	}
+	return strings.TrimSpace(inst.Runtime)
+}
+
+func instanceRuntimeBin(inst *topology.Instance) string {
+	if inst == nil {
+		return ""
+	}
+	return strings.TrimSpace(inst.RuntimeBin)
+}
+
+func instanceModel(inst *topology.Instance) string {
+	if inst == nil {
+		return ""
+	}
+	return strings.TrimSpace(inst.Model)
+}
+
+func instanceAgent(inst *topology.Instance) string {
+	if inst == nil {
+		return ""
+	}
+	return strings.TrimSpace(inst.Agent)
+}
+
+func stepRunStart(step jobstore.Step, rollup usageRollup) time.Time {
+	if !rollup.started.IsZero() {
+		return rollup.started
+	}
+	if !step.RunningAt.IsZero() {
+		return utcOrZero(step.RunningAt)
+	}
+	return utcOrZero(step.StartedAt)
+}
+
+func stepRunFinish(step jobstore.Step, rollup usageRollup) time.Time {
+	if !rollup.finished.IsZero() {
+		return rollup.finished
+	}
+	return utcOrZero(step.FinishedAt)
+}
+
+func primaryRunBinding(runs []StepRunRecord, primaryAgent string) (runtime, model, tier string) {
+	for _, run := range runs {
+		if strings.EqualFold(run.ID, "implement") ||
+			primaryAgent != "" && (run.Target == primaryAgent || run.Agent == primaryAgent) {
+			return run.Runtime, run.Model, run.Tier
+		}
+	}
+	for _, run := range runs {
+		if run.Runtime != "" || run.Model != "" || run.Tier != "" {
+			return run.Runtime, run.Model, run.Tier
+		}
+	}
+	return "", "", ""
+}
+
+func defaultRuntimeForTeam(teamDir string) string {
+	path := filepath.Join(teamDir, "config.toml")
+	var cfg map[string]any
+	if _, err := toml.DecodeFile(path, &cfg); err == nil {
+		if runtimeCfg, ok := anyMap(cfg["runtime"]); ok {
+			if kind := anyString(runtimeCfg["kind"]); kind != "" {
+				return kind
+			}
+		}
+	}
+	return "claude"
+}
+
+func tierForModel(model string) string {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case "claude-fable-5":
+		return "T0"
+	case "claude-opus-4-8":
+		return "T1"
+	case "claude-sonnet-5":
+		return "T2"
+	case "claude-haiku-4-5":
+		return "T3"
+	default:
+		return ""
+	}
+}
+
+func tierForUnit(target, agent, runtime string) string {
+	haystack := strings.ToLower(strings.TrimSpace(target) + " " + strings.TrimSpace(agent))
+	switch {
+	case strings.Contains(haystack, "advisor") || strings.Contains(haystack, "org-review"):
+		return "T0"
+	case strings.Contains(haystack, "reviewer") || strings.Contains(haystack, "manager") || strings.Contains(haystack, "harness-review"):
+		return "T1"
+	case strings.Contains(haystack, "verifier") || strings.Contains(haystack, "ticket-manager") || strings.Contains(haystack, "sentinel") || strings.Contains(haystack, "product-verify"):
+		return "T3"
+	case strings.Contains(haystack, "worker") || strings.Contains(haystack, "docs") || strings.Contains(haystack, "comms") || strings.Contains(haystack, "feedback") || strings.Contains(haystack, "auditor"):
+		return "T2"
+	case strings.EqualFold(strings.TrimSpace(runtime), "codex"):
+		return "T2"
+	default:
+		return ""
+	}
+}
+
+func modelForRuntime(runtime string) string {
+	runtime = strings.TrimSpace(runtime)
+	if runtime == "" {
+		return ""
+	}
+	return runtime
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func reviewRounds(j *jobstore.Job, bounces int) int {
@@ -876,6 +1378,12 @@ func (r *TrendRow) add(rec Record) {
 			r.BounceClasses[class] += count
 		}
 	}
+	if key := modelTierKey(rec.Runtime, rec.Model, rec.Tier); key != "" {
+		if r.ModelTiers == nil {
+			r.ModelTiers = map[string]int{}
+		}
+		r.ModelTiers[key]++
+	}
 	r.WatchdogEvents += len(rec.WatchdogEvents)
 	r.BudgetNoticeEvents += len(rec.BudgetNoticeEvents)
 	r.BudgetExceededEvents += len(rec.BudgetExceededEvents)
@@ -913,6 +1421,20 @@ func (r *TrendRow) finalize() {
 	r.EffectiveConcurrency, r.PeakConcurrentWorkUnits = effectiveConcurrency(r.workIntervals)
 	if r.DeclaredReplicaCapacity > 0 && r.EffectiveConcurrency > 0 {
 		r.ConcurrencyUtilization = round2(r.EffectiveConcurrency / float64(r.DeclaredReplicaCapacity))
+	}
+}
+
+func (r *ModelTierRow) finalize() {
+	if r.Jobs > 0 {
+		r.AverageBounces = round2(float64(r.Bounces) / float64(r.Jobs))
+		r.AverageReviewRounds = round2(float64(r.ReviewRounds) / float64(r.Jobs))
+	}
+	r.TokenBudgetRatio = ratio(r.TokensConsumed, r.TokenBudget)
+}
+
+func (r *BounceClassRow) finalize() {
+	if r.Jobs > 0 {
+		r.AverageBounces = round2(float64(r.Bounces) / float64(r.Jobs))
 	}
 }
 
@@ -1090,4 +1612,23 @@ func anyMap(v any) (map[string]any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func anyString(v any) string {
+	switch s := v.(type) {
+	case string:
+		return strings.TrimSpace(s)
+	default:
+		return ""
+	}
+}
+
+func modelTierKey(runtime, model, tier string) string {
+	runtime = strings.TrimSpace(runtime)
+	model = strings.TrimSpace(model)
+	tier = strings.TrimSpace(tier)
+	if runtime == "" && model == "" && tier == "" {
+		return ""
+	}
+	return runtime + "\x00" + model + "\x00" + tier
 }
