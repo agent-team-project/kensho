@@ -26,16 +26,39 @@ event = "agent.dispatch"
 match.target = "worker"
 `
 
+const managerWakeMultiManagerTestTopology = `
+[instances.manager]
+agent = "manager"
+
+[instances.release-manager]
+agent = "manager"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+replicas = 2
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+`
+
 func managerWakeFixture(t *testing.T) (string, string, *topology.Topology, *fakeSpawner, *EventResolver) {
+	return managerWakeFixtureWithTopology(t, managerWakeTestTopology, "manager")
+}
+
+func managerWakeFixtureWithTopology(t *testing.T, topologyText string, managerInstances ...string) (string, string, *topology.Topology, *fakeSpawner, *EventResolver) {
 	t.Helper()
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "manager")
-	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(managerWakeTestTopology), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topologyText), 0o644); err != nil {
 		t.Fatalf("write instances.toml: %v", err)
 	}
-	top := mustParseCustomTopo(t, managerWakeTestTopology)
+	top := mustParseCustomTopo(t, topologyText)
 	root := DaemonRoot(teamDir)
-	seedStoppedCodexManager(t, root, teamDir, "manager")
+	for _, manager := range managerInstances {
+		seedStoppedCodexManager(t, root, teamDir, manager)
+	}
 	fake := newFakeSpawner(30 * time.Second)
 	mgr := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(mgr, teamDir, top)
@@ -175,8 +198,8 @@ func TestManagerWakeSweepWakesStoppedManagerForCompletedDeliverableWithEmptyQueu
 		t.Fatalf("new job: %v", err)
 	}
 	j.Status = jobstore.StatusDone
-	j.Origin = origin.Envelope{Instance: "manager", Agent: "manager"}
 	j.Instance = "worker-gh-301"
+	j.Origin = origin.Envelope{Instance: j.Instance, Agent: "worker"}
 	j.PR = "https://github.com/acme/repo/pull/301"
 	j.Branch = "worker-gh-301"
 	j.LastEvent = "instance_exited"
@@ -204,6 +227,35 @@ func TestManagerWakeSweepWakesStoppedManagerForCompletedDeliverableWithEmptyQueu
 
 	_, _ = resolver.mgr.Stop("manager")
 	waitForStatusNot(t, resolver.mgr, "manager", StatusRunning)
+}
+
+func TestManagerWakeSweepDoesNotClaimOrphanCompletedDeliverableWithMultipleManagers(t *testing.T) {
+	teamDir, _, _, fake, resolver := managerWakeFixtureWithTopology(t, managerWakeMultiManagerTestTopology, "manager", "release-manager")
+	now := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	j, err := jobstore.New("GH-303", "worker", "merge completed branch", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	j.Status = jobstore.StatusDone
+	j.Instance = "worker-gh-303"
+	j.Origin = origin.Envelope{Instance: j.Instance, Agent: "worker"}
+	j.PR = "https://github.com/acme/repo/pull/303"
+	j.Branch = "worker-gh-303"
+	j.LastEvent = "instance_exited"
+	j.LastStatus = "instance exited successfully"
+	j.UpdatedAt = now.Add(-30 * time.Minute)
+	writeManagerWakeJob(t, teamDir, j)
+
+	result, err := resolver.SweepManagerWakeupsWithResult(now)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if fake.callCount() != 0 {
+		t.Fatalf("spawn calls = %d, want no ambiguous manager resume", fake.callCount())
+	}
+	if len(result.IdleWakeups) != 0 {
+		t.Fatalf("idle wakeups = %+v, want none for orphan deliverable with multiple managers", result.IdleWakeups)
+	}
 }
 
 func TestManagerWakeSweepIgnoresCompletedDeliverableAfterManagerAction(t *testing.T) {

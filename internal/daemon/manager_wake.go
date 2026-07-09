@@ -127,11 +127,13 @@ func (r *EventResolver) SweepManagerWakeupsWithResult(now time.Time) (*ManagerWa
 
 func (r *EventResolver) sweepIdleManagers(now time.Time, topo *topology.Topology, jobs []*jobstore.Job, metas []*Metadata) []ManagerWakeupResult {
 	var out []ManagerWakeupResult
-	for _, inst := range managerWakeInstances(topo) {
+	managers := managerWakeInstances(topo)
+	managerNames := managerWakeInstanceNames(managers)
+	for _, inst := range managers {
 		if r.mgr.isRunning(inst.Name) {
 			continue
 		}
-		job := managerIdleBacklogJob(inst, jobs, metas)
+		job := managerIdleBacklogJob(inst, jobs, metas, managerNames)
 		if job == nil {
 			continue
 		}
@@ -171,6 +173,20 @@ func (r *EventResolver) sweepOverdueExpectations(now time.Time, topo *topology.T
 	return out, nil
 }
 
+func managerWakeInstanceNames(instances []*topology.Instance) map[string]struct{} {
+	out := make(map[string]struct{}, len(instances))
+	for _, inst := range instances {
+		if inst == nil {
+			continue
+		}
+		name := strings.TrimSpace(inst.Name)
+		if name != "" {
+			out[name] = struct{}{}
+		}
+	}
+	return out
+}
+
 func managerWakeInstances(topo *topology.Topology) []*topology.Instance {
 	if topo == nil {
 		return nil
@@ -185,12 +201,12 @@ func managerWakeInstances(topo *topology.Topology) []*topology.Instance {
 	return out
 }
 
-func managerIdleBacklogJob(inst *topology.Instance, jobs []*jobstore.Job, metas []*Metadata) *jobstore.Job {
+func managerIdleBacklogJob(inst *topology.Instance, jobs []*jobstore.Job, metas []*Metadata, managerNames map[string]struct{}) *jobstore.Job {
 	if inst == nil {
 		return nil
 	}
 	for _, j := range jobs {
-		if !managerOwnsPendingWork(inst, j) {
+		if !managerOwnsPendingWork(inst, j, managerNames) {
 			continue
 		}
 		if managerHasActiveChildWork(inst.Name, j, jobs, metas) {
@@ -201,8 +217,8 @@ func managerIdleBacklogJob(inst *topology.Instance, jobs []*jobstore.Job, metas 
 	return nil
 }
 
-func managerOwnsPendingWork(inst *topology.Instance, j *jobstore.Job) bool {
-	return managerOwnsIncompleteJob(inst, j) || managerOwnsCompletedDeliverable(inst, j)
+func managerOwnsPendingWork(inst *topology.Instance, j *jobstore.Job, managerNames map[string]struct{}) bool {
+	return managerOwnsIncompleteJob(inst, j) || managerOwnsCompletedDeliverable(inst, j, managerNames)
 }
 
 func managerOwnsIncompleteJob(inst *topology.Instance, j *jobstore.Job) bool {
@@ -225,7 +241,7 @@ func managerOwnsIncompleteJob(inst *topology.Instance, j *jobstore.Job) bool {
 	return false
 }
 
-func managerOwnsCompletedDeliverable(inst *topology.Instance, j *jobstore.Job) bool {
+func managerOwnsCompletedDeliverable(inst *topology.Instance, j *jobstore.Job, managerNames map[string]struct{}) bool {
 	if inst == nil || j == nil || !jobHasPendingManagerDeliverable(j) {
 		return false
 	}
@@ -240,6 +256,33 @@ func managerOwnsCompletedDeliverable(inst *topology.Instance, j *jobstore.Job) b
 		step := &j.Steps[i]
 		if managerTarget(name, step.Target, step.Instance) {
 			return true
+		}
+	}
+	if completedDeliverableTargetsKnownManager(j, managerNames) {
+		return false
+	}
+	if len(managerNames) == 1 {
+		_, ok := managerNames[name]
+		return ok
+	}
+	return false
+}
+
+func completedDeliverableTargetsKnownManager(j *jobstore.Job, managerNames map[string]struct{}) bool {
+	if j == nil || len(managerNames) == 0 {
+		return false
+	}
+	for _, candidate := range []string{j.Origin.Instance, j.Target, j.Instance} {
+		if _, ok := managerNames[strings.TrimSpace(candidate)]; ok {
+			return true
+		}
+	}
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		for _, candidate := range []string{step.Target, step.Instance} {
+			if _, ok := managerNames[strings.TrimSpace(candidate)]; ok {
+				return true
+			}
 		}
 	}
 	return false
