@@ -95,6 +95,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			Args                []string `json:"args"`
 			Env                 []string `json:"env"`
 			Stdin               string   `json:"stdin"`
+			CleanupPaths        []string `json:"cleanup_paths"`
 		}
 		if err := decodeJSON(r, &body); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -130,6 +131,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			Args:                body.Args,
 			Env:                 body.Env,
 			Stdin:               body.Stdin,
+			CleanupPaths:        body.CleanupPaths,
 		})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())

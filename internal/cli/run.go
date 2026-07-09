@@ -295,30 +295,6 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		return fmt.Errorf("re-render .tmpl files: %w", err)
 	}
 
-	tmpdir, err := os.MkdirTemp("", "agent-team-")
-	if err != nil {
-		return fmt.Errorf("create tmpdir: %w", err)
-	}
-	defer os.RemoveAll(tmpdir)
-
-	skillsRoot := filepath.Join(tmpdir, ".claude", "skills")
-	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
-		return fmt.Errorf("create skills root: %w", err)
-	}
-	for sname, spath := range skillPaths {
-		if err := os.Symlink(spath, filepath.Join(skillsRoot, sname)); err != nil {
-			return fmt.Errorf("symlink skill %s: %w", sname, err)
-		}
-	}
-	var mailboxHook *runtimehooks.MailboxHook
-	if runtimehooks.MailboxInjectionEnabled(resolved) {
-		hook, err := runtimehooks.PrepareMailboxHook(filepath.Join(stateDir, "runtime"))
-		if err != nil {
-			return err
-		}
-		mailboxHook = hook
-	}
-
 	stateRel, err := filepath.Rel(target, stateDir)
 	if err != nil {
 		stateRel = stateDir
@@ -334,11 +310,6 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	} else if brief != "" {
 		kickoff = brief + "\n\n--- runtime kickoff ---\n\n" + kickoff
 	}
-	promptFile := filepath.Join(tmpdir, "system_prompt.md")
-	if err := os.WriteFile(promptFile, []byte(kickoff), 0o644); err != nil {
-		return fmt.Errorf("write prompt file: %w", err)
-	}
-
 	agentsJSON, err := buildAgentsJSON(agents)
 	if err != nil {
 		return err
@@ -421,7 +392,40 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 		}
 	}
 	daemonDispatch := !cfg.noDaemon && daemonCapable && (cfg.prompt != "" || cfg.detach || cfg.attach) && dispatchClient != nil
-	shimRoot := tmpdir
+	launchRoot, launchCleanupPaths, err := prepareRunLaunchRoot(stateDir, daemonDispatch)
+	if err != nil {
+		return err
+	}
+	cleanupLaunchRoot := true
+	defer func() {
+		if cleanupLaunchRoot {
+			_ = os.RemoveAll(launchRoot)
+		}
+	}()
+
+	skillsRoot := filepath.Join(launchRoot, ".claude", "skills")
+	if err := os.MkdirAll(skillsRoot, 0o755); err != nil {
+		return fmt.Errorf("create skills root: %w", err)
+	}
+	for sname, spath := range skillPaths {
+		if err := os.Symlink(spath, filepath.Join(skillsRoot, sname)); err != nil {
+			return fmt.Errorf("symlink skill %s: %w", sname, err)
+		}
+	}
+	var mailboxHook *runtimehooks.MailboxHook
+	if runtimehooks.MailboxInjectionEnabled(resolved) {
+		hook, err := runtimehooks.PrepareMailboxHook(launchRoot)
+		if err != nil {
+			return err
+		}
+		mailboxHook = hook
+	}
+	promptFile := filepath.Join(launchRoot, "system_prompt.md")
+	if err := os.WriteFile(promptFile, []byte(kickoff), 0o644); err != nil {
+		return fmt.Errorf("write prompt file: %w", err)
+	}
+
+	shimRoot := launchRoot
 	if daemonDispatch {
 		shimRoot = stateDir
 	}
@@ -440,7 +444,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	env := runtimeshim.PrependPath(append(baseEnv, teamEnv...), shimBinDir)
 	runtimeArgEnv := append([]string(nil), teamEnv...)
 	runtimeArgEnv = runtimeshim.PrependPath(append(runtimeArgEnv, "PATH="+os.Getenv("PATH")), shimBinDir)
-	runtimeArgs, runtimeStdin, err := buildRuntimeArgs(rt, target, tmpdir, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, runtimeArgEnv, lastMessagePath, mailboxHook, otelLaunch)
+	runtimeArgs, runtimeStdin, err := buildRuntimeArgs(rt, target, launchRoot, agentsJSON, promptFile, kickoff, cfg.prompt, forwarded, agents, runtimeArgEnv, lastMessagePath, mailboxHook, otelLaunch)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team run: %v\n", err)
 		return exitErr(2)
@@ -468,10 +472,12 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 			Args:                runtimeArgs,
 			Env:                 runtimeArgEnv,
 			Stdin:               runtimeStdin,
+			CleanupPaths:        launchCleanupPaths,
 		})
 		if derr != nil {
 			return fmt.Errorf("daemon dispatch: %w", derr)
 		}
+		cleanupLaunchRoot = false
 		row := runDispatchJSON{
 			Instance:            disp.InstanceID,
 			URI:                 disp.URI,
@@ -565,6 +571,25 @@ func runResourceEnv(payload runResourcePayload) []string {
 		}
 	}
 	return out
+}
+
+func prepareRunLaunchRoot(stateDir string, daemonDispatch bool) (string, []string, error) {
+	if !daemonDispatch {
+		dir, err := os.MkdirTemp("", "agent-team-")
+		if err != nil {
+			return "", nil, fmt.Errorf("create tmpdir: %w", err)
+		}
+		return dir, nil, nil
+	}
+	parent := filepath.Join(stateDir, "runtime")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", nil, fmt.Errorf("create runtime launch parent: %w", err)
+	}
+	dir, err := os.MkdirTemp(parent, "launch-")
+	if err != nil {
+		return "", nil, fmt.Errorf("create runtime launch dir: %w", err)
+	}
+	return dir, []string{dir}, nil
 }
 
 func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string, mailboxHook *runtimehooks.MailboxHook, otelLaunch runtimeotel.Launch) ([]string, string, error) {

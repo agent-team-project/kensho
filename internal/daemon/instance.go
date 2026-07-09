@@ -162,6 +162,9 @@ type DispatchInput struct {
 	EnvAllow     []string
 	StripOTelEnv bool
 	Stdin        string
+	// CleanupPaths are launch-time scratch paths the daemon owns after a
+	// successful spawn. They are removed only after the child has been reaped.
+	CleanupPaths []string
 	// Budget, if > 0, is a hard wall-clock runtime budget for the dispatched
 	// instance. When it elapses before the process exits on its own, a watchdog
 	// finalises the instance as Crashed and force-kills its process group (see
@@ -305,6 +308,10 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		return nil, err
 	}
 	logPath := filepath.Join(instanceDir(m.daemonRoot, in.Name), "child.log")
+	cleanupPaths, err := m.validCleanupPaths(in.CleanupPaths)
+	if err != nil {
+		return nil, err
+	}
 
 	args, err := dispatchArgs(rt, sessionID, in)
 	if err != nil {
@@ -372,7 +379,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	m.recordEvent("dispatch", &out, "instance dispatched")
 	capture := m.startCodexSessionCapture(rt.Kind, out)
 	m.startBudgetNoticeWatcher(out, proc, reaped)
-	go m.reap(in.Name, proc, reaped)
+	go m.reap(in.Name, proc, reaped, cleanupPaths)
 	if watchdogUpdate != nil {
 		go m.watchdog(in.Name, proc, reaped, watchdogUpdate)
 	}
@@ -1260,7 +1267,7 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 
 	out := meta
 	m.recordEvent("start", &out, "instance resumed")
-	go m.reap(instance, proc, reaped)
+	go m.reap(instance, proc, reaped, nil)
 	return &out, nil
 }
 
@@ -1504,6 +1511,10 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 		return nil, false, err
 	}
 	logPath := filepath.Join(instanceDir(m.daemonRoot, in.Name), "child.log")
+	cleanupPaths, err := m.validCleanupPaths(in.CleanupPaths)
+	if err != nil {
+		return nil, false, err
+	}
 	args, err := dispatchArgs(rt, sessionID, in)
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: %w", err)
@@ -1608,7 +1619,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	m.recordEvent("dispatch", &out, "instance dispatched")
 	capture := m.startCodexSessionCapture(rt.Kind, out)
 	m.startBudgetNoticeWatcher(out, proc, reaped)
-	go m.reap(in.Name, proc, reaped)
+	go m.reap(in.Name, proc, reaped, cleanupPaths)
 	if watchdogUpdate != nil {
 		go m.watchdog(in.Name, proc, reaped, watchdogUpdate)
 	}
@@ -1893,8 +1904,9 @@ func (m *InstanceManager) isRunning(instance string) bool {
 // Closing `reaped` is the LAST thing reap does, after both the in-memory
 // metadata and on-disk metadata have been finalised. Tests block on this
 // channel for deterministic ordering.
-func (m *InstanceManager) reap(instance string, proc *os.Process, reaped chan<- struct{}) {
+func (m *InstanceManager) reap(instance string, proc *os.Process, reaped chan<- struct{}, cleanupPaths []string) {
 	defer close(reaped)
+	defer cleanupLaunchPaths(cleanupPaths)
 	state, err := proc.Wait()
 
 	m.mu.Lock()
@@ -1977,6 +1989,48 @@ func (m *InstanceManager) reap(instance string, proc *os.Process, reaped chan<- 
 	}
 	if hook != nil {
 		hook(instance)
+	}
+}
+
+func (m *InstanceManager) validCleanupPaths(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	stateRoot := canonicalCleanupPath(filepath.Join(filepath.Dir(m.daemonRoot), "state"))
+	out := make([]string, 0, len(paths))
+	for _, raw := range paths {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			continue
+		}
+		if !filepath.IsAbs(path) {
+			return nil, fmt.Errorf("dispatch: cleanup path %q must be absolute", path)
+		}
+		clean := canonicalCleanupPath(path)
+		rel, err := filepath.Rel(stateRoot, clean)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return nil, fmt.Errorf("dispatch: cleanup path %q must be under %s", path, stateRoot)
+		}
+		out = append(out, clean)
+	}
+	return out, nil
+}
+
+func canonicalCleanupPath(path string) string {
+	clean := filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+		return resolved
+	}
+	return clean
+}
+
+func cleanupLaunchPaths(paths []string) {
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		_ = os.RemoveAll(path)
 	}
 }
 
