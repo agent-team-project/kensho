@@ -259,6 +259,7 @@ type Budget struct {
 	TokensPerDay int64
 	JobsInFlight int
 	Allocation   string
+	LoadWeight   float64
 }
 
 // Concurrency declares daemon-wide adaptive admission settings. Zero values
@@ -897,9 +898,10 @@ type rawTeam struct {
 }
 
 type rawBudget struct {
-	TokensPerDay *int64 `toml:"tokens_per_day"`
-	JobsInFlight *int   `toml:"jobs_in_flight"`
-	Allocation   string `toml:"allocation"`
+	TokensPerDay *int64   `toml:"tokens_per_day"`
+	JobsInFlight *int     `toml:"jobs_in_flight"`
+	Allocation   string   `toml:"allocation"`
+	LoadWeight   *float64 `toml:"load_weight"`
 }
 
 type rawConcurrency struct {
@@ -1486,6 +1488,13 @@ func rawBudgetFromValue(name string, value any) (*rawBudget, error) {
 		}
 		rb.Allocation = allocation
 	}
+	if rawWeight, ok := values["load_weight"]; ok {
+		weight, err := rawFloat64(rawWeight, fmt.Sprintf("budget %q: load_weight", name))
+		if err != nil {
+			return nil, err
+		}
+		rb.LoadWeight = &weight
+	}
 	return &rb, nil
 }
 
@@ -1512,6 +1521,23 @@ func rawInt(raw any, field string) (int, error) {
 		return 0, fmt.Errorf("%s is too large", field)
 	}
 	return out, nil
+}
+
+func rawFloat64(raw any, field string) (float64, error) {
+	switch v := raw.(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
+	case int:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
+	default:
+		return 0, fmt.Errorf("%s must be a number", field)
+	}
 }
 
 func finaliseConcurrency(raw *rawConcurrency) (*Concurrency, error) {
@@ -1612,11 +1638,18 @@ func finaliseBudget(name string, rb *rawBudget) (*Budget, error) {
 		}
 		jobsInFlight = *rb.JobsInFlight
 	}
+	loadWeight := 1.0
+	if rb.LoadWeight != nil {
+		if *rb.LoadWeight <= 0 {
+			return nil, fmt.Errorf("budget %q: load_weight must be > 0", name)
+		}
+		loadWeight = *rb.LoadWeight
+	}
 	allocation, err := NormalizeBudgetAllocation(rb.Allocation)
 	if err != nil {
 		return nil, fmt.Errorf("budget %q: %w", name, err)
 	}
-	return &Budget{Team: name, TokensPerDay: tokensPerDay, JobsInFlight: jobsInFlight, Allocation: allocation}, nil
+	return &Budget{Team: name, TokensPerDay: tokensPerDay, JobsInFlight: jobsInFlight, Allocation: allocation, LoadWeight: loadWeight}, nil
 }
 
 // NormalizeBudgetAllocation validates a budget allocation mode. Empty means

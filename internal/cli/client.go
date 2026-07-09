@@ -946,10 +946,11 @@ type topologyTeam struct {
 }
 
 type topologyBudget struct {
-	Team         string `json:"team"`
-	TokensPerDay int64  `json:"tokens_per_day"`
-	JobsInFlight int    `json:"jobs_in_flight"`
-	Allocation   string `json:"allocation"`
+	Team         string  `json:"team"`
+	TokensPerDay int64   `json:"tokens_per_day"`
+	JobsInFlight int     `json:"jobs_in_flight"`
+	Allocation   string  `json:"allocation"`
+	LoadWeight   float64 `json:"load_weight"`
 }
 
 func (c *daemonClient) Topology() (*topologyResponse, error) {

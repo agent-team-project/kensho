@@ -56,10 +56,13 @@ type concurrencyController struct {
 }
 
 type concurrencyAdmission struct {
-	Allowed bool
-	Reason  string
-	Ceiling int
-	Running int
+	Allowed      bool
+	Reason       string
+	Ceiling      int
+	CeilingLoad  float64
+	Running      int
+	RunningLoad  float64
+	IncomingLoad float64
 }
 
 func newConcurrencyController(raw *topology.Concurrency) *concurrencyController {
@@ -154,29 +157,33 @@ func (c *concurrencyController) updateConfig(raw *topology.Concurrency) bool {
 	return true
 }
 
-func (c *concurrencyController) admit(now time.Time, running int) (concurrencyAdmission, *LifecycleEvent) {
+func (c *concurrencyController) admit(now time.Time, running int, runningLoad, incomingLoad float64) (concurrencyAdmission, *LifecycleEvent) {
 	if c == nil || !c.cfg.enabled {
-		return concurrencyAdmission{Allowed: true, Ceiling: math.MaxInt, Running: running}, nil
+		runningLoad = normalizeConcurrencyRunningLoad(running, runningLoad)
+		incomingLoad = normalizeConcurrencyLoad(incomingLoad)
+		return concurrencyAdmission{Allowed: true, Ceiling: math.MaxInt, CeilingLoad: math.MaxFloat64, Running: running, RunningLoad: runningLoad, IncomingLoad: incomingLoad}, nil
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
 	increaseReason := c.maybeIncrease(now)
-	admission := c.admissionForEffective(running, increaseReason)
+	admission := c.admissionForEffective(running, runningLoad, incomingLoad, increaseReason)
 	return admission, c.recordEffectiveChange(now, admission.Ceiling, admission.Reason)
 }
 
-func (c *concurrencyController) preview(now time.Time, running int) concurrencyAdmission {
+func (c *concurrencyController) preview(now time.Time, running int, runningLoad, incomingLoad float64) concurrencyAdmission {
 	if c == nil || !c.cfg.enabled {
-		return concurrencyAdmission{Allowed: true, Ceiling: math.MaxInt, Running: running}
+		runningLoad = normalizeConcurrencyRunningLoad(running, runningLoad)
+		incomingLoad = normalizeConcurrencyLoad(incomingLoad)
+		return concurrencyAdmission{Allowed: true, Ceiling: math.MaxInt, CeilingLoad: math.MaxFloat64, Running: running, RunningLoad: runningLoad, IncomingLoad: incomingLoad}
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	return c.admissionForEffective(running, "")
+	return c.admissionForEffective(running, runningLoad, incomingLoad, "")
 }
 
-func (c *concurrencyController) observeCrash(now time.Time, running int) *LifecycleEvent {
+func (c *concurrencyController) observeCrash(now time.Time, running int, runningLoad float64) *LifecycleEvent {
 	if c == nil || !c.cfg.enabled || c.cfg.crashThreshold <= 0 {
 		return nil
 	}
@@ -202,7 +209,7 @@ func (c *concurrencyController) observeCrash(now time.Time, running int) *Lifecy
 	}
 	c.current = next
 	reason := fmt.Sprintf("AIMD decrease after %d crashes in %s", c.cfg.crashThreshold, c.cfg.crashWindow)
-	admission := c.admissionForEffective(running, reason)
+	admission := c.admissionForEffective(running, runningLoad, 0, reason)
 	return c.recordEffectiveChange(now, admission.Ceiling, reason)
 }
 
@@ -225,31 +232,36 @@ func (c *concurrencyController) maybeIncrease(now time.Time) string {
 	return fmt.Sprintf("AIMD increase after %s stable", c.cfg.stableWindow)
 }
 
-func (c *concurrencyController) admissionForEffective(running int, preferredReason string) concurrencyAdmission {
-	ceiling, reason := c.effectiveCeiling(running)
-	if strings.TrimSpace(preferredReason) != "" && ceiling == c.current {
+func (c *concurrencyController) admissionForEffective(running int, runningLoad, incomingLoad float64, preferredReason string) concurrencyAdmission {
+	runningLoad = normalizeConcurrencyRunningLoad(running, runningLoad)
+	incomingLoad = normalizeConcurrencyLoad(incomingLoad)
+	ceilingLoad, reason := c.effectiveCeiling(runningLoad)
+	if strings.TrimSpace(preferredReason) != "" && math.Abs(ceilingLoad-float64(c.current)) < 0.000001 {
 		reason = preferredReason
 	}
 	return concurrencyAdmission{
-		Allowed: running < ceiling,
-		Reason:  reason,
-		Ceiling: ceiling,
-		Running: running,
+		Allowed:      runningLoad+incomingLoad <= ceilingLoad+0.000001,
+		Reason:       reason,
+		Ceiling:      int(math.Floor(ceilingLoad)),
+		CeilingLoad:  ceilingLoad,
+		Running:      running,
+		RunningLoad:  runningLoad,
+		IncomingLoad: incomingLoad,
 	}
 }
 
-func (c *concurrencyController) effectiveCeiling(running int) (int, string) {
-	machineCeiling, reason, ok := c.machineCeiling(running)
+func (c *concurrencyController) effectiveCeiling(runningLoad float64) (float64, string) {
+	machineCeiling, reason, ok := c.machineCeiling(runningLoad)
 	if !ok {
-		return c.current, "AIMD ceiling"
+		return float64(c.current), "AIMD ceiling"
 	}
-	if machineCeiling < c.current {
+	if machineCeiling < float64(c.current) {
 		return machineCeiling, reason
 	}
-	return c.current, "AIMD ceiling"
+	return float64(c.current), "AIMD ceiling"
 }
 
-func (c *concurrencyController) machineCeiling(running int) (int, string, bool) {
+func (c *concurrencyController) machineCeiling(runningLoad float64) (float64, string, bool) {
 	if c.sampler == nil {
 		return 0, "", false
 	}
@@ -259,15 +271,13 @@ func (c *concurrencyController) machineCeiling(running int) (int, string, bool) 
 	}
 	targetLoad := c.cfg.targetLoadPerCore * float64(sample.Cores)
 	headroom := targetLoad - sample.Load1
-	ceiling := running
+	ceiling := runningLoad
 	if headroom > 0 {
-		ceiling = running + int(math.Floor(headroom/c.cfg.loadPerDispatch))
+		ceiling = runningLoad + headroom/c.cfg.loadPerDispatch
 	}
-	if ceiling < 0 {
-		ceiling = 0
-	}
-	if ceiling > c.cfg.maxCeiling {
-		ceiling = c.cfg.maxCeiling
+	ceiling = math.Max(0, ceiling)
+	if ceiling > float64(c.cfg.maxCeiling) {
+		ceiling = float64(c.cfg.maxCeiling)
 	}
 	reason := fmt.Sprintf("load average %.2f/%d cores", sample.Load1, sample.Cores)
 	return ceiling, reason, true
@@ -300,6 +310,30 @@ func appendRecentTimes(times []time.Time, now time.Time, window time.Duration) [
 		}
 	}
 	return out
+}
+
+func normalizeConcurrencyRunningLoad(running int, load float64) float64 {
+	if load > 0 {
+		return load
+	}
+	if running <= 0 {
+		return 0
+	}
+	return float64(running)
+}
+
+func normalizeConcurrencyLoad(load float64) float64 {
+	if load > 0 {
+		return load
+	}
+	return 1
+}
+
+func formatConcurrencyLoad(load float64) string {
+	if math.Abs(load-math.Round(load)) < 0.000001 {
+		return fmt.Sprintf("%.0f", load)
+	}
+	return fmt.Sprintf("%.2f", load)
 }
 
 func defaultMachineLoadSample() (machineLoadSample, error) {

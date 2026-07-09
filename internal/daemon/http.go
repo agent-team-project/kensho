@@ -1543,6 +1543,7 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 			"tokens_per_day": budget.TokensPerDay,
 			"jobs_in_flight": budget.JobsInFlight,
 			"allocation":     budget.Allocation,
+			"load_weight":    budget.LoadWeight,
 		})
 	}
 	scheduleStates := scheduleStateMap(events)

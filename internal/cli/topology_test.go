@@ -387,6 +387,7 @@ reminder_levels = [25, 75, 100]
 tokens_per_day = 200_000_000
 jobs_in_flight = 4
 allocation = "reserve"
+load_weight = 2.5
 `
 	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)

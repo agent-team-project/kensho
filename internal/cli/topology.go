@@ -668,6 +668,7 @@ func toResponseLike(top *topology.Topology) map[string]any {
 			"tokens_per_day": budget.TokensPerDay,
 			"jobs_in_flight": budget.JobsInFlight,
 			"allocation":     budget.Allocation,
+			"load_weight":    budget.LoadWeight,
 		})
 	}
 	resp := map[string]any{"instances": out, "pipelines": pipelines, "schedules": schedules, "teams": teams, "budgets": budgets}

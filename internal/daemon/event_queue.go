@@ -31,6 +31,7 @@ func (r *EventResolver) onReap(spawned string) {
 	if tr.running > 0 {
 		tr.running--
 	}
+	tr.releaseRunningLoad(spawned)
 	freedLocks := r.releaseLocksForInstanceLocked(spawned)
 	r.mu.Unlock()
 	if meta, err := ReadMetadata(r.mgr.daemonRoot, spawned); err == nil {
@@ -70,6 +71,7 @@ func (r *EventResolver) onReap(spawned string) {
 		r.mu.Lock()
 		r.releaseLocksForInstanceLocked(next.uniqueName)
 		tr.running--
+		tr.releaseRunningLoad(next.uniqueName)
 		r.mu.Unlock()
 		return
 	}
@@ -483,7 +485,8 @@ func (r *EventResolver) popReadyQueuedEventLocked(inst *topology.Instance, tr *e
 		if ev.reason == QueueReasonBudgetExhausted {
 			ev.nextRetry = time.Time{}
 		}
-		concurrencyAdmission := r.concurrencyAdmissionLocked(now)
+		loadWeight := r.dispatchLoadWeightLocked(ev.origin.Team)
+		concurrencyAdmission := r.concurrencyAdmissionForLoadLocked(now, loadWeight)
 		if !concurrencyAdmission.Allowed {
 			ev.reason = QueueReasonConcurrencyCeiling
 			ev.lastError = concurrencyQueueMessage(concurrencyAdmission)
@@ -525,6 +528,7 @@ func (r *EventResolver) popReadyQueuedEventLocked(inst *topology.Instance, tr *e
 		}
 		tr.queue = append(tr.queue[:i:i], tr.queue[i+1:]...)
 		tr.running++
+		tr.trackRunningLoad(ev.uniqueName, loadWeight)
 		return ev
 	}
 	return nil
@@ -604,6 +608,7 @@ func (r *EventResolver) recoverQueueStateNoDrain() {
 				r.tracking[inst.Name] = tr
 			}
 			tr.running++
+			tr.trackRunningLoad(meta.Instance, r.dispatchLoadWeightLocked(meta.Origin.Team))
 		}
 	}
 	r.recoverLockStateLocked(time.Now().UTC())
@@ -737,6 +742,7 @@ func (r *EventResolver) drainQueuesWithResult(ids map[string]bool) (*QueueDrainR
 			r.mu.Lock()
 			if tr := r.tracking[declared.Name]; tr != nil && tr.running > 0 {
 				tr.running--
+				tr.releaseRunningLoad(ev.uniqueName)
 			}
 			r.mu.Unlock()
 			result.Rejected++
@@ -781,6 +787,7 @@ func (r *EventResolver) previewDrainQueuesWithResult(ids map[string]bool) (*Queu
 	if r.topo != nil {
 		now := time.Now().UTC()
 		globalRunning := r.runningEphemeralLocked()
+		globalRunningLoad := r.runningEphemeralLoadLocked()
 		lockUsage, lockSlots := r.previewLockCountsLocked()
 		for _, inst := range r.topo.SortedInstances() {
 			if !inst.Ephemeral {
@@ -811,7 +818,8 @@ func (r *EventResolver) previewDrainQueuesWithResult(ids map[string]bool) (*Queu
 				if err != nil || !admission.Allowed {
 					continue
 				}
-				if concurrencyAdmission := r.concurrencyAdmissionPreviewLocked(now, globalRunning); !concurrencyAdmission.Allowed {
+				loadWeight := r.dispatchLoadWeightLocked(ev.origin.Team)
+				if concurrencyAdmission := r.concurrencyAdmissionPreviewLocked(now, globalRunning, globalRunningLoad, loadWeight); !concurrencyAdmission.Allowed {
 					continue
 				}
 				locks := ev.locks
@@ -828,6 +836,7 @@ func (r *EventResolver) previewDrainQueuesWithResult(ids map[string]bool) (*Queu
 				result.Outcomes = append(result.Outcomes, EventOutcome{Instance: inst.Name, Action: "would_dispatch", InstanceID: ev.uniqueName})
 				capacity--
 				globalRunning++
+				globalRunningLoad += loadWeight
 			}
 		}
 	}
@@ -957,6 +966,7 @@ func (r *EventResolver) RetryQueueItem(id string) (EventOutcome, error) {
 		r.mu.Lock()
 		if tr.running > 0 {
 			tr.running--
+			tr.releaseRunningLoad(ev.uniqueName)
 		}
 		r.mu.Unlock()
 		_, _ = budget.ReleaseAllocations(r.teamDir, budget.ReleaseRequest{JobID: eventJobID(ev.payload), Instance: ev.uniqueName, Now: time.Now().UTC()})

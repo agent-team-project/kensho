@@ -282,6 +282,18 @@ func (r *EventResolver) budgetAdmissionLocked(team string, payload map[string]an
 	return budget.AdmissionForTeamWithRequest(r.teamDir, r.topo, team, eventJobID(payload), payloadBudgetTokens(payload), now)
 }
 
+func (r *EventResolver) dispatchLoadWeightLocked(team string) float64 {
+	team = strings.TrimSpace(team)
+	if r == nil || r.topo == nil || team == "" {
+		return 1
+	}
+	b := r.topo.FindBudget(team)
+	if b == nil {
+		return 1
+	}
+	return normalizeConcurrencyLoad(b.LoadWeight)
+}
+
 func (r *EventResolver) budgetsConfigured() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

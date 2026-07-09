@@ -22,7 +22,7 @@ func TestConcurrencyControllerMachineLoadAdmission(t *testing.T) {
 		return machineLoadSample{Load1: 4, Cores: 4}, nil
 	}
 
-	admission, ev := c.admit(time.Date(2026, 7, 8, 10, 0, 0, 0, time.UTC), 0)
+	admission, ev := c.admit(time.Date(2026, 7, 8, 10, 0, 0, 0, time.UTC), 0, 0, 1)
 	if admission.Allowed || admission.Ceiling != 0 || admission.Running != 0 {
 		t.Fatalf("admission = %+v, want blocked at ceiling 0", admission)
 	}
@@ -48,10 +48,10 @@ func TestConcurrencyControllerCrashBackoffAndStableIncrease(t *testing.T) {
 	}
 
 	now := time.Date(2026, 7, 8, 10, 0, 0, 0, time.UTC)
-	if ev := c.observeCrash(now, 0); ev != nil {
+	if ev := c.observeCrash(now, 0, 0); ev != nil {
 		t.Fatalf("first crash event = %+v, want nil before threshold", ev)
 	}
-	ev := c.observeCrash(now.Add(time.Second), 0)
+	ev := c.observeCrash(now.Add(time.Second), 0, 0)
 	if ev == nil || !strings.Contains(ev.Message, "concurrency ceiling adjusted to 4 (AIMD decrease after 2 crashes in 10m0s)") {
 		t.Fatalf("decrease event = %+v", ev)
 	}
@@ -59,7 +59,7 @@ func TestConcurrencyControllerCrashBackoffAndStableIncrease(t *testing.T) {
 		t.Fatalf("current ceiling = %d, want 4", c.current)
 	}
 
-	admission, ev := c.admit(now.Add(3*time.Second), 0)
+	admission, ev := c.admit(now.Add(3*time.Second), 0, 0, 1)
 	if admission.Ceiling != 5 || !admission.Allowed {
 		t.Fatalf("admission after stable window = %+v, want ceiling 5 allowed", admission)
 	}
@@ -120,6 +120,92 @@ match.target = "worker"
 	}
 	if len(events) != 1 || !strings.Contains(events[0].Message, "concurrency ceiling adjusted to 0") {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestEventConcurrencyLoadWeightConsumesGovernorHeadroom(t *testing.T) {
+	tests := []struct {
+		name             string
+		budget           string
+		wantThirdAction  string
+		wantSpawnedCount int
+	}{
+		{
+			name:             "default weight",
+			budget:           "",
+			wantThirdAction:  "dispatched",
+			wantSpawnedCount: 3,
+		},
+		{
+			name:             "heavy team weight",
+			budget:           "load_weight = 2.5",
+			wantThirdAction:  "queued",
+			wantSpawnedCount: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			fake := newFakeSpawner(30 * time.Second)
+			m := NewInstanceManager(root, fake.spawn)
+			top := mustParseCustomTopo(t, fmt.Sprintf(`
+	[concurrency]
+	enabled = true
+	max_ceiling = 5
+	initial_ceiling = 5
+	target_load_per_core = 100
+	load_per_dispatch = 1
+
+	[instances.worker]
+	agent = "worker"
+	ephemeral = true
+	replicas = 10
+
+	[[instances.worker.triggers]]
+	event = "agent.dispatch"
+	match.target = "worker"
+
+	[teams.delivery]
+	instances = ["worker"]
+
+	[budgets.delivery]
+	%s
+	`, tt.budget))
+			resolver := NewEventResolver(m, fixtureTeamDir(t), top)
+			resolver.concurrency.sampler = func() (machineLoadSample, error) {
+				return machineLoadSample{Load1: 0, Cores: 4}, nil
+			}
+
+			var outcomes []EventOutcome
+			for i := 1; i <= 3; i++ {
+				result, err := resolver.EventWithResult(topology.EventAgentDispatch, map[string]any{
+					"target": "worker",
+					"name":   fmt.Sprintf("worker-gh285-%d", i),
+				})
+				if err != nil {
+					t.Fatalf("dispatch %d: %v", i, err)
+				}
+				if len(result.Outcomes) != 1 {
+					t.Fatalf("dispatch %d outcomes = %+v, want one outcome", i, result.Outcomes)
+				}
+				outcomes = append(outcomes, result.Outcomes[0])
+			}
+			if outcomes[2].Action != tt.wantThirdAction {
+				t.Fatalf("third action = %q, want %q; outcomes=%+v", outcomes[2].Action, tt.wantThirdAction, outcomes)
+			}
+			if outcomes[2].Action == "queued" && outcomes[2].Reason != QueueReasonConcurrencyCeiling {
+				t.Fatalf("third reason = %q, want %q", outcomes[2].Reason, QueueReasonConcurrencyCeiling)
+			}
+			if fake.callCount() != tt.wantSpawnedCount {
+				t.Fatalf("spawn calls = %d, want %d", fake.callCount(), tt.wantSpawnedCount)
+			}
+
+			for i := 1; i <= tt.wantSpawnedCount; i++ {
+				name := fmt.Sprintf("worker-gh285-%d", i)
+				_, _ = m.Stop(name)
+				_ = m.WaitForReaper(name, 5*time.Second)
+			}
+		})
 	}
 }
 

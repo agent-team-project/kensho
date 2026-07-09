@@ -209,6 +209,25 @@ agent-team team queue quarantine delivery --restorable
 agent-team team snapshot delivery --output delivery.json
 ```
 
+## Budgets
+
+Team budgets gate dispatch admission for spend, in-flight job count, and
+adaptive concurrency load:
+
+```toml
+[budgets.delivery]
+tokens_per_day = 200_000_000
+jobs_in_flight = 4
+allocation = "oversubscribe"
+load_weight = 1.0
+```
+
+`load_weight` defaults to `1.0`. Values greater than `1.0` make each dispatch
+consume more adaptive concurrency headroom; for example `load_weight = 2.5`
+means two running dispatches consume five governor units. Use it for teams whose
+runtime or build system is materially heavier than the daemon-wide
+`[concurrency].load_per_dispatch` baseline.
+
 ## Authority
 
 Authority allowlists live in topology. `enforcement = "audit"` records

@@ -652,6 +652,7 @@ pipelines   = ["ticket_to_pr"]
 # tokens_per_day = 200_000_000
 # jobs_in_flight = 6
 # allocation = "oversubscribe" # default; "reserve" debits outstanding grants
+# load_weight = 1.0          # default; higher values consume more concurrency headroom per dispatch
 
 # Optional daemon-wide adaptive concurrency governor. When enabled, ephemeral
 # dispatches queue once daemon-wide running instances reach the lower of the

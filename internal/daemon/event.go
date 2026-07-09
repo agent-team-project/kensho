@@ -84,8 +84,45 @@ type EventResolver struct {
 }
 
 type ephTracker struct {
-	running int
-	queue   []*queuedEvent
+	running     int
+	runningLoad map[string]float64
+	queue       []*queuedEvent
+}
+
+func (tr *ephTracker) trackRunningLoad(instance string, load float64) {
+	if tr == nil || strings.TrimSpace(instance) == "" {
+		return
+	}
+	if tr.runningLoad == nil {
+		tr.runningLoad = map[string]float64{}
+	}
+	tr.runningLoad[instance] = normalizeConcurrencyLoad(load)
+}
+
+func (tr *ephTracker) releaseRunningLoad(instance string) {
+	if tr == nil || tr.runningLoad == nil || strings.TrimSpace(instance) == "" {
+		return
+	}
+	delete(tr.runningLoad, instance)
+	if len(tr.runningLoad) == 0 {
+		tr.runningLoad = nil
+	}
+}
+
+func (tr *ephTracker) runningLoadUnits() float64 {
+	if tr == nil || tr.running <= 0 {
+		return 0
+	}
+	load := 0.0
+	tracked := 0
+	for _, weight := range tr.runningLoad {
+		load += normalizeConcurrencyLoad(weight)
+		tracked++
+	}
+	if missing := tr.running - tracked; missing > 0 {
+		load += float64(missing)
+	}
+	return load
 }
 
 type queuedEvent struct {
@@ -279,21 +316,22 @@ func (r *EventResolver) logZeroMatch(trace *topology.EventTrace) {
 	fmt.Fprintf(out, "%s WARNING event %q matched 0 rules payload=%s\n", time.Now().UTC().Format(time.RFC3339), trace.Type, string(payload))
 }
 
-func (r *EventResolver) concurrencyAdmissionLocked(now time.Time) concurrencyAdmission {
+func (r *EventResolver) concurrencyAdmissionForLoadLocked(now time.Time, incomingLoad float64) concurrencyAdmission {
 	if r.concurrency == nil {
-		return concurrencyAdmission{Allowed: true, Running: r.runningEphemeralLocked()}
+		running := r.runningEphemeralLocked()
+		return concurrencyAdmission{Allowed: true, Running: running, RunningLoad: r.runningEphemeralLoadLocked(), IncomingLoad: normalizeConcurrencyLoad(incomingLoad)}
 	}
 	running := r.runningEphemeralLocked()
-	admission, ev := r.concurrency.admit(now, running)
+	admission, ev := r.concurrency.admit(now, running, r.runningEphemeralLoadLocked(), incomingLoad)
 	r.appendConcurrencyLifecycleEventLocked(ev)
 	return admission
 }
 
-func (r *EventResolver) concurrencyAdmissionPreviewLocked(now time.Time, running int) concurrencyAdmission {
+func (r *EventResolver) concurrencyAdmissionPreviewLocked(now time.Time, running int, runningLoad, incomingLoad float64) concurrencyAdmission {
 	if r.concurrency == nil {
-		return concurrencyAdmission{Allowed: true, Running: running}
+		return concurrencyAdmission{Allowed: true, Running: running, RunningLoad: normalizeConcurrencyRunningLoad(running, runningLoad), IncomingLoad: normalizeConcurrencyLoad(incomingLoad)}
 	}
-	return r.concurrency.preview(now, running)
+	return r.concurrency.preview(now, running, runningLoad, incomingLoad)
 }
 
 func (r *EventResolver) concurrencyConfiguredLocked() bool {
@@ -311,6 +349,14 @@ func (r *EventResolver) runningEphemeralLocked() int {
 	return running
 }
 
+func (r *EventResolver) runningEphemeralLoadLocked() float64 {
+	load := 0.0
+	for _, tr := range r.tracking {
+		load += tr.runningLoadUnits()
+	}
+	return load
+}
+
 func (r *EventResolver) observeConcurrencyTerminal(meta *Metadata) {
 	if meta == nil || meta.Status != StatusCrashed {
 		return
@@ -320,7 +366,7 @@ func (r *EventResolver) observeConcurrencyTerminal(meta *Metadata) {
 		r.mu.Unlock()
 		return
 	}
-	ev := r.concurrency.observeCrash(time.Now().UTC(), r.runningEphemeralLocked())
+	ev := r.concurrency.observeCrash(time.Now().UTC(), r.runningEphemeralLocked(), r.runningEphemeralLoadLocked())
 	r.mu.Unlock()
 	r.appendConcurrencyLifecycleEvent(ev)
 }
@@ -505,7 +551,8 @@ func (r *EventResolver) actuateEphemeralWithBudgetOrigin(inst *topology.Instance
 		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, QueueReasonBudgetExhausted, QueueReasonBudgetExhausted, "", "")
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName, Reason: QueueReasonBudgetExhausted}
 	}
-	concurrencyAdmission := r.concurrencyAdmissionLocked(now)
+	loadWeight := r.dispatchLoadWeightLocked(eventOrigin.Team)
+	concurrencyAdmission := r.concurrencyAdmissionForLoadLocked(now, loadWeight)
 	if !concurrencyAdmission.Allowed {
 		if len(tr.queue) >= r.queueCap {
 			r.mu.Unlock()
@@ -631,6 +678,7 @@ func (r *EventResolver) actuateEphemeralWithBudgetOrigin(inst *topology.Instance
 		return EventOutcome{Instance: inst.Name, Action: "queued", InstanceID: childName, Reason: QueueReasonBudgetExhausted}
 	}
 	tr.running++
+	tr.trackRunningLoad(childName, loadWeight)
 	r.mu.Unlock()
 
 	meta, err := r.spawn(inst, childName, eventType, payload)
@@ -639,6 +687,7 @@ func (r *EventResolver) actuateEphemeralWithBudgetOrigin(inst *topology.Instance
 		r.mu.Lock()
 		r.releaseLocksForInstanceLocked(childName)
 		tr.running--
+		tr.releaseRunningLoad(childName)
 		r.mu.Unlock()
 		_, _ = budget.ReleaseAllocations(r.teamDir, budget.ReleaseRequest{JobID: eventJobID(payload), Instance: childName, Now: time.Now().UTC()})
 		r.upsertDispatchJob(payload, childName, jobstore.StatusFailed, "dispatch_failed", err.Error(), "", "")
@@ -691,7 +740,15 @@ func concurrencyQueueMessage(admission concurrencyAdmission) string {
 	if reason == "" {
 		reason = "adaptive admission"
 	}
-	return fmt.Sprintf("concurrency ceiling %d reached (%s; running=%d)", admission.Ceiling, reason, admission.Running)
+	ceiling := formatConcurrencyLoad(admission.CeilingLoad)
+	if admission.CeilingLoad == 0 && admission.Ceiling > 0 {
+		ceiling = fmt.Sprint(admission.Ceiling)
+	}
+	loadDetail := ""
+	if formatConcurrencyLoad(admission.RunningLoad) != fmt.Sprint(admission.Running) || formatConcurrencyLoad(admission.IncomingLoad) != "1" {
+		loadDetail = fmt.Sprintf("; load=%s incoming=%s", formatConcurrencyLoad(admission.RunningLoad), formatConcurrencyLoad(admission.IncomingLoad))
+	}
+	return fmt.Sprintf("concurrency ceiling %s reached (%s; running=%d%s)", ceiling, reason, admission.Running, loadDetail)
 }
 
 func payloadString(payload map[string]any, key string) string {

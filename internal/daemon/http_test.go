@@ -323,6 +323,7 @@ reminder_levels = [25, 75, 100]
 tokens_per_day = 200_000_000
 jobs_in_flight = 4
 allocation = "reserve"
+load_weight = 2.5
 `)
 	m := NewInstanceManager(t.TempDir(), nil)
 	resolver := NewEventResolver(m, teamDir, top)
@@ -358,10 +359,11 @@ allocation = "reserve"
 			Schedules []string `json:"schedules"`
 		} `json:"teams"`
 		Budgets []struct {
-			Team         string `json:"team"`
-			TokensPerDay int64  `json:"tokens_per_day"`
-			JobsInFlight int    `json:"jobs_in_flight"`
-			Allocation   string `json:"allocation"`
+			Team         string  `json:"team"`
+			TokensPerDay int64   `json:"tokens_per_day"`
+			JobsInFlight int     `json:"jobs_in_flight"`
+			Allocation   string  `json:"allocation"`
+			LoadWeight   float64 `json:"load_weight"`
 		} `json:"budgets"`
 		Schedules []struct {
 			Name        string    `json:"name"`
@@ -393,7 +395,7 @@ allocation = "reserve"
 	if len(body.Teams) != 1 || body.Teams[0].Name != "delivery" || len(body.Teams[0].Pipelines) != 1 || body.Teams[0].Pipelines[0] != "ticket_to_pr" || len(body.Teams[0].Schedules) != 1 || body.Teams[0].Schedules[0] != "nightly" {
 		t.Fatalf("teams = %+v", body.Teams)
 	}
-	if len(body.Budgets) != 1 || body.Budgets[0].Team != "delivery" || body.Budgets[0].TokensPerDay != 200_000_000 || body.Budgets[0].JobsInFlight != 4 || body.Budgets[0].Allocation != "reserve" {
+	if len(body.Budgets) != 1 || body.Budgets[0].Team != "delivery" || body.Budgets[0].TokensPerDay != 200_000_000 || body.Budgets[0].JobsInFlight != 4 || body.Budgets[0].Allocation != "reserve" || body.Budgets[0].LoadWeight != 2.5 {
 		t.Fatalf("budgets = %+v", body.Budgets)
 	}
 	if len(body.Schedules) != 1 || body.Schedules[0].Name != "nightly" || body.Schedules[0].StateName != "team.delivery.nightly" || body.Schedules[0].Every != "1h0m0s" || !body.Schedules[0].RunOnStart || body.Schedules[0].Team != "delivery" {

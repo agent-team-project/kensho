@@ -31,12 +31,16 @@ watchdog semantics.
 [budgets.delivery]                  # per-team, resolved via the origin envelope
 tokens_per_day = 200_000_000        # sum of output+input at reap, sliding window
 jobs_in_flight = 4
+load_weight = 1.0                   # adaptive concurrency units per dispatch
 
 [pipelines.ticket_to_pr.steps.implement]
 token_budget = "40M"                # per-run cap, enforced live (see layer 2)
 ```
 
 Admission check at dispatch: team over budget → queue with `reason=budget_exhausted` (not fail). `agent-team budget status` shows spend vs cap per team/window. Uses only data that already exists at reap.
+`load_weight` is also read by the daemon-wide adaptive concurrency governor:
+`1.0` preserves the baseline `load_per_dispatch`; heavier teams can declare
+larger values so their workers reach the shared ceiling sooner.
 
 ### The economic model (added after phase 1 shipped)
 

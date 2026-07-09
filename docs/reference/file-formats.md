@@ -243,6 +243,11 @@ scope = "team"
 [budgets]
 reminder_levels = [50, 80, 100]
 
+[budgets.delivery]
+tokens_per_day = 200_000_000
+jobs_in_flight = 4
+load_weight = 1.0
+
 [[instances.worker.triggers]]
 event = "agent.dispatch"
 match.target = "worker"
@@ -338,6 +343,11 @@ precedence. Add `hard = true` to make the allowance itself a hard cutoff, or
 cutoffs are for runaway protection: crossing one records `budget_exceeded_hard`,
 crash-finalizes the runtime, frees its slot, and lets normal failure
 write-back/attention handling run.
+
+`[budgets.<team>].load_weight` defaults to `1.0`. The adaptive concurrency
+governor multiplies that team's dispatch load by the weight, so a heavy runtime
+can consume more daemon-wide concurrency headroom without changing replica or
+`jobs_in_flight` counts.
 
 Instance `env_allow = ["GLOB", ...]` is an opt-in child environment allowlist.
 When unset, launch env behavior is unchanged. When set, only matching env keys
