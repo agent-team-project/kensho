@@ -8,6 +8,11 @@
 # full schema, the layered config-resolution chain, and the match DSL. The
 # defaults below mirror the bundled team's natural shape — edit / extend as
 # your project grows.
+#
+# Per-instance runtime overrides are optional:
+#   runtime     = "claude" | "codex" | "docker"
+#   runtime_bin = "claude"
+#   model       = "claude-fable-5"  # Claude runtime only; omitted/empty = default model
 
 [instances.manager]
 agent       = "manager"

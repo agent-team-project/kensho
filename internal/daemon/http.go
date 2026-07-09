@@ -91,6 +91,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			StateURI            string   `json:"state_uri"`
 			Runtime             string   `json:"runtime"`
 			RuntimeBinary       string   `json:"runtime_binary"`
+			Model               string   `json:"model"`
 			Args                []string `json:"args"`
 			Env                 []string `json:"env"`
 			Stdin               string   `json:"stdin"`
@@ -125,6 +126,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			StripOTelEnv:        stripOTelForTeamDir(teamDir),
 			Runtime:             body.Runtime,
 			RuntimeBinary:       body.RuntimeBinary,
+			Model:               body.Model,
 			Args:                body.Args,
 			Env:                 body.Env,
 			Stdin:               body.Stdin,

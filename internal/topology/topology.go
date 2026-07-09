@@ -108,6 +108,7 @@ type Instance struct {
 	Ephemeral   bool
 	Runtime     string
 	RuntimeBin  string
+	Model       string
 	Description string
 	// Locks names dispatch locks held while this instance's ephemeral child runs.
 	Locks []string
@@ -837,6 +838,7 @@ type rawInstance struct {
 	Ephemeral      bool             `toml:"ephemeral"`
 	Runtime        any              `toml:"runtime"`
 	RuntimeBin     any              `toml:"runtime_bin"`
+	Model          any              `toml:"model"`
 	Description    string           `toml:"description"`
 	Locks          []string         `toml:"locks"`
 	Replicas       *int             `toml:"replicas"`
@@ -1097,6 +1099,10 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instance %q: %w", name, err)
 	}
+	model, err := parseOptionalText(ri.Model, "model")
+	if err != nil {
+		return nil, fmt.Errorf("instance %q: %w", name, err)
+	}
 	reapWorktree, err := worktreepolicy.Normalize(ri.ReapWorktree)
 	if err != nil {
 		return nil, fmt.Errorf("instance %q: %w", name, err)
@@ -1142,6 +1148,7 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		Ephemeral:      ri.Ephemeral,
 		Runtime:        runtime,
 		RuntimeBin:     runtimeBin,
+		Model:          model,
 		Description:    ri.Description,
 		Locks:          locks,
 		Replicas:       replicas,
@@ -2215,6 +2222,17 @@ func parseStepText(raw any, field string) (string, error) {
 		return "", fmt.Errorf("%s must be a non-empty string", field)
 	}
 	return value, nil
+}
+
+func parseOptionalText(raw any, field string) (string, error) {
+	if raw == nil {
+		return "", nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("%s must be a string", field)
+	}
+	return strings.TrimSpace(value), nil
 }
 
 func parseStepRuntime(raw any) (string, error) {

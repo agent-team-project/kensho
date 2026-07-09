@@ -741,6 +741,9 @@ func TestEvent_EphemeralDispatchUsesRequestedChildName(t *testing.T) {
 			t.Fatalf("spawn call missing %q: %#v", want, call)
 		}
 	}
+	if containsString(call, "--model") {
+		t.Fatalf("spawn call should omit empty model: %#v", call)
+	}
 	var prompt string
 	for i := 0; i < len(call)-1; i++ {
 		if call[i] == "-p" {
@@ -1518,6 +1521,48 @@ func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
 	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
 }
 
+func TestEvent_EphemeralDispatchIgnoresModelForCodexRuntime(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	writeFixtureRuntimeCommandSkills(t, teamDir, "worker")
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[runtime]\nkind = \"claude\"\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.worker]
+agent = "worker"
+ephemeral = true
+runtime = "codex"
+model = "claude-fable-5"
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+`)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, root))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"agent.dispatch","payload":{"target":"worker","name":"worker-squ-44","kickoff":"implement SQU-44"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+	call := fake.lastCall()
+	if len(call) < 2 || call[0] != "codex" || call[1] != "exec" {
+		t.Fatalf("spawn call = %#v, want codex exec", call)
+	}
+	if containsString(call, "--model") || containsString(call, "claude-fable-5") {
+		t.Fatalf("codex spawn call should ignore model: %#v", call)
+	}
+	_, _ = m.Stop("worker-squ-44")
+	_ = m.WaitForReaper("worker-squ-44", 5*time.Second)
+}
+
 func TestEvent_EphemeralDispatchUsesRepoCodexRuntimeConfig(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
@@ -1566,6 +1611,7 @@ agent = "worker"
 ephemeral = true
 runtime = "claude"
 runtime_bin = "claude-docs"
+model = "claude-fable-5"
 
 [[instances.docs-writer.triggers]]
 event = "agent.dispatch"
@@ -1585,6 +1631,9 @@ match.target = "docs-writer"
 	call := fake.lastCall()
 	if len(call) < 2 || call[0] != "claude-docs" || call[1] != "--session-id" {
 		t.Fatalf("spawn call = %#v, want declared instance claude runtime", call)
+	}
+	if got, ok := argValue(call, "--model"); !ok || got != "claude-fable-5" {
+		t.Fatalf("spawn call model = %q, %v; want claude-fable-5 in %#v", got, ok, call)
 	}
 	meta, err := ReadMetadata(root, "docs-writer-squ-134")
 	if err != nil {
