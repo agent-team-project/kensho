@@ -168,6 +168,8 @@ def validate_config(data: dict[str, Any]) -> list[str]:
         evidence_required = gate_evidence_required(gate, tiers)
         if gate.get("evidence_required") is not None and not isinstance(gate.get("evidence_required"), bool):
             errors.append(f"gate {gate_id or index} evidence_required must be a bool when set")
+        if gate.get("optional") is not None and not isinstance(gate.get("optional"), bool):
+            errors.append(f"gate {gate_id or index} optional must be a bool when set")
         if tier_id == "smoke" and "smoke" in required_for and not gate.get("command"):
             errors.append(f"smoke gate {gate_id or index} must declare command")
         if tier_id in {"acceptance", "release"} and not evidence_required:
@@ -230,6 +232,8 @@ def gates_grouped_by_claim(gates: list[Any]) -> dict[str, list[dict[str, Any]]]:
     for gate in gates:
         if not isinstance(gate, dict):
             continue
+        if gate.get("optional") is True:
+            continue
         for claim_id in gate.get("required_for") or []:
             if isinstance(claim_id, str):
                 grouped.setdefault(claim_id, []).append(gate)
@@ -249,6 +253,8 @@ def evaluate_claim(data: dict[str, Any], claim_id: str, evidence: dict[str, Any]
         gate_id = gate["id"]
         result = results.get(gate_id)
         if not result:
+            if gate.get("optional") is True:
+                continue
             out.append(f"{claim_id} claim missing gate result {gate_id!r}")
             continue
         status = str(result.get("status", "")).strip().lower()
@@ -349,6 +355,18 @@ def self_test() -> int:
         return fail_self_test("smoke evidence must not satisfy release claim", [])
     if not any("acceptance-evidence" in error for error in errors):
         return fail_self_test("release refusal should name missing acceptance evidence", errors)
+
+    optional_missing_evidence = {"schema_version": 1, "gates": []}
+    for gate in data["gates"]:
+        if gate.get("optional") is True:
+            continue
+        result = {"id": gate["id"], "status": "pass"}
+        if gate_evidence_required(gate, data["tiers"]):
+            result["evidence"] = [f"test://evidence/{gate['id']}"]
+        optional_missing_evidence["gates"].append(result)
+    errors = evaluate_claim(data, "release", optional_missing_evidence)
+    if errors:
+        return fail_self_test("optional gates should not be required when absent", errors)
 
     full_evidence = {"schema_version": 1, "gates": []}
     for gate in data["gates"]:

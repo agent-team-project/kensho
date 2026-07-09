@@ -4,5 +4,5 @@
 # branch/PR metadata, status for observability, inbox/channel for daemon
 # coordination, and verify for the evidence-producing gate runner.
 [skills]
-extra = ["verify", "github", "status", "inbox", "channel"]
+extra = ["verify", "visual-qa", "github", "status", "inbox", "channel"]
 # disable = []   # opt-out from local defaults if needed

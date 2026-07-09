@@ -41,6 +41,24 @@ Each non-empty line is either `name :: command` or a bare command. Bare commands
 
 If no gate block is found and the source repo contains `go.mod`, the runner falls back to `gofmt-check`, `go-vet`, and `go-test`.
 
+Gate commands receive:
+
+- `AGENT_TEAM_EVIDENCE_DIR`: the run's evidence directory.
+- `AGENT_TEAM_GATE_EVIDENCE_DIR`: a per-gate directory for files that should be attached as evidence.
+- `AGENT_TEAM_GATE_NAME`: the current gate name.
+- `AGENT_TEAM_GATE_LOG`: the gate log path.
+
+Files written under `AGENT_TEAM_GATE_EVIDENCE_DIR` are included as
+`evidence_refs` in the verifier JSON and summary. GUI slices can opt into the
+bundled visual-QA gate:
+
+```agent-team-verify-gates
+visual-qa :: "$AGENT_TEAM_ROOT/skills/visual-qa/scripts/visual_qa.sh" --app-command "npm run dev -- --host 127.0.0.1 --port 4173" --url "http://127.0.0.1:4173"
+```
+
+The visual-QA helper captures screenshots only. A vision-capable reviewer must
+judge the screenshots before approval.
+
 These default verifier gates are the **smoke** tier declared in
 `.agent_team/gates.toml`. Passing them means local smoke passed; it does not
 prove acceptance or release readiness. Acceptance and release claims must be

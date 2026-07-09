@@ -61,6 +61,15 @@ evidence_hint = "target/agent-evidence/<job>.acceptance.json, CI conformance run
 required_for = ["acceptance", "release"]
 
 [[gates]]
+id = "visual-qa"
+tier = "acceptance"
+description = "GUI screenshot evidence exists for a vision-capable reviewer to judge visual correctness."
+evidence_required = true
+optional = true
+evidence_hint = "target/agent-evidence/gates/<job>/visual-qa/manifest.json plus captured screenshot PNG files from the visual-qa skill."
+required_for = ["acceptance", "release"]
+
+[[gates]]
 id = "release-artifact-evidence"
 tier = "release"
 description = "Release build, publish, and asset verification evidence exists."

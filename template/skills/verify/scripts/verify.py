@@ -56,9 +56,10 @@ def main(argv: list[str]) -> int:
 
     results: list[dict[str, Any]] = []
     status = "pass"
+    gate_evidence_root = evidence_dir / "gates" / safe_name(job_id or commit[:12])
     try:
         for index, gate in enumerate(gates, start=1):
-            result = run_gate(gate, index, len(gates), checkout, logs_dir, repo)
+            result = run_gate(gate, index, len(gates), checkout, logs_dir, gate_evidence_root, evidence_dir, repo)
             results.append(result)
             if result["status"] != "pass":
                 status = "fail"
@@ -320,16 +321,31 @@ def rev_parse(repo: Path, ref: str) -> str:
     return ""
 
 
-def run_gate(gate: dict[str, str], index: int, total: int, checkout: Path, logs_dir: Path, repo: Path) -> dict[str, Any]:
+def run_gate(
+    gate: dict[str, str],
+    index: int,
+    total: int,
+    checkout: Path,
+    logs_dir: Path,
+    gate_evidence_root: Path,
+    evidence_dir: Path,
+    repo: Path,
+) -> dict[str, Any]:
     name = gate["name"]
     command = gate["command"]
     log_path = logs_dir / f"{safe_name(name)}.log"
+    gate_evidence_dir = gate_evidence_root / safe_name(name)
+    gate_evidence_dir.mkdir(parents=True, exist_ok=True)
     started = utc_now()
     start_time = time.monotonic()
     print(f"verify: [{index}/{total}] start {name}: {command}", flush=True)
     tail: deque[str] = deque(maxlen=20)
     env = os.environ.copy()
     env.setdefault("CI", "1")
+    env["AGENT_TEAM_EVIDENCE_DIR"] = str(evidence_dir)
+    env["AGENT_TEAM_GATE_EVIDENCE_DIR"] = str(gate_evidence_dir)
+    env["AGENT_TEAM_GATE_LOG"] = str(log_path)
+    env["AGENT_TEAM_GATE_NAME"] = name
     with log_path.open("w", encoding="utf-8") as log:
         proc = subprocess.Popen(
             command,
@@ -355,7 +371,7 @@ def run_gate(gate: dict[str, str], index: int, total: int, checkout: Path, logs_
     status = "pass" if exit_code == 0 else "fail"
     signature = "" if status == "pass" else failure_signature(exit_code, list(tail))
     print(f"verify: [{index}/{total}] {status} {name} ({duration_ms}ms)", flush=True)
-    return {
+    result = {
         "name": name,
         "command": command,
         "status": status,
@@ -366,6 +382,10 @@ def run_gate(gate: dict[str, str], index: int, total: int, checkout: Path, logs_
         "log_path": relpath(log_path, repo),
         "signature": signature,
     }
+    evidence_refs = collect_evidence_refs(gate_evidence_dir, repo)
+    if evidence_refs:
+        result["evidence_refs"] = evidence_refs
+    return result
 
 
 def record_gate_results(job_id: str, repo: Path, results: list[dict[str, Any]], warnings: list[str]) -> None:
@@ -459,15 +479,27 @@ def write_summary(path: Path, evidence: dict[str, Any]) -> None:
         f"- Branch: `{evidence['source']['branch']}`",
         f"- Status: `{evidence['status']}`",
         "",
-        "| Gate | Status | Duration | Log |",
-        "| --- | --- | ---: | --- |",
+        "| Gate | Status | Duration | Log | Evidence |",
+        "| --- | --- | ---: | --- | --- |",
     ]
     for gate in evidence["gates"]:
+        evidence_refs = gate.get("evidence_refs") or []
+        evidence_text = ", ".join(f"`{ref}`" for ref in evidence_refs) if evidence_refs else "-"
         lines.append(
-            f"| `{gate['name']}` | `{gate['status']}` | {gate['duration_ms']}ms | `{gate['log_path']}` |"
+            f"| `{gate['name']}` | `{gate['status']}` | {gate['duration_ms']}ms | `{gate['log_path']}` | {evidence_text} |"
         )
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def collect_evidence_refs(directory: Path, repo: Path) -> list[str]:
+    if not directory.exists():
+        return []
+    refs: list[str] = []
+    for path in sorted(directory.rglob("*")):
+        if path.is_file():
+            refs.append(relpath(path, repo))
+    return refs
 
 
 def run_checked(cmd: list[str]) -> None:

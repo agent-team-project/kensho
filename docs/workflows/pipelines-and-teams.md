@@ -279,6 +279,28 @@ The second command must fail when only smoke evidence exists or when release
 evidence is missing. That failure is the intended release gate result, not a
 smoke pass.
 
+GUI-specific pipelines can opt into the bundled `visual-qa` acceptance gate.
+It launches the app, captures a macOS `screencapture` screenshot, and stores
+the PNG plus manifest under the verifier's gate evidence directory:
+
+````toml
+instructions = """
+Run the verify skill. A vision-capable reviewer must judge the visual-QA
+screenshots before approval.
+
+```agent-team-verify-gates
+visual-qa :: "$AGENT_TEAM_ROOT/skills/visual-qa/scripts/visual_qa.sh" --app-command "npm run dev -- --host 127.0.0.1 --port 4173" --url "http://127.0.0.1:4173"
+```
+"""
+````
+
+`visual-qa` is optional in `.agent_team/gates.toml` so non-GUI projects do not
+need screenshot evidence for every acceptance claim. When a GUI job opts in,
+missing macOS Screen Recording permission is a hard gate failure; grant it once
+to the terminal/runtime app in System Settings -> Privacy & Security -> Screen
+Recording. The screenshot is evidence for a vision-capable reviewer such as
+Claude/Fable to judge; capture alone is not visual approval.
+
 Supported gates:
 
 - `gate = "manual"`: wait for operator approval with `agent-team pipeline approve <pipeline>`, `agent-team team approve <team>`, or `agent-team job approve <job-id> --step <step-id>`; reject gates with `agent-team pipeline reject <pipeline>`, `agent-team team reject <team>`, or `agent-team job reject <job-id> --step <step-id>`.

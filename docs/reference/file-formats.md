@@ -105,6 +105,14 @@ tier = "release"
 description = "Release build, publish, and asset verification evidence exists."
 evidence_required = true
 required_for = ["release"]
+
+[[gates]]
+id = "visual-qa"
+tier = "acceptance"
+description = "GUI screenshot evidence exists for visual review."
+evidence_required = true
+optional = true
+required_for = ["acceptance", "release"]
 ```
 
 The bundled template uses three claim tiers:
@@ -115,8 +123,9 @@ The bundled template uses three claim tiers:
 - `release`: all evidence needed to honestly claim release readiness.
 
 Passing smoke gates is only a smoke claim. Release claims require every gate
-listed for `release`, including acceptance and release-tier evidence. The
-validator enforces that absence as a failure:
+listed for `release`, including acceptance and release-tier evidence. Gates with
+`optional = true` are skipped when absent but are still validated when evidence
+includes them. The validator enforces missing required evidence as a failure:
 
 ```sh
 python3 "${AGENT_TEAM_ROOT:-.agent_team}/skills/verify/scripts/validate_gate_tiers.py" --claim release \
