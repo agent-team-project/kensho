@@ -455,6 +455,7 @@ ephemeral = true
 reap_worktree = "on_close"
 runtime = "codex"
 runtime_bin = "codex-dev"
+model = "claude-fable-5"
 token_budget = "40M"
 time_budget = "45m"
 
@@ -527,7 +528,7 @@ retry_on_crash = true
 	if len(p.Steps) != 2 || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].TokenBudget != 10000000 || p.Steps[1].TimeBudget != 20*time.Minute || !reflect.DeepEqual(p.Steps[1].ReminderLevels, []int{50, 75, 100}) || p.Steps[1].MaxAttempts != 2 || !p.Steps[1].RetryOnCrash {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
-	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" || worker.Runtime != "codex" || worker.RuntimeBin != "codex-dev" || worker.TokenBudget != 40000000 || worker.TimeBudget != 45*time.Minute {
+	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" || worker.Runtime != "codex" || worker.RuntimeBin != "codex-dev" || worker.Model != "claude-fable-5" || worker.TokenBudget != 40000000 || worker.TimeBudget != 45*time.Minute {
 		t.Fatalf("worker = %+v, want reap policy plus budgets", worker)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})

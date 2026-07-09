@@ -130,6 +130,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		StateURI:            payloadString(payload, "state_uri"),
 		Runtime:             string(rt.Kind),
 		RuntimeBinary:       rt.Binary,
+		Model:               inst.Model,
 		Args:                args,
 		Env:                 env,
 		EnvAllow:            inst.EnvAllow,

@@ -51,6 +51,9 @@ Fields:
 | `ephemeral` | Spawn per event and exit when complete |
 | `description` | Human-readable purpose |
 | `brief` | Generate and inject a recoverable catch-up brief for persistent instances |
+| `runtime` | Optional runtime kind override: `claude`, `codex`, or `docker` |
+| `runtime_bin` | Optional runtime binary override |
+| `model` | Optional Claude Code model id; only used when the effective runtime is `claude` |
 | `locks` | Named dispatch locks held by spawned ephemeral children |
 | `replicas` | Max concurrent ephemeral runs |
 | `env_allow` | Glob allowlist for inherited environment keys; unset is a no-op, and `AGENT_TEAM_*` is always kept |

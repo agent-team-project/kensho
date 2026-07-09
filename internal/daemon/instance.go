@@ -147,6 +147,7 @@ type DispatchInput struct {
 	LogURI              string
 	Runtime             string
 	RuntimeBinary       string
+	Model               string
 	// EffectiveRuntime identifies the delegated runtime whose log format should
 	// be used for usage and budget accounting. Empty defaults to Runtime.
 	EffectiveRuntime string
@@ -505,6 +506,9 @@ func dispatchArgs(rt runtimebin.Runtime, sessionID string, in DispatchInput) ([]
 	switch rt.Kind {
 	case runtimebin.KindClaude:
 		args := []string{rt.Binary, "--session-id", sessionID}
+		if model := strings.TrimSpace(in.Model); model != "" {
+			args = append(args, "--model", model)
+		}
 		if len(in.Args) > 0 {
 			args = append(args, in.Args...)
 		} else if in.Prompt != "" {
