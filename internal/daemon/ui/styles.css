@@ -341,6 +341,7 @@ button:disabled {
   gap: 12px;
   padding: 12px 16px;
   background: var(--panel-alt);
+  border-left: 4px solid var(--line);
 }
 
 .org-role-heading h3 {
@@ -370,10 +371,31 @@ button:disabled {
   gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid var(--line);
+  border-left: 4px solid transparent;
 }
 
 .org-row:first-child {
   border-top: 0;
+}
+
+.org-row.state-working,
+.org-instance.state-running {
+  border-left-color: var(--success-line);
+}
+
+.org-row.state-queued {
+  border-left-color: var(--info-line);
+}
+
+.org-row.state-crashed,
+.org-instance.state-crashed {
+  border-left-color: var(--danger-line);
+}
+
+.org-row.state-idle,
+.org-instance.state-exited,
+.org-instance.state-stopped {
+  border-left-color: var(--neutral-line);
 }
 
 .org-row-main,
@@ -418,6 +440,32 @@ button:disabled {
 .org-empty {
   padding: 18px 16px;
   color: var(--muted);
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+
+.telemetry-section {
+  min-width: 0;
+}
+
+.telemetry-section + .telemetry-section {
+  border-left: 1px solid var(--line);
+}
+
+.telemetry-section h3 {
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-alt);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 .table-wrap {
@@ -493,6 +541,40 @@ tbody tr:last-child td {
   border-color: var(--neutral-line);
   background: var(--neutral-bg);
   color: var(--neutral-text);
+}
+
+.telemetry-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.telemetry-stack span:not(.pill) {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: var(--muted);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  padding: 2px 7px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .empty {
@@ -571,8 +653,14 @@ tbody tr:last-child td {
 
   .org-role-heading,
   .org-row-main,
-  .org-instance {
+  .org-instance,
+  .telemetry-grid {
     grid-template-columns: 1fr;
+  }
+
+  .telemetry-section + .telemetry-section {
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .org-role-heading {

@@ -20,6 +20,9 @@ func TestURIParseRoundTrip(t *testing.T) {
 	if parsed.DeploymentID != dep || parsed.Kind != KindJob || parsed.ID != "squ-128" || parsed.Fragment != "step=implement" {
 		t.Fatalf("parsed = %+v", parsed)
 	}
+	if got, want := OutcomeURI(dep, "squ-128"), "agt://a1290ed4-258f-4706-964b-c1aa3d82f6fc/outcome/squ-128"; got != want {
+		t.Fatalf("OutcomeURI = %q, want %q", got, want)
+	}
 }
 
 func TestDeploymentURIUsesProjectSelfResource(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/agent-team-project/agent-team/internal/budget"
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
+	"github.com/agent-team-project/agent-team/internal/outcomes"
 	"github.com/agent-team-project/agent-team/internal/resource"
 )
 
@@ -173,6 +174,12 @@ func ResolveResourceRead(teamDir string, m *InstanceManager, channels *ChannelSt
 		out.Data = data
 	case resource.KindJob:
 		data, err := resolveJobResource(teamDir, parsed.ID, parsed.Fragment)
+		if err != nil {
+			return nil, err
+		}
+		out.Data = data
+	case resource.KindOutcome:
+		data, err := resolveOutcomeResource(teamDir, parsed.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -411,6 +418,14 @@ func resolveJobResource(teamDir, id, fragment string) (any, error) {
 		}
 	}
 	return nil, ErrResourceNotFound
+}
+
+func resolveOutcomeResource(teamDir, id string) (*outcomes.Record, error) {
+	rec, err := outcomes.ReadRecord(teamDir, id)
+	if err != nil {
+		return nil, resourceReadNotFound(err)
+	}
+	return rec, nil
 }
 
 func resolveWorkspaceResource(teamDir string, m *InstanceManager, uri, id string) (*workspaceResource, error) {
