@@ -630,7 +630,7 @@ func prepareRunLaunchRoot(stateDir string, mode runLaunchRootMode) (runLaunchRoo
 	if err != nil {
 		return runLaunchRoot{}, fmt.Errorf("create daemon launch dir: %w", err)
 	}
-	return runLaunchRoot{Root: dir, CleanupPaths: []string{dir}}, nil
+	return runLaunchRoot{Root: dir, CleanupPaths: []string{dir}, CleanupByCLI: true}, nil
 }
 
 func buildRuntimeArgs(rt runtimebin.Runtime, target, addDir, agentsJSON, promptFile, kickoff, prompt string, forwarded []string, agents []*loader.Agent, env []string, lastMessagePath string, mailboxHook *runtimehooks.MailboxHook, otelLaunch runtimeotel.Launch) ([]string, string, error) {

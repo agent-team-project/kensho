@@ -1789,6 +1789,89 @@ func TestRunDetachDaemonScratchLaunchRootCleansAfterReap(t *testing.T) {
 	}
 }
 
+func TestRunDetachDaemonScratchLaunchRootCleansWhenDispatchFails(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindClaude))
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-run-detach-scratch-fail-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+
+	base := fakeSpawnerForTest(t, 30*time.Second)
+	var (
+		mu      sync.Mutex
+		gotArgs []string
+	)
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		mu.Lock()
+		gotArgs = append([]string(nil), args...)
+		mu.Unlock()
+		return base(args, env, workspace, stdoutPath, stderrPath, stdinContent)
+	})
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	defer func() {
+		for _, meta := range mgr.List() {
+			if meta.Instance == "worker-ad-hoc" && meta.Status == daemon.StatusRunning {
+				stopAndWaitForTest(t, mgr, "worker-ad-hoc")
+				return
+			}
+		}
+	}()
+
+	first := NewRootCmd()
+	firstOut, firstErr := &bytes.Buffer{}, &bytes.Buffer{}
+	first.SetOut(firstOut)
+	first.SetErr(firstErr)
+	first.SetArgs([]string{"run", "worker", "--name", "worker-ad-hoc", "--target", tmp, "--prompt", "first task", "--detach", "--json"})
+	if err := first.Execute(); err != nil {
+		t.Fatalf("first run worker --detach --json: %v\nstderr: %s", err, firstErr.String())
+	}
+
+	mu.Lock()
+	firstArgs := append([]string(nil), gotArgs...)
+	mu.Unlock()
+	firstAddDir, ok := argValue(firstArgs, "--add-dir")
+	if !ok {
+		t.Fatalf("first daemon dispatch args missing --add-dir value: %v", firstArgs)
+	}
+	runtimeDir := filepath.Join(teamDir, "state", "worker-ad-hoc", "runtime")
+	if eval, err := filepath.EvalSymlinks(runtimeDir); err == nil {
+		runtimeDir = eval
+	}
+	firstAddDir = filepath.Clean(firstAddDir)
+
+	second := NewRootCmd()
+	second.SetOut(&bytes.Buffer{})
+	secondErr := &bytes.Buffer{}
+	second.SetErr(secondErr)
+	second.SetArgs([]string{"run", "worker", "--name", "worker-ad-hoc", "--target", tmp, "--prompt", "second task", "--detach", "--json"})
+	if err := second.Execute(); err == nil {
+		t.Fatalf("second run succeeded, want already-running dispatch error")
+	} else if !strings.Contains(err.Error(), "already running") && !strings.Contains(secondErr.String(), "already running") {
+		t.Fatalf("second run error = %v, stderr=%s; want already running", err, secondErr.String())
+	}
+
+	launchDirs, err := filepath.Glob(filepath.Join(runtimeDir, "launch-*"))
+	if err != nil {
+		t.Fatalf("glob launch dirs: %v", err)
+	}
+	for i := range launchDirs {
+		launchDirs[i] = filepath.Clean(launchDirs[i])
+	}
+	sort.Strings(launchDirs)
+	if len(launchDirs) != 1 || launchDirs[0] != firstAddDir {
+		t.Fatalf("launch dirs after rejected dispatch = %v, want only first live launch dir %q", launchDirs, firstAddDir)
+	}
+
+	stopAndWaitForTest(t, mgr, "worker-ad-hoc")
+	if _, err := os.Stat(firstAddDir); !os.IsNotExist(err) {
+		t.Fatalf("first scratch launch dir should be cleaned after daemon reap, stat err=%v", err)
+	}
+}
+
 func TestRunDetachFormatPrintsDispatchMetadata(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-run-format-")
 	if err != nil {
