@@ -154,14 +154,15 @@ time_budget  = "30m"
 max_attempts = 1
 retry_on_crash = true
 instructions = """
-Read `target/agent-evidence/<job>.json` first, then hand-verify: (1) the
-ticket's acceptance criteria are actually met — check the specific behaviors,
-not the PR description; (2) tests cover the changed behavior and would fail
-without the change; (3) no unrelated files or drive-by edits; (4) no dead code
-or commented-out blocks. Judge CONTENT outside the scripted verifier gates:
-infra failures are gate results, not bounces, and base drift is not a bounce.
-Report via `agent-team job gate set` and a PR comment starting
-`REVIEW: APPROVE` or `REVIEW: BOUNCE`.
+Read `target/agent-evidence/<job>.json` and the durable job contract first,
+then hand-verify: (1) each contract criterion is actually met — check the
+specific behaviors, not the PR description; (2) tests cover the changed
+behavior and would fail without the change; (3) no unrelated files or drive-by
+edits; (4) no dead code or commented-out blocks. Judge CONTENT outside the
+scripted verifier gates: infra failures are gate results, not bounces, and base
+drift is not a bounce. Report via `agent-team job gate set` and a PR comment
+starting `REVIEW: APPROVE` with a clause-keyed ledger or `REVIEW: BOUNCE` with
+each finding starting `clause=ACn` or `clause=none`.
 """
 
 # The manual gate: nothing merges without human (or manager) judgment. To make
@@ -329,10 +330,11 @@ retry_on_crash = true
 instructions = """
 Adversarial content review of the platform job PR. Read the verifier evidence
 first, then apply the delivery checklist beyond those scripted gates: verify
-acceptance criteria against the ticket, hand-verify the changed behavior, and
-judge content only (infra state and base drift are not content bounces). Report
-gates with `agent-team job gate set`, then post `REVIEW: APPROVE` or
-`REVIEW: BOUNCE` with findings as a PR comment.
+contract criteria against the durable job contract, hand-verify the changed
+behavior, and judge content only (infra state and base drift are not content
+bounces). Report gates with `agent-team job gate set`, then post
+`REVIEW: APPROVE` with a clause-keyed ledger or `REVIEW: BOUNCE` with each
+finding starting `clause=ACn` or `clause=none`.
 """
 
 [[pipelines.platform_ticket_to_pr.steps]]
@@ -351,7 +353,6 @@ the job done. BOUNCE: `agent-team job bounce <job-id> --findings-file <path>
 description = "Framework infrastructure: provider seams, provenance, scoping, resource constraints."
 instances   = ["platform-worker", "platform-verifier", "platform-reviewer", "manager"]
 pipelines   = ["platform_ticket_to_pr"]
-
 # The harness-review loop: a weekly sweep of the team's own steering surfaces
 # (agent prompts, skills, pipeline instructions) driven by operational
 # evidence — bounce-finding classes, attention events, feedback, failure

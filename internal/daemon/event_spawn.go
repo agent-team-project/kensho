@@ -53,6 +53,8 @@ func validateRequestedChildName(declared, name string) error {
 // full event context to work from.
 func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, payload map[string]any) (*Metadata, error) {
 	payload = copyPayload(payload)
+	contract := r.contractFromPayload(payload)
+	r.renderPayloadContract(payload, contract)
 	applyInstanceBudgetDefaultsToPayload(inst, payload)
 	r.mu.Lock()
 	top := r.topo
@@ -142,7 +144,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		cleanupWorkspace()
 		return nil, err
 	}
-	r.attachSpawnOwnership(meta, payload, branch, worktreePath)
+	r.attachSpawnOwnership(meta, payload, branch, worktreePath, contract)
 	return meta, nil
 }
 
@@ -289,7 +291,7 @@ func (r *EventResolver) recordKickoffMailDelivered(instance, agent string, paylo
 	})
 }
 
-func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]any, branch, worktreePath string) {
+func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]any, branch, worktreePath string, contract *jobstore.Contract) {
 	if meta == nil {
 		return
 	}
@@ -338,7 +340,7 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 		current = *latest
 	}
 	applyOwnership(&current)
-	j := r.upsertDispatchJob(payload, current.Instance, jobstore.StatusRunning, "dispatched", "running", branch, worktreePath)
+	j := r.upsertDispatchJobWithContract(payload, current.Instance, jobstore.StatusRunning, "dispatched", "running", branch, worktreePath, contract)
 	if j != nil {
 		current.Job = j.ID
 		current.Ticket = j.Ticket
@@ -365,7 +367,86 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 	*meta = current
 }
 
+func (r *EventResolver) renderPayloadContract(payload map[string]any, contract *jobstore.Contract) {
+	if contract == nil {
+		return
+	}
+	payload["kickoff"] = jobstore.RenderKickoffWithContract(payloadString(payload, "kickoff"), contract)
+}
+
+func (r *EventResolver) contractFromPayload(payload map[string]any) *jobstore.Contract {
+	if payload == nil || payloadIsProbe(payload) {
+		return nil
+	}
+	if existing := r.existingPayloadContract(payload); existing != nil {
+		return existing
+	}
+	ticket := payloadString(payload, "ticket")
+	id := eventJobID(payload)
+	if ticket == "" {
+		ticket = id
+	}
+	if ticket == "" {
+		return nil
+	}
+	target := firstPayloadString(payload, "target", "agent")
+	if target == "" {
+		target = "worker"
+	}
+	j, err := jobstore.New(ticket, target, payloadString(payload, "kickoff"), time.Now().UTC())
+	if err != nil {
+		return nil
+	}
+	if id != "" {
+		j.ID = id
+	}
+	if ticketURL := payloadString(payload, "ticket_url"); ticketURL != "" {
+		j.TicketURL = ticketURL
+	}
+	j.Epic = jobstore.EpicFromInputs(payloadString(payload, "epic"), j.TicketURL, j.Origin.Project)
+	if kind := payloadJobKind(payload); kind != "" {
+		j.Kind = kind
+	}
+	if contract, ok := explicitPayloadDeliveryArtifactContract(payload); ok {
+		j.DeliveryContract = contract
+	} else if contract := payloadDeliveryArtifactContract(payload); contract != "" {
+		j.DeliveryContract = contract
+	}
+	return r.compileContractForPayload(j, payload)
+}
+
+func (r *EventResolver) existingPayloadContract(payload map[string]any) *jobstore.Contract {
+	if strings.TrimSpace(r.teamDir) == "" {
+		return nil
+	}
+	id := eventJobID(payload)
+	if id == "" {
+		return nil
+	}
+	j, err := jobstore.Read(r.teamDir, id)
+	if err != nil || j == nil || j.Contract == nil {
+		return nil
+	}
+	return j.Contract
+}
+
+func (r *EventResolver) compileContractForPayload(j *jobstore.Job, payload map[string]any) *jobstore.Contract {
+	if j == nil || payloadIsProbe(payload) {
+		return nil
+	}
+	return jobstore.CompileContract(j, jobstore.ContractCompileOptions{
+		Text:            payloadString(payload, "kickoff"),
+		RequiredTrailer: firstPayloadString(payload, "required_trailer", "trailer"),
+		ExplicitEpic:    payloadString(payload, "epic"),
+		Gates:           firstPayloadString(payload, "contract_gates", "gates"),
+	})
+}
+
 func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance string, status jobstore.Status, lastEvent, lastStatus, branch, worktreePath string) *jobstore.Job {
+	return r.upsertDispatchJobWithContract(payload, instance, status, lastEvent, lastStatus, branch, worktreePath, nil)
+}
+
+func (r *EventResolver) upsertDispatchJobWithContract(payload map[string]any, instance string, status jobstore.Status, lastEvent, lastStatus, branch, worktreePath string, compiledContract *jobstore.Contract) *jobstore.Job {
 	id := eventJobID(payload)
 	ticket := payloadString(payload, "ticket")
 	if id == "" && ticket == "" {
@@ -440,6 +521,13 @@ func (r *EventResolver) upsertDispatchJob(payload map[string]any, instance strin
 		j.DeliveryContract = contract
 	} else if contract := payloadDeliveryArtifactContract(payload); contract != "" {
 		j.DeliveryContract = contract
+	}
+	if j.Contract == nil {
+		if compiledContract != nil {
+			j.Contract = compiledContract
+		} else {
+			j.Contract = r.compileContractForPayload(j, payload)
+		}
 	}
 	if policy := payloadString(payload, "reap_worktree"); policy != "" {
 		if normalized, err := worktreepolicy.Normalize(policy); err == nil {

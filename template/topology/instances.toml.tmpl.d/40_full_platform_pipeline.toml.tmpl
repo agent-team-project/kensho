@@ -98,10 +98,11 @@ retry_on_crash = true
 instructions = """
 Adversarial content review of the platform job PR. Read the verifier evidence
 first, then apply the delivery checklist beyond those scripted gates: verify
-acceptance criteria against the ticket, hand-verify the changed behavior, and
-judge content only (infra state and base drift are not content bounces). Report
-gates with `agent-team job gate set`, then post `REVIEW: APPROVE` or
-`REVIEW: BOUNCE` with findings as a PR comment.
+contract criteria against the durable job contract, hand-verify the changed
+behavior, and judge content only (infra state and base drift are not content
+bounces). Report gates with `agent-team job gate set`, then post
+`REVIEW: APPROVE` with a clause-keyed ledger or `REVIEW: BOUNCE` with each
+finding starting `clause=ACn` or `clause=none`.
 """
 
 [[pipelines.platform_ticket_to_pr.steps]]
@@ -120,4 +121,3 @@ the job done. BOUNCE: `agent-team job bounce <job-id> --findings-file <path>
 description = "Framework infrastructure: provider seams, provenance, scoping, resource constraints."
 instances   = ["platform-worker", "platform-verifier", "platform-reviewer", "manager"]
 pipelines   = ["platform_ticket_to_pr"]
-

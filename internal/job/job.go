@@ -74,6 +74,7 @@ type Job struct {
 	InstanceURI            string          `toml:"instance_uri,omitempty"`
 	WorkspaceURI           string          `toml:"workspace_uri,omitempty"`
 	DeliveryContract       string          `toml:"delivery_contract,omitempty"`
+	Contract               *Contract       `toml:"contract,omitempty"`
 	ReapWorktree           string          `toml:"reap_worktree,omitempty"`
 	PR                     string          `toml:"pr,omitempty"`
 	Origin                 origin.Envelope `toml:"origin,omitempty"`
@@ -400,6 +401,9 @@ func Validate(j *Job) error {
 		return err
 	}
 	if err := validateDrift(j.Drift); err != nil {
+		return err
+	}
+	if err := ValidateContract(j.Contract); err != nil {
 		return err
 	}
 	if err := usage.ValidateJobUsage(j.Usage); err != nil {

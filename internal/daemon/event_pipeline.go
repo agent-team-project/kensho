@@ -51,10 +51,12 @@ func (r *EventResolver) actuatePipeline(pipeline *topology.Pipeline, eventType s
 	} else if contract := payloadDeliveryArtifactContract(payload); contract != "" {
 		j.DeliveryContract = contract
 	}
+	j.Contract = r.compileContractForPayload(j, payload)
 	jobstore.SetImplementationAgentFromSteps(j)
 	applyProbeProfileToPipelineJob(j)
 	if jobIsProbe(j) {
 		j.DeliveryContract = ""
+		j.Contract = nil
 	}
 	pipelineEvent := "pipeline_created"
 	if existing, err := jobstore.Read(r.teamDir, j.ID); err == nil {
@@ -120,7 +122,7 @@ func canAdoptDirectPipelineDispatch(pipeline *topology.Pipeline, j *jobstore.Job
 }
 
 func (r *EventResolver) adoptDirectPipelineDispatch(pipeline *topology.Pipeline, eventType string, payload map[string]any, directOutcomes map[string]EventOutcome, j *jobstore.Job) []EventOutcome {
-	hydratePipelineJob(j, pipeline, payload)
+	r.hydratePipelineJob(j, pipeline, payload)
 	j.LastEvent = "pipeline_created"
 	j.LastStatus = "pipeline " + pipeline.Name
 	if err := r.writeJobWithAudit(j, "pipeline_created", "daemon", "", pipelineAuditData(pipeline.Name, eventType, j, "")); err != nil {
@@ -144,14 +146,14 @@ func (r *EventResolver) adoptDirectPipelineDispatch(pipeline *topology.Pipeline,
 }
 
 func (r *EventResolver) actuatePipelineReentry(pipeline *topology.Pipeline, eventType string, payload map[string]any, directOutcomes map[string]EventOutcome, j *jobstore.Job, now time.Time) []EventOutcome {
-	hydratePipelineJob(j, pipeline, payload)
+	r.hydratePipelineJob(j, pipeline, payload)
 	if !jobStatusTerminal(j.Status) {
 		return r.pipelineReentryNoop(pipeline, eventType, j, now, "job "+j.ID+" already "+string(j.Status))
 	}
 	if !pipeline.RedispatchOnReentry {
 		return r.pipelineReentryNoop(pipeline, eventType, j, now, "job "+j.ID+" already "+string(j.Status)+"; redispatch_on_reentry=false")
 	}
-	resetPipelineJobForReentry(j, pipeline, eventType, payload, now)
+	r.resetPipelineJobForReentry(j, pipeline, eventType, payload, now)
 	if err := r.writeJobWithAudit(j, "reopened", "daemon", j.LastStatus, pipelineAuditData(pipeline.Name, eventType, j, "reopen")); err != nil {
 		return []EventOutcome{{Instance: "pipeline:" + pipeline.Name, Action: "rejected", Reason: err.Error(), JobID: j.ID, Pipeline: pipeline.Name}}
 	}
@@ -198,7 +200,7 @@ func (r *EventResolver) pipelineReentryNoop(pipeline *topology.Pipeline, eventTy
 	}}
 }
 
-func hydratePipelineJob(j *jobstore.Job, pipeline *topology.Pipeline, payload map[string]any) {
+func (r *EventResolver) hydratePipelineJob(j *jobstore.Job, pipeline *topology.Pipeline, payload map[string]any) {
 	j.Pipeline = pipeline.Name
 	if kind := payloadJobKind(payload); kind != "" {
 		j.Kind = kind
@@ -225,12 +227,18 @@ func hydratePipelineJob(j *jobstore.Job, pipeline *topology.Pipeline, payload ma
 	if len(j.Steps) == 0 {
 		j.Steps = pipelineJobSteps(pipeline)
 	}
+	if j.Contract == nil {
+		j.Contract = r.compileContractForPayload(j, payload)
+	}
 	jobstore.SetImplementationAgentFromSteps(j)
 	applyProbeProfileToPipelineJob(j)
+	if jobIsProbe(j) {
+		j.Contract = nil
+	}
 }
 
-func resetPipelineJobForReentry(j *jobstore.Job, pipeline *topology.Pipeline, eventType string, payload map[string]any, now time.Time) {
-	hydratePipelineJob(j, pipeline, payload)
+func (r *EventResolver) resetPipelineJobForReentry(j *jobstore.Job, pipeline *topology.Pipeline, eventType string, payload map[string]any, now time.Time) {
+	r.hydratePipelineJob(j, pipeline, payload)
 	j.Target = pipeline.Steps[0].Target
 	j.Kickoff = pipelineKickoff(eventType, payload)
 	j.Status = jobstore.StatusQueued
@@ -253,6 +261,9 @@ func resetPipelineJobForReentry(j *jobstore.Job, pipeline *topology.Pipeline, ev
 	applyProbeProfileToPipelineJob(j)
 	if jobIsProbe(j) {
 		j.DeliveryContract = ""
+		j.Contract = nil
+	} else {
+		j.Contract = r.compileContractForPayload(j, payload)
 	}
 	j.LastEvent = "reopened"
 	j.LastStatus = "reopened by pipeline re-entry"
@@ -334,7 +345,7 @@ func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topolog
 		dispatchPayload["timeout"] = ts
 	}
 	applyPipelineStepBudgetToPayload(step, dispatchPayload)
-	kickoff := jobstore.StepDispatchKickoff(j.Kickoff, step.ID, step.Instructions)
+	kickoff := jobstore.StepDispatchKickoffWithContract(j.Kickoff, step.ID, step.Instructions, j.Contract)
 	// Best-effort context passing: if the caller threaded the prior step's final
 	// output through the payload (auto-advance does), hand it to this step so e.g.
 	// a reviewer sees the worker's "opened PR #N" report. Never required.

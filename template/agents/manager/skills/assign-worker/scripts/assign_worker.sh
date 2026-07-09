@@ -251,6 +251,7 @@ event_payload = {
     "job_id": os.environ["ASSIGN_WORKER_JOB_ID"],
     "ticket": os.environ["ASSIGN_WORKER_TICKET"],
     "kickoff": os.environ["ASSIGN_WORKER_KICKOFF"],
+    "deliverable": "pr",
     "workspace": os.environ["ASSIGN_WORKER_WORKSPACE"],
 }
 print(json.dumps({"type": "agent.dispatch", "payload": event_payload}))

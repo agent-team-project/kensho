@@ -421,6 +421,12 @@ func newJobCreateCmd() *cobra.Command {
 				j.TicketURL = strings.TrimSpace(ticketURL)
 			}
 			j.Epic = job.EpicFromInputs(epic, j.TicketURL, j.Origin.Project)
+			if j.Contract == nil {
+				j.Contract = job.CompileContract(j, job.ContractCompileOptions{
+					Text:         j.Kickoff,
+					ExplicitEpic: epic,
+				})
+			}
 			if strings.TrimSpace(instance) != "" {
 				j.Instance = strings.TrimSpace(instance)
 			}
@@ -488,7 +494,7 @@ func newJobCreateCmd() *cobra.Command {
 						}
 						return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, tmpl)
 					}
-					payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, j.Kickoff, j.Instance, "", workspace)
+					payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, job.RenderKickoffWithContract(j.Kickoff, j.Contract), j.Instance, "", workspace)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job create: %v\n", err)
 						return exitErr(2)
@@ -1461,7 +1467,10 @@ func newJobDispatchCmd() *cobra.Command {
 				return err
 			}
 			if dryRun {
-				payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, j.Kickoff, j.Instance, source, workspace)
+				if j.Contract == nil {
+					j.Contract = job.CompileContract(j, job.ContractCompileOptions{Text: j.Kickoff})
+				}
+				payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, job.RenderKickoffWithContract(j.Kickoff, j.Contract), j.Instance, source, workspace)
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job dispatch: %v\n", err)
 					return exitErr(2)
@@ -4355,7 +4364,10 @@ func newJobReopenCmd() *cobra.Command {
 						}
 						return renderJobAdvancePreview(cmd.OutOrStdout(), preview, jsonOut, tmpl)
 					}
-					payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, j.Kickoff, j.Instance, source, workspace)
+					if j.Contract == nil {
+						j.Contract = job.CompileContract(j, job.ContractCompileOptions{Text: j.Kickoff})
+					}
+					payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, job.RenderKickoffWithContract(j.Kickoff, j.Contract), j.Instance, source, workspace)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job reopen: %v\n", err)
 						return exitErr(2)
@@ -10877,7 +10889,10 @@ func dispatchJobWithPrefix(cmd *cobra.Command, teamDir string, j *job.Job, sourc
 	if err := auditCLIJobCommandAuthority(cmd, teamDir, j, prefix, "job.dispatch"); err != nil {
 		return nil, "", err
 	}
-	payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, j.Kickoff, j.Instance, source, workspace)
+	if j.Contract == nil {
+		j.Contract = job.CompileContract(j, job.ContractCompileOptions{Text: j.Kickoff})
+	}
+	payload, requestedName, err := buildDispatchEventPayload(j.Target, j.Ticket, job.RenderKickoffWithContract(j.Kickoff, j.Contract), j.Instance, source, workspace)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", prefix, err)
 		return nil, "", exitErr(2)
@@ -12602,7 +12617,10 @@ func buildJobStepDispatchPayload(teamDir string, j *job.Job, step *job.Step, wor
 	if strings.TrimSpace(name) == "" {
 		name = step.Target + "-" + j.ID + "-" + job.NormalizeID(step.ID)
 	}
-	payload, requestedName, err := buildDispatchEventPayload(step.Target, j.Ticket, job.StepDispatchKickoff(j.Kickoff, step.ID, step.Instructions), name, "job:"+j.ID, workspaceForJobStep(step, workspace))
+	if j.Contract == nil {
+		j.Contract = job.CompileContract(j, job.ContractCompileOptions{Text: j.Kickoff})
+	}
+	payload, requestedName, err := buildDispatchEventPayload(step.Target, j.Ticket, job.StepDispatchKickoffWithContract(j.Kickoff, step.ID, step.Instructions, j.Contract), name, "job:"+j.ID, workspaceForJobStep(step, workspace))
 	if err != nil {
 		return nil, "", err
 	}
