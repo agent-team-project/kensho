@@ -114,22 +114,62 @@ func TestCompileContractFallbackRecordsDeliverableTrailerFloor(t *testing.T) {
 	}
 }
 
-func TestCompileContractExplicitEpicRequiresAdvances(t *testing.T) {
-	j, err := New("https://github.com/agent-team-project/kensho/issues/324", "worker", "epic slice", time.Now())
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	j.Epic = EpicFromInputs("agent-team-project/kensho#324", j.TicketURL, "")
-	j.DeliveryContract = "ticket_to_pr"
-	contract := CompileContract(j, ContractCompileOptions{
-		Text:         "epic slice",
-		ExplicitEpic: "agent-team-project/kensho#324",
-	})
-	if contract == nil {
-		t.Fatalf("CompileContract returned nil")
-	}
-	if contract.Trailer != "Advances #324" {
-		t.Fatalf("contract trailer = %q, want Advances #324", contract.Trailer)
+func TestCompileContractExplicitEpicTrailerInference(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		ticketURL    string
+		explicitEpic string
+		want         string
+	}{
+		{
+			name:         "same ticket closes",
+			ticketURL:    "https://github.com/agent-team-project/kensho/issues/336",
+			explicitEpic: "agent-team-project/kensho#336",
+			want:         "Closes #336",
+		},
+		{
+			name:         "same ticket url closes",
+			ticketURL:    "https://github.com/agent-team-project/kensho/issues/336",
+			explicitEpic: "https://github.com/agent-team-project/kensho/issues/336",
+			want:         "Closes #336",
+		},
+		{
+			name:         "same ticket bare issue closes",
+			ticketURL:    "https://github.com/agent-team-project/kensho/issues/336",
+			explicitEpic: "#336",
+			want:         "Closes #336",
+		},
+		{
+			name:         "separate epic advances",
+			ticketURL:    "https://github.com/agent-team-project/kensho/issues/336",
+			explicitEpic: "agent-team-project/kensho#324",
+			want:         "Advances #324",
+		},
+		{
+			name:         "different repo same number advances",
+			ticketURL:    "https://github.com/agent-team-project/kensho/issues/336",
+			explicitEpic: "agent-team-project/other#336",
+			want:         "Advances #336",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			j, err := New(tc.ticketURL, "worker", "epic slice", time.Now())
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			j.Epic = EpicFromInputs(tc.explicitEpic, j.TicketURL, "")
+			j.DeliveryContract = "ticket_to_pr"
+			contract := CompileContract(j, ContractCompileOptions{
+				Text:         "epic slice",
+				ExplicitEpic: tc.explicitEpic,
+			})
+			if contract == nil {
+				t.Fatalf("CompileContract returned nil")
+			}
+			if contract.Trailer != tc.want {
+				t.Fatalf("contract trailer = %q, want %q", contract.Trailer, tc.want)
+			}
+		})
 	}
 }
 
