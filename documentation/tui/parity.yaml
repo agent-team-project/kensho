@@ -1,0 +1,1015 @@
+schema: agent-team.tui-parity.v1
+work_item: https://github.com/agent-team-project/kensho/issues/383
+epic: https://github.com/agent-team-project/kensho/issues/153
+purpose: >-
+  Planned disposition of every capability in the embedded daemon dashboard and
+  the machine-readable oracle for the later, single-PR terminal UI cutover.
+
+semantics:
+  allowed_statuses:
+    - covered
+    - dropped-by-decision
+  covered: >-
+    The future TUI screen is contractually required to reproduce the current
+    capability. This does not mean it is implemented in the GH-383 spec slice.
+  dropped-by-decision: >-
+    The browser-specific capability is intentionally absent from the TUI and
+    has a required decision citation.
+  cutover_complete: >-
+    Every covered row has passing evidence, every dropped row has a decision,
+    the current-target integration source digest is current, and every cutover
+    oracle condition is satisfied on the same recorded integration result.
+
+source_inventory:
+  base_commit: f206f0f0503a0b4e841e9919b6c221793430dfe8
+  revision_basis: gh-383 working tree at 2026-07-10
+  digest:
+    algorithm: sha256
+    serialization: git-ls-tree-r-z-full-tree
+    command_contract: >-
+      git ls-tree -r -z --full-tree "$REV" -- internal/daemon/ui
+      internal/daemon/ui.go internal/daemon/http.go
+      internal/daemon/http_auth.go | shasum -a 256
+    scope:
+      - internal/daemon/ui
+      - internal/daemon/ui.go
+      - internal/daemon/http.go
+      - internal/daemon/http_auth.go
+    scope_semantics: >-
+      Directory entries are recursive, so a newly added file below
+      internal/daemon/ui changes the digest even when it is not yet named in
+      files below. Entries are Git's NUL-delimited full-tree records, including
+      mode, object type, blob object ID, and path in Git's deterministic order.
+    value: 8c844f7a6d93bc762c7d1ce0a755916376586f8a981330ede928e707b9714496
+  files:
+    - path: internal/daemon/ui/index.html
+      role: controls, summary tiles, org view, and table declarations
+    - path: internal/daemon/ui/app.js
+      role: requests, projections, refresh, connection, errors, and rendering
+    - path: internal/daemon/ui/app_test.mjs
+      role: model-tier and bounce-class behavior
+    - path: internal/daemon/ui/styles.css
+      role: responsive, focus, color, and overflow behavior
+    - path: internal/daemon/ui.go
+      role: embedded asset handler and redirect
+    - path: internal/daemon/http.go
+      role: route registration and read endpoint handlers
+    - path: internal/daemon/http_auth.go
+      role: unauthenticated static-shell exception
+  api_routes:
+    primary_collections:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/topology
+    dynamic_enrichment:
+      - GET /v1/resources?uri={resource_uri}
+    notes:
+      - >-
+        app.js lines 48-52 declare the three primary collections.
+      - >-
+        app.js lines 104-155 collect resource URIs from those collections and
+        fan out to the dynamic enrichment route.
+      - >-
+        The cutover requires no new daemon API; all four current route shapes
+        remain behaviorally unchanged.
+
+evidence_contract:
+  state_in_this_slice: planned
+  evidence_file_at_cutover: documentation/tui/cutover-evidence.yaml
+  evidence_schema_at_cutover: agent-team.tui-cutover-evidence.v1
+  covered_row_requires:
+    - at least one canonical golden assertion
+    - seeded live-daemon normalized-value parity assertion
+  global_rows_may_share_evidence: true
+  dropped_row_requires:
+    - non-empty decision field
+    - decision target resolves to an accepted architecture record
+
+capabilities:
+  - id: shell.manual-token-connect
+    current_surface: Bearer-token password field, token-file guidance, Connect button, and sessionStorage token retention.
+    data: Operator bearer token entered by the user; no daemon data is exposed by the static shell.
+    endpoint: []
+    source:
+      - internal/daemon/ui/index.html:21-33
+      - internal/daemon/ui/app.js:45-46
+      - internal/daemon/ui/app.js:68-83
+      - internal/daemon/ui/app.js:1758-1775
+      - internal/daemon/http_auth.go:61-87
+    future_tui_screen: shell.connection
+    future_behavior: Use shared daemonclient URL/socket/token discovery; never prompt for or persist a pasted browser token.
+    status: dropped-by-decision
+    decision: documentation/tui/SPEC.md#current-dashboard-ground-truth
+    evidence: []
+
+  - id: shell.manual-refresh
+    current_surface: Refresh button disables while a refresh is in flight and coalesces duplicate refresh requests.
+    data: All current dashboard collections and discovered resource envelopes.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/topology
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:33
+      - internal/daemon/ui/app.js:54-55
+      - internal/daemon/ui/app.js:1688-1743
+      - internal/daemon/ui/app.js:1768
+    future_tui_screen: shell.connection
+    future_behavior: Global r binding requests one coalesced refresh and exposes in-flight state.
+    status: covered
+    evidence: []
+
+  - id: shell.auto-refresh
+    current_surface: Session-retained auto-refresh toggle, enabled by default, with a five-second interval and Manual/Every 5s label.
+    data: Refresh cadence and all current dashboard data.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/topology
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:29-32
+      - internal/daemon/ui/app.js:46-47
+      - internal/daemon/ui/app.js:1746-1756
+      - internal/daemon/ui/app.js:1770-1777
+    future_tui_screen: shell.connection
+    future_behavior: Cancellable five-second polling owned by the command layer, enabled by default and toggled for the session with p; paused/in-flight state is visible.
+    status: covered
+    evidence: []
+
+  - id: shell.connection-and-errors
+    current_surface: Checking, connected, degraded/partial, disconnected, and render-error states with 401/403/503/network-specific guidance.
+    data: Per-request success/failure, readable daemon error body, connection state, and refresh timestamp.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/topology
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:17-20
+      - internal/daemon/ui/index.html:88
+      - internal/daemon/ui/app.js:1631-1673
+      - internal/daemon/ui/app.js:1688-1743
+    future_tui_screen: shell.connection
+    future_behavior: Honest per-source freshness with persistent stale/disconnected banner, last-good snapshot, and explicit reconnect transition.
+    status: covered
+    evidence: []
+
+  - id: shell.panel-freshness-empty-errors
+    current_surface: Every panel has a last-updated/unavailable marker and contextual empty or error state.
+    data: Per-source result, per-resource failure, render timestamp, and section-specific empty state.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/topology
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:91-305
+      - internal/daemon/ui/app.js:650-672
+      - internal/daemon/ui/app.js:1675-1686
+    future_tui_screen: shell.status
+    future_behavior: Each pane carries source time/error and focusable empty/recovery text; failed sections retain labelled last-good data.
+    status: covered
+    evidence: []
+
+  - id: shell.responsive-focus-color
+    current_surface: Responsive one/two-column layout, horizontally scrollable tables, visible focus outlines, system light/dark color, and text-bearing status pills.
+    data: Viewport width, system color preference, focus, and textual statuses.
+    endpoint: []
+    source:
+      - internal/daemon/ui/styles.css:1-61
+      - internal/daemon/ui/styles.css:203-208
+      - internal/daemon/ui/styles.css:249-321
+      - internal/daemon/ui/styles.css:484-557
+      - internal/daemon/ui/styles.css:634-689
+    future_tui_screen: shell.layout
+    future_behavior: Compact/standard/wide reflow, semantic focus, textual status, color mode, NO_COLOR, and TERM=dumb; no horizontal-only access path.
+    status: covered
+    evidence: []
+
+  - id: overview.instance-count
+    current_surface: Instances summary tile.
+    data: Number of rows in the instances collection.
+    endpoint:
+      - GET /v1/instances
+    source:
+      - internal/daemon/ui/index.html:38-41
+      - internal/daemon/ui/app.js:1611-1618
+    future_tui_screen: overview
+    future_behavior: Fleet summary count linked to the Instances screen.
+    status: covered
+    evidence: []
+
+  - id: overview.running-instance-count
+    current_surface: Running summary tile.
+    data: Count of instances whose lifecycle status is running.
+    endpoint:
+      - GET /v1/instances
+    source:
+      - internal/daemon/ui/index.html:42-45
+      - internal/daemon/ui/app.js:1617-1619
+    future_tui_screen: overview
+    future_behavior: Running count with text status and Fleet shortcut.
+    status: covered
+    evidence: []
+
+  - id: overview.job-count
+    current_surface: Jobs summary tile.
+    data: Number of rows in the jobs collection.
+    endpoint:
+      - GET /v1/jobs
+    source:
+      - internal/daemon/ui/index.html:46-49
+      - internal/daemon/ui/app.js:1619
+    future_tui_screen: overview
+    future_behavior: Work summary count linked to Jobs.
+    status: covered
+    evidence: []
+
+  - id: overview.active-job-count
+    current_surface: Active Jobs summary tile.
+    data: Jobs with status queued, running, or blocked.
+    endpoint:
+      - GET /v1/jobs
+    source:
+      - internal/daemon/ui/index.html:50-53
+      - internal/daemon/ui/app.js:278-281
+      - internal/daemon/ui/app.js:1620
+    future_tui_screen: overview
+    future_behavior: Active work count using the same status set and linked filter.
+    status: covered
+    evidence: []
+
+  - id: overview.model-tier-count
+    current_surface: Model Tiers summary tile.
+    data: Distinct model/tier aggregate groups across the 24 most recently updated jobs, including not reported.
+    endpoint:
+      - GET /v1/jobs
+      - GET /v1/instances
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:54-57
+      - internal/daemon/ui/app.js:483-499
+      - internal/daemon/ui/app.js:1148-1183
+      - internal/daemon/ui/app.js:1621
+    future_tui_screen: overview
+    future_behavior: Distinct recent model/tier group count linked to Work telemetry.
+    status: covered
+    evidence: []
+
+  - id: overview.bounce-class-count
+    current_surface: Bounce Classes summary tile.
+    data: Distinct reported or derived bounce classes across the 24 most recently updated jobs.
+    endpoint:
+      - GET /v1/jobs
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:58-61
+      - internal/daemon/ui/app.js:534-609
+      - internal/daemon/ui/app.js:1156-1183
+      - internal/daemon/ui/app.js:1622
+    future_tui_screen: overview
+    future_behavior: Distinct recent bounce-class count linked to Work telemetry.
+    status: covered
+    evidence: []
+
+  - id: overview.pipeline-count
+    current_surface: Pipelines summary tile.
+    data: Number of declared topology pipelines.
+    endpoint:
+      - GET /v1/topology
+    source:
+      - internal/daemon/ui/index.html:62-65
+      - internal/daemon/ui/app.js:1612-1623
+    future_tui_screen: overview
+    future_behavior: Declared pipeline count linked to Fleet topology.
+    status: covered
+    evidence: []
+
+  - id: overview.budget-team-count
+    current_surface: Budget Teams summary tile.
+    data: Number of declared topology budget rows.
+    endpoint:
+      - GET /v1/topology
+    source:
+      - internal/daemon/ui/index.html:66-69
+      - internal/daemon/ui/app.js:1613-1624
+    future_tui_screen: overview
+    future_behavior: Budget row/team count linked to Fleet topology budgets.
+    status: covered
+    evidence: []
+
+  - id: overview.team-count
+    current_surface: Teams summary tile.
+    data: Number of declared topology teams.
+    endpoint:
+      - GET /v1/topology
+    source:
+      - internal/daemon/ui/index.html:70-73
+      - internal/daemon/ui/app.js:1614-1625
+    future_tui_screen: overview
+    future_behavior: Team count linked to Fleet topology teams.
+    status: covered
+    evidence: []
+
+  - id: overview.schedule-count
+    current_surface: Schedules summary tile.
+    data: Number of declared topology schedules.
+    endpoint:
+      - GET /v1/topology
+    source:
+      - internal/daemon/ui/index.html:74-77
+      - internal/daemon/ui/app.js:1615-1626
+    future_tui_screen: overview
+    future_behavior: Schedule count linked to Fleet topology schedules.
+    status: covered
+    evidence: []
+
+  - id: overview.deployment-count
+    current_surface: Deployments summary tile.
+    data: Distinct deployment URIs inferred from jobs, instances, and project resource envelopes.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:78-81
+      - internal/daemon/ui/app.js:1230-1310
+      - internal/daemon/ui/app.js:1627
+    future_tui_screen: overview
+    future_behavior: Observed deployment count linked to Fleet topology resources.
+    status: covered
+    evidence: []
+
+  - id: overview.deadline-count
+    current_surface: Deadlines summary tile.
+    data: Deduplicated durable or runtime deadlines from jobs, instances, and resource envelopes.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:82-85
+      - internal/daemon/ui/app.js:1488-1590
+      - internal/daemon/ui/app.js:1628
+    future_tui_screen: overview
+    future_behavior: Deadline count linked to Fleet topology deadlines.
+    status: covered
+    evidence: []
+
+  - id: org.declared-runtime-lanes
+    current_surface: Live Org joins declared lanes and runtime instances, including ephemeral replica naming, deduplication, active instances, latest inactive instance, schedules, and persistence.
+    data: Topology instance declarations/schedules plus instance lifecycle and activity timestamps.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/topology
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:91-97
+      - internal/daemon/ui/app.js:719-925
+      - internal/daemon/ui/app.js:1034-1095
+    future_tui_screen: fleet.org
+    future_behavior: Role-grouped lane list with the same declared/runtime join and compact/standard/wide presentations.
+    status: covered
+    evidence: []
+
+  - id: org.role-and-lane-state
+    current_surface: Per-role working/idle/queued/crashed counts and per-lane working/idle/queued/crashed state.
+    data: Instance lifecycle, state phase, declared queue/running/replica counts, and grouped agent role.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/topology
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/app.js:771-803
+      - internal/daemon/ui/app.js:912-945
+      - internal/daemon/ui/app.js:1051-1094
+    future_tui_screen: fleet.org
+    future_behavior: Text-labelled role and lane health with identical state formulas.
+    status: covered
+    evidence: []
+
+  - id: org.runtime-detail
+    current_surface: Up to four visible active instances per lane, or the latest inactive instance, with job/ticket/description, model/tier/runtime, phase, and lifecycle.
+    data: Instance collection plus state, instance, job, and outcome resource envelopes.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/topology
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/app.js:410-499
+      - internal/daemon/ui/app.js:948-1032
+    future_tui_screen: fleet.org
+    future_behavior: Lane rows show priority detail; Enter exposes the complete semantic instance detail without a four-row visibility cap.
+    status: covered
+    evidence: []
+
+  - id: instances.table
+    current_surface: Instances table with name, agent, lifecycle status, model/tier plus runtime, and job.
+    data: Instance collection enriched with declared instance and instance resource data.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/topology
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:99-118
+      - internal/daemon/ui/app.js:403-416
+      - internal/daemon/ui/app.js:1097-1119
+    future_tui_screen: fleet.instances
+    future_behavior: Keyboard-navigable priority table with full focused-row detail and identical empty/error semantics.
+    status: covered
+    evidence: []
+
+  - id: jobs.table
+    current_surface: Jobs table with ID, ticket, status, pipeline, model/tier plus runtime, classified bounce counts, and instance.
+    data: Jobs and instances enriched with job, outcome, instance, and state resource envelopes.
+    endpoint:
+      - GET /v1/jobs
+      - GET /v1/instances
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:120-141
+      - internal/daemon/ui/app.js:418-499
+      - internal/daemon/ui/app.js:534-609
+      - internal/daemon/ui/app.js:1121-1146
+      - internal/daemon/ui/app_test.mjs:207-343
+    future_tui_screen: work.jobs
+    future_behavior: Keyboard-navigable Jobs list/detail using the same primary-step telemetry and bounce precedence.
+    status: covered
+    evidence: []
+
+  - id: telemetry.model-tiers
+    current_surface: Recent model/tier aggregation with jobs, active jobs, and total bounces per group.
+    data: The 24 most recently updated jobs; reported outcome model/tier only, runtime fallback displayed separately, and bounce totals.
+    endpoint:
+      - GET /v1/jobs
+      - GET /v1/instances
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:143-164
+      - internal/daemon/ui/app.js:1148-1213
+      - internal/daemon/ui/app_test.mjs:315-343
+    future_tui_screen: work.telemetry
+    future_behavior: Same recent-24 grouping, sort order, unknown semantics, counts, and drill-through filter.
+    status: covered
+    evidence: []
+
+  - id: telemetry.bounce-classes
+    current_surface: Recent bounce-class aggregation with bounce and affected-job counts.
+    data: Outcome bounce_classes, then outcome bounces, then job resource classes, then kickoff review-heading classification; recent 24 jobs.
+    endpoint:
+      - GET /v1/jobs
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:165-181
+      - internal/daemon/ui/app.js:509-609
+      - internal/daemon/ui/app.js:1156-1183
+      - internal/daemon/ui/app.js:1214-1228
+    future_tui_screen: work.telemetry
+    future_behavior: Same precedence, class counts, affected-job counts, sort order, and drill-through filter.
+    status: covered
+    evidence: []
+
+  - id: topology.deployments-charters
+    current_surface: Deployment rows with shortened URI/ID, parent, instance/job child counts, charter URI/state, and derived status.
+    data: Deployment, parent, charter, and status fields from instances, jobs, and project/job/instance resource envelopes.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:183-202
+      - internal/daemon/ui/app.js:1230-1359
+    future_tui_screen: fleet.topology
+    future_behavior: Resources subsection with the same derived rows and full canonical URI in focused detail.
+    status: covered
+    evidence: []
+
+  - id: topology.pipelines
+    current_surface: Pipelines table with name, trigger event/match, ordered steps with target and token/time budget, and active-job count.
+    data: Topology pipeline declarations joined to queued/running/blocked jobs by pipeline name.
+    endpoint:
+      - GET /v1/topology
+      - GET /v1/jobs
+    source:
+      - internal/daemon/ui/index.html:204-222
+      - internal/daemon/ui/app.js:674-717
+      - internal/daemon/ui/app.js:1361-1402
+    future_tui_screen: fleet.topology
+    future_behavior: Pipelines subsection preserving trigger, step order/budgets, and active status.
+    status: covered
+    evidence: []
+
+  - id: topology.budgets
+    current_surface: Budgets table with team, tokens/day, jobs-in-flight cap, active count, available slots, and allocation mode.
+    data: Topology budgets/teams joined to active jobs through team pipeline membership.
+    endpoint:
+      - GET /v1/topology
+      - GET /v1/jobs
+    source:
+      - internal/daemon/ui/index.html:224-244
+      - internal/daemon/ui/app.js:1366-1379
+      - internal/daemon/ui/app.js:1404-1432
+    future_tui_screen: fleet.topology
+    future_behavior: Budgets subsection with identical active/open calculation and explicit unbounded/unconfigured states.
+    status: covered
+    evidence: []
+
+  - id: topology.schedules
+    current_surface: Schedules table with name, cadence, formatted last-fired or on-start/pending state, team, and first three payload fields.
+    data: Topology schedule declaration and live last_fired_at projection.
+    endpoint:
+      - GET /v1/topology
+    source:
+      - internal/daemon/ui/index.html:246-265
+      - internal/daemon/ui/app.js:251-263
+      - internal/daemon/ui/app.js:1434-1457
+    future_tui_screen: fleet.topology
+    future_behavior: Schedules subsection with injected UTC formatting, complete payload in detail, and same pending/on-start semantics.
+    status: covered
+    evidence: []
+
+  - id: topology.deadlines
+    current_surface: Deadlines table with resource label, formatted deadline, state, and source, deduplicated across collections and resources.
+    data: Durable deadline, runtime deadline, deadline state/source, and job/instance/resource identity.
+    endpoint:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/resources?uri={resource_uri}
+    source:
+      - internal/daemon/ui/index.html:267-285
+      - internal/daemon/ui/app.js:1488-1609
+    future_tui_screen: fleet.topology
+    future_behavior: Deadlines subsection with identical durable-over-runtime precedence, deduplication, state, and source.
+    status: covered
+    evidence: []
+
+  - id: topology.teams
+    current_surface: Teams table with instance, pipeline, and channel counts plus active/idle status from jobs on team pipelines.
+    data: Topology team membership joined to queued/running/blocked jobs by pipeline.
+    endpoint:
+      - GET /v1/topology
+      - GET /v1/jobs
+    source:
+      - internal/daemon/ui/index.html:287-306
+      - internal/daemon/ui/app.js:1459-1486
+    future_tui_screen: fleet.topology
+    future_behavior: Teams subsection preserving membership counts and active/idle formula.
+    status: covered
+    evidence: []
+
+cutover:
+  schema: agent-team.tui-cutover-oracle.v1
+  mode: single_pr
+  phase: parity-screens-and-early-cutover
+  zero_new_daemon_api_required: true
+  invariant: >-
+    The web surface, its auth exception, browser verification, obsolete docs,
+    and the guards preventing their return all change atomically on one manually
+    approved PR head.
+
+  integration_proof:
+    target_ref_source: pull_request.baseRefName
+    target_head_definition: >-
+      The freshly fetched current head SHA of the PR target ref, never a merge
+      base, cached checkout, or the target SHA from when the cutover branch forked.
+    cutover_head_definition: the exact tested PR head SHA
+    synthetic_merge:
+      command_contract: git merge-tree --write-tree "$TARGET_HEAD" "$CUTOVER_HEAD"
+      clean_merge_required: true
+      output: integration_result_tree
+    coupled_revisions:
+      source_inventory_digest: target_head
+      removals_and_path_absence: integration_result_tree
+      required_rewrites: integration_result_tree
+      auth_regression: integration_result_tree
+      permanent_lints: integration_result_tree
+      acceptance_gates: integration_result_tree
+    coupling_rule: >-
+      All evaluations belong to this one (target_head, cutover_head,
+      integration_result_tree) tuple. Freshness reads the pre-deletion target
+      input because the result must contain no inventoried sources; all deletion,
+      absence, rewrite, auth, and lint evaluations read the tuple's result tree.
+      No evaluation may substitute a merge base, branch-only tree, or separately
+      resolved target revision.
+    target_head_guard:
+      before_gate: target_head equals the freshly fetched target ref head
+      immediately_before_merge: target_head still equals the target ref head
+      merge_precondition: >-
+        The provider merge or merge-queue operation is conditional on the
+        recorded target_head SHA; it must reject rather than integrate onto a
+        different target head.
+      on_mismatch: >-
+        Invalidate all evidence, fetch the new target head, rebuild the synthetic
+        integration result, and rerun source freshness plus every cutover gate.
+    evidence_file_keys:
+      - target_ref
+      - target_head_sha
+      - cutover_head_sha
+      - integration_result_tree
+      - clean_merge
+
+  parity:
+    disposition_rule: "all(capabilities, status in semantics.allowed_statuses)"
+    covered_rule: "all(capabilities[status=covered], evidence.length > 0)"
+    dropped_rule: "all(capabilities[status=dropped-by-decision], decision != '')"
+    required_coverage_percent: 100
+    evidence_file: documentation/tui/cutover-evidence.yaml
+    evidence_must_match_head_sha: true
+    source_freshness:
+      integration_proof_ref: cutover.integration_proof
+      comparison_revision: integration_proof.target_head
+      digest_contract_ref: source_inventory.digest
+      rule: >-
+        digest(integration_proof.target_head, source_inventory.digest.scope) ==
+        source_inventory.digest.value
+      fail_closed: true
+      evidence_file_keys:
+        - source_inventory_base_commit
+        - source_inventory_expected_digest
+        - target_head_source_actual_digest
+        - inventory_review_url
+      equality_requirements:
+        - integration_proof.cutover_head_sha equals the exact tested PR head SHA
+        - integration_proof.target_head_sha equals the current PR target head SHA
+        - integration_proof.integration_result_tree is the clean synthetic merge output
+        - source_inventory_base_commit equals source_inventory.base_commit
+        - source_inventory_expected_digest equals source_inventory.digest.value
+        - target_head_source_actual_digest equals source_inventory.digest.value
+        - every removal and path-absence assertion passes on integration_result_tree
+      mismatch_remediation: >-
+        Stop deletion, regenerate and re-review every capability and route shape
+        against the changed source scope, update base_commit and digest.value in
+        a separate reviewed inventory revision, then rebuild the integration
+        proof and rerun the entire cutover oracle.
+
+  acceptance_gates:
+    required:
+      - unit
+      - golden
+      - pty
+      - term-dumb
+      - live-daemon
+      - non-tty
+      - cutover-lints
+      - performance
+      - soak
+    canonical_geometries:
+      - 80x24
+      - 120x30
+      - 160x50
+    render_modes:
+      - color
+      - NO_COLOR
+      - TERM=dumb
+    consecutive_identical_golden_runs: 2
+    layout_contract:
+      classification_precedence:
+        - class: too-small
+          predicate: width < 60 or height < 16
+        - class: compact
+          predicate: width < 100 or height < 27
+        - class: standard
+          predicate: width < 145 or height < 40
+        - class: wide
+          predicate: otherwise
+      evaluation: first matching predicate wins
+      totality_property: >-
+        For every non-negative integer width and height exactly one class is
+        returned; after too-small exactly one of compact, standard, or wide is
+        returned.
+      exhaustive_test_domain:
+        width: 0..320
+        height: 0..120
+      boundary_cases:
+        - {geometry: 59x50, class: too-small}
+        - {geometry: 60x15, class: too-small}
+        - {geometry: 60x16, class: compact}
+        - {geometry: 99x50, class: compact}
+        - {geometry: 100x26, class: compact}
+        - {geometry: 100x27, class: standard}
+        - {geometry: 100x40, class: standard}
+        - {geometry: 120x50, class: standard}
+        - {geometry: 144x40, class: standard}
+        - {geometry: 145x27, class: standard}
+        - {geometry: 145x30, class: standard}
+        - {geometry: 160x30, class: standard}
+        - {geometry: 145x39, class: standard}
+        - {geometry: 145x40, class: wide}
+        - {geometry: 160x50, class: wide}
+      canonical_source_frames:
+        file: documentation/tui/SPEC.md
+        encoding: ASCII
+        implicit_margins: false
+        frames:
+          - {heading: "### 80×24 — compact overview", fence: text, columns: 80, rows: 24}
+          - {heading: "### 120×30 — standard jobs", fence: text, columns: 120, rows: 30}
+          - {heading: "### 160×50 — wide topology", fence: text, columns: 160, rows: 50}
+        row_assertion: each source row has exactly the declared columns cells
+        height_assertion: each source fence contains exactly its declared number of rows
+        pane_junctions:
+          - {frame: 120x30, pane: Jobs/Detail, source_rows: 5..14, column: 70}
+          - {frame: 160x50, pane: Live-org/Context, source_rows: 3..13, column: 105}
+          - {frame: 160x50, pane: Pipelines/Budgets, source_rows: 14..19, column: 73}
+          - {frame: 160x50, pane: Schedules/Teams, source_rows: 20..24, column: 73}
+          - {frame: 160x50, pane: Deployments/Deadlines, source_rows: 25..47, column: 73}
+        pane_junction_assertion: >-
+          For every inclusive source-row span, each row has ASCII | or + at the
+          declared one-based column and has no junction for that pane at either
+          adjacent column. Header/opening, content, separator, and closing rows
+          are all checked; correct outer dimensions alone are insufficient.
+    zero_environment_discovery:
+      required_gate: live-daemon
+      fixture: tui-small-v1 in a fresh temporary repository
+      unset_environment:
+        - AGENT_TEAM_DAEMON_URL
+        - AGENT_TEAM_DAEMON_TOKEN_FILE
+        - AGENT_TEAM_DAEMON_SOCKET
+      precedence_contract:
+        - AGENT_TEAM_DAEMON_URL when explicitly set
+        - persisted daemon HTTP address
+        - live pidfile plus derived Unix socket
+      http_token_file_precedence:
+        - AGENT_TEAM_DAEMON_TOKEN_FILE when explicitly set
+        - repository operator-token path
+      required_live_scenarios:
+        - id: persisted-http-wins-without-environment
+          arrange:
+            - persisted HTTP address exists and accepts authenticated requests
+            - live pidfile and Unix socket also exist
+            - default operator-token file contains the seeded daemon token
+          assert:
+            - selected transport is the persisted HTTP address
+            - selected token file is the default operator-token path
+            - the first snapshot request is authenticated and succeeds
+            - no token or endpoint prompt is rendered
+        - id: unix-socket-fallback-without-environment
+          arrange:
+            - persisted HTTP address is absent
+            - live pidfile and derived Unix socket exist
+          assert:
+            - selected transport is the derived Unix socket
+            - the first snapshot request succeeds
+            - no token or endpoint prompt is rendered
+        - id: stale-local-transport-fails-closed
+          arrange:
+            - persisted HTTP address is absent
+            - pidfile is dead or the derived socket is absent
+          assert:
+            - discovery reports daemon not running
+            - no guessed URL or socket is attempted
+      evidence_must_record:
+        - selected transport kind and address or socket path
+        - selected token-file path without token contents
+        - authenticated daemon response identity
+    term_dumb:
+      required_gate: term-dumb
+      environment:
+        TERM: dumb
+        NO_COLOR: unset
+      render_geometries:
+        - 80x24
+        - 120x30
+        - 160x50
+      border_glyph_bytes_allowed:
+        - 2b  # +
+        - 2d  # -
+        - 7c  # |
+      forbidden_unicode_ranges:
+        - U+2500..U+257F  # box drawing
+      forbidden_byte_sequence_prefixes:
+        - 1b5b  # ESC [, all CSI including cursor addressing and SGR/color
+        - 1b5d  # ESC ], all OSC
+      forbidden_bytes:
+        - 1b  # ESC: rejects every 7-bit escape form, including ESC 7 / ESC 8
+        - 9b  # 8-bit C1 CSI
+        - 9d  # 8-bit C1 OSC
+      raw_byte_assertion: >-
+        Scan the complete render and PTY capture before decoding text and fail if
+        any forbidden byte occurs anywhere; prefix-only matching is insufficient.
+      no_color_dependency_assertion: >-
+        Normalized textual status, focus, and control labels equal the NO_COLOR
+        frame; color or glyph shape is never the only signal.
+      pty_geometry: 80x24
+      pty_input_sequence:
+        - Tab
+        - ArrowDown
+        - Enter
+        - /
+        - text: status:active
+        - Enter
+        - r
+        - "?"
+        - "?"
+        - q
+      pty_assertions:
+        - focus traversal remains visible with the ASCII > marker
+        - inspect opens readable detail
+        - filtering changes the visible result set
+        - refresh dispatches and reports completion
+        - help opens, lists bindings, and closes
+        - quit exits cleanly
+        - captured output contains neither forbidden byte-sequence prefix
+        - captured output contains none of the forbidden bytes
+    large_fixture:
+      instances: 100
+      jobs: 500
+    max_first_paint_after_api_response_ms: 150
+    soak_duration: 1h
+
+  removal_evaluation_revision: integration_proof.integration_result_tree
+  removals:
+    - id: embedded-ui-directory
+      kind: path_absent
+      path: internal/daemon/ui
+      includes:
+        - internal/daemon/ui/index.html
+        - internal/daemon/ui/app.js
+        - internal/daemon/ui/styles.css
+        - internal/daemon/ui/app_test.mjs
+    - id: embedded-ui-handler
+      kind: path_absent
+      path: internal/daemon/ui.go
+    - id: browser-product-verifier
+      kind: path_absent
+      path: template/skills/product-verify/scripts/product_verify_browser.py
+    - id: browser-product-verifier-tests
+      kind: path_absent
+      path: scripts/skills/product-verify/product_verify_browser_test.py
+
+  required_rewrites:
+    - id: product-verify-skill
+      path: template/skills/product-verify/SKILL.md
+      must_remove:
+        - product_verify_browser.py
+        - playwright
+        - /ui
+      must_add_concepts:
+        - PTY verification
+        - --once verification
+        - API and CLI ground-truth comparison
+    - id: product-verify-documentation
+      path: documentation/product-verify.md
+      must_remove:
+        - playwright
+        - /ui
+        - browser dashboard
+      must_add_concepts:
+        - terminal UI
+        - PTY
+        - --once
+    - id: product-verify-schedule-monolith
+      path: template/instances.toml.tmpl
+      must_remove:
+        - daemon UI endpoints
+      must_add_concepts:
+        - terminal UI
+    - id: product-verify-schedule-fragment
+      path: template/topology/instances.toml.tmpl.d/50_full_quality_loops.toml.tmpl
+      must_remove:
+        - daemon UI endpoints
+      must_add_concepts:
+        - terminal UI
+
+  obsolete_web_documentation:
+    policy: rewrite_or_delete
+    paths:
+      - README.md
+      - docs/reference/runtime-api.md
+      - docs/contributing/roadmap.md
+      - docs/getting-started.md
+      - docs/guide/architecture.md
+      - docs/runtime/daemon.md
+      - docs/guide/quickstart.md
+      - documentation/product-verify.md
+      - documentation/ui-design.md
+    forbidden_user_guidance:
+      - open /ui
+      - embedded dashboard
+      - browser token field
+    architecture_history_exceptions:
+      - documentation/tui/SPEC.md
+      - documentation/tui/parity.yaml
+      - documentation/tui/ADR-001-charm-stack.md
+
+  route_and_auth:
+    forbidden_route_literals:
+      - /ui
+      - /ui/
+    forbidden_route_registration_regex: 'mux[.]Handle(Func)?[(]"/ui/?"'
+    forbidden_auth_symbol: isStaticUIPath
+    forbidden_auth_concept: unauthenticated static UI shell
+    dedicated_regression:
+      file: internal/daemon/http_test.go
+      test: TestHTTP_TCPRoutesRequireBearerAfterUICutover
+      assertions:
+        - unauthenticated TCP GET /ui returns 401 under the normal bearer policy
+        - authenticated TCP GET /ui returns 404
+        - unauthenticated TCP GET /ui/ returns 401 under the normal bearer policy
+        - authenticated TCP GET /ui/ returns 404
+        - unauthenticated TCP GET /ui/app.js returns 401 under the normal bearer policy
+        - authenticated TCP GET /ui/app.js returns 404
+        - unauthenticated TCP GET /v1/instances remains 401
+        - authenticated TCP GET /v1/instances remains 200
+
+  permanent_lints:
+    - id: no-embedded-daemon-web-assets
+      scope:
+        - internal/daemon
+      reject:
+        globs:
+          - '**/*.html'
+          - '**/*.js'
+          - '**/*.css'
+        regex:
+          - '//go:embed[[:space:]].*(ui|[.]html|[.]js|[.]css)'
+    - id: no-ui-route
+      scope:
+        - internal/daemon/**/*.go
+      exclude:
+        - internal/daemon/**/*_test.go
+      reject:
+        regex:
+          - 'mux[.]Handle(Func)?[(]"/ui/?"'
+    - id: no-static-ui-auth-exception
+      scope:
+        - internal/daemon/**/*.go
+      exclude:
+        - internal/daemon/**/*_test.go
+      reject:
+        literals:
+          - isStaticUIPath
+          - unauthenticated static UI shell
+    - id: no-daemon-html-handler
+      scope:
+        - internal/daemon/**/*.go
+      exclude:
+        - internal/daemon/**/*_test.go
+      reject:
+        literals:
+          - text/html
+    - id: no-playwright-product-verification
+      scope:
+        - template/skills/product-verify
+        - scripts/skills/product-verify
+        - .github/workflows
+        - documentation/product-verify.md
+        - package.json
+        - package-lock.json
+        - pyproject.toml
+        - requirements.txt
+      reject_case_insensitive:
+        literals:
+          - playwright
+          - product_verify_browser
+    - id: no-user-facing-web-dashboard-docs
+      scope:
+        - README.md
+        - docs
+        - documentation
+      exclude:
+        - documentation/tui
+      reject_case_insensitive:
+        regex:
+          - '(^|[^[:alnum:]_])/ui(/|[^[:alnum:]_]|$)'
+          - 'embedded[[:space:]-]+(web[[:space:]-]+)?dashboard'
+          - 'browser[[:space:]-]+dashboard'
+    - id: agent-teamd-remains-charm-free
+      command_contract: go list -deps ./cmd/agent-teamd
+      reject_prefix: github.com/charmbracelet/
+
+  api_stability:
+    routes_that_must_remain_behaviorally_unchanged:
+      - GET /v1/instances
+      - GET /v1/jobs
+      - GET /v1/topology
+      - GET /v1/resources?uri={resource_uri}
+    permitted_daemon_production_edits:
+      - delete internal/daemon/ui.go
+      - remove /ui handler construction and registration from internal/daemon/http.go
+      - remove the static UI bypass from internal/daemon/http_auth.go
+    forbid_other_v1_route_add_remove_or_behavior_change: true
+
+  changelog:
+    path: CHANGELOG.md
+    required_concepts:
+      - the embedded web dashboard was removed
+      - agent-team ui is the sole human UI
+      - no redirect
+      - no compatibility shim
+
+  compatibility:
+    redirects_allowed: false
+    shims_allowed: false
+    dual_ui_allowed_after_merge: false
+
+  manual_approval:
+    provider: github
+    repository: agent-team-project/kensho
+    approver: James
+    approver_login_source: repository_variable.TUI_CUTOVER_APPROVER
+    required_review_state: APPROVED
+    review_commit_id_must_equal_pr_head_sha: true
+    approval_must_follow_all_cutover_changes: true
+    machine_gate_without_matching_review_must_fail: true
