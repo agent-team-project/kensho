@@ -8238,6 +8238,7 @@ type jobPRMergeVerification struct {
 	URL         string `json:"url"`
 	Verified    bool   `json:"verified"`
 	State       string `json:"state,omitempty"`
+	MergedAt    string `json:"merged_at,omitempty"`
 	MergeCommit string `json:"merge_commit,omitempty"`
 	Source      string `json:"source"`
 }
@@ -14224,14 +14225,14 @@ func verifyJobPRMerged(repoRoot string, j *job.Job) (jobPRMergeVerification, err
 	if err != nil {
 		return jobPRMergeVerification{}, fmt.Errorf("verify PR merge for job %q: gh CLI not found in PATH", j.ID)
 	}
-	cmd := exec.Command(ghPath, "pr", "view", prURL, "--json", "merged,state,mergeCommit")
+	cmd := exec.Command(ghPath, "pr", "view", prURL, "--json", "state,mergedAt,mergeCommit")
 	cmd.Dir = repoRoot
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return jobPRMergeVerification{}, fmt.Errorf("verify PR merge for job %q: %w: %s", j.ID, err, strings.TrimSpace(string(out)))
 	}
 	var view struct {
-		Merged      bool   `json:"merged"`
+		MergedAt    string `json:"mergedAt"`
 		State       string `json:"state"`
 		MergeCommit *struct {
 			OID string `json:"oid"`
@@ -14242,17 +14243,27 @@ func verifyJobPRMerged(repoRoot string, j *job.Job) (jobPRMergeVerification, err
 	}
 	verification := jobPRMergeVerification{
 		URL:      prURL,
-		Verified: view.Merged || strings.EqualFold(view.State, "MERGED"),
-		State:    view.State,
+		State:    strings.TrimSpace(view.State),
+		MergedAt: strings.TrimSpace(view.MergedAt),
 		Source:   "gh",
 	}
 	if view.MergeCommit != nil {
 		verification.MergeCommit = strings.TrimSpace(view.MergeCommit.OID)
 	}
-	if !verification.Verified {
+	if verification.State == "" {
+		return verification, fmt.Errorf("verify PR merge for job %q: PR merge metadata is missing state", j.ID)
+	}
+	if !strings.EqualFold(verification.State, "MERGED") {
 		state := emptyDash(verification.State)
 		return verification, fmt.Errorf("verify PR merge for job %q: PR is not merged (state=%s)", j.ID, state)
 	}
+	if verification.MergedAt == "" {
+		return verification, fmt.Errorf("verify PR merge for job %q: PR merge metadata is missing mergedAt", j.ID)
+	}
+	if verification.MergeCommit == "" {
+		return verification, fmt.Errorf("verify PR merge for job %q: PR merge metadata is missing merge commit", j.ID)
+	}
+	verification.Verified = true
 	return verification, nil
 }
 

@@ -975,7 +975,7 @@ func TestIntakeServeGitHubVerifyPRDryRunPreview(t *testing.T) {
 	target := t.TempDir()
 	initInto(t, target)
 	initGitRepoForJobTest(t, target)
-	installFakeGHForJobTest(t, `{"merged":true,"state":"MERGED","mergeCommit":{"oid":"fedcba"}}`, 0)
+	installFakeGHForJobTest(t, `{"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z","mergeCommit":{"oid":"fedcba"}}`, 0)
 
 	teamDir := filepath.Join(target, ".agent_team")
 	branch := "worktree-worker-squ-218"
@@ -3388,7 +3388,7 @@ func TestIntakeGitHubVerifyPRDryRunPreview(t *testing.T) {
 	target := t.TempDir()
 	initInto(t, target)
 	initGitRepoForJobTest(t, target)
-	installFakeGHForJobTest(t, `{"merged":true,"state":"MERGED","mergeCommit":{"oid":"def456"}}`, 0)
+	installFakeGHForJobTest(t, `{"state":"MERGED","mergedAt":"2026-01-01T00:00:00Z","mergeCommit":{"oid":"def456"}}`, 0)
 
 	teamDir := filepath.Join(target, ".agent_team")
 	branch := "worktree-worker-squ-109"
