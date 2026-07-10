@@ -18,7 +18,10 @@ import (
 	"github.com/agent-team-project/agent-team/internal/runtimebin"
 )
 
-const helperIgnoreTermEnv = "AGENTTEAM_HELPER_IGNORE_TERM"
+const (
+	helperFakeSleepEnv  = "AGENTTEAM_HELPER_FAKE_SLEEP"
+	helperIgnoreTermEnv = "AGENTTEAM_HELPER_IGNORE_TERM"
+)
 
 type failingRandReader struct{}
 
@@ -29,41 +32,40 @@ func (failingRandReader) Read([]byte) (int, error) {
 // fakeSpawner records args and returns a controllable, real-but-trivial child
 // process so the reaper goroutine has something to Wait() on.
 //
-// We start a `sleep <seconds>` subprocess. Tests that need the child to exit
-// immediately pass a tiny duration; tests that need it to stay alive pass
-// minutes. SIGTERM-handling is fine because /bin/sleep exits with a non-zero
-// code on signal.
+// It starts this test binary in a helper-process mode that sleeps for the
+// requested duration. Tests that need the child to exit immediately pass a
+// tiny duration; tests that need it to stay alive pass minutes. Default signal
+// handling is fine because the helper process exits non-zero on SIGTERM.
 type fakeSpawner struct {
-	mu       sync.Mutex
-	calls    [][]string
-	envs     [][]string
-	stdins   []string
-	holdSecs string   // duration for the spawned sleep
-	holdSeq  []string // optional per-call sleep durations
+	mu      sync.Mutex
+	calls   [][]string
+	envs    [][]string
+	stdins  []string
+	hold    string   // duration for the spawned helper process
+	holdSeq []string // optional per-call sleep durations
 }
 
 func newFakeSpawner(hold time.Duration) *fakeSpawner {
-	return &fakeSpawner{holdSecs: fakeHoldSeconds(hold)}
+	return &fakeSpawner{hold: fakeHoldDuration(hold)}
 }
 
 func newSequencedFakeSpawner(holds ...time.Duration) *fakeSpawner {
 	seq := make([]string, 0, len(holds))
 	for _, hold := range holds {
-		seq = append(seq, fakeHoldSeconds(hold))
+		seq = append(seq, fakeHoldDuration(hold))
 	}
-	holdSecs := "1"
+	holdDuration := time.Second.String()
 	if len(seq) > 0 {
-		holdSecs = seq[len(seq)-1]
+		holdDuration = seq[len(seq)-1]
 	}
-	return &fakeSpawner{holdSecs: holdSecs, holdSeq: seq}
+	return &fakeSpawner{hold: holdDuration, holdSeq: seq}
 }
 
-func fakeHoldSeconds(hold time.Duration) string {
-	s := int(hold.Seconds())
-	if s < 1 {
-		s = 1
+func fakeHoldDuration(hold time.Duration) string {
+	if hold < 0 {
+		hold = 0
 	}
-	return strconv.Itoa(s)
+	return hold.String()
 }
 
 func (f *fakeSpawner) spawn(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
@@ -71,31 +73,45 @@ func (f *fakeSpawner) spawn(args []string, env []string, workspace, stdoutPath, 
 	f.calls = append(f.calls, append([]string(nil), args...))
 	f.envs = append(f.envs, append([]string(nil), env...))
 	f.stdins = append(f.stdins, stdinContent)
-	holdSecs := f.holdSecs
+	holdDuration := f.hold
 	callIndex := len(f.calls) - 1
 	if len(f.holdSeq) > 0 {
 		if callIndex < len(f.holdSeq) {
-			holdSecs = f.holdSeq[callIndex]
+			holdDuration = f.holdSeq[callIndex]
 		} else {
-			holdSecs = f.holdSeq[len(f.holdSeq)-1]
+			holdDuration = f.holdSeq[len(f.holdSeq)-1]
 		}
 	}
 	f.mu.Unlock()
-	bin, err := exec.LookPath("sleep")
-	if err != nil {
-		return nil, err
-	}
 	stdin, _ := os.Open(os.DevNull)
 	stdout, _ := os.OpenFile(stdoutPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	stderr, _ := os.OpenFile(stderrPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	defer stdin.Close()
 	defer stdout.Close()
 	defer stderr.Close()
-	return os.StartProcess(bin, []string{"sleep", holdSecs}, &os.ProcAttr{
-		Dir:   workspace,
-		Env:   env,
-		Files: []*os.File{stdin, stdout, stderr},
-	})
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcessFakeSleep$", "--")
+	cmd.Env = append(append([]string(nil), env...), helperFakeSleepEnv+"="+holdDuration)
+	cmd.Dir = workspace
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return cmd.Process, nil
+}
+
+func TestHelperProcessFakeSleep(t *testing.T) {
+	raw := os.Getenv(helperFakeSleepEnv)
+	if raw == "" {
+		return
+	}
+	hold, err := time.ParseDuration(raw)
+	if err != nil {
+		_, _ = os.Stderr.WriteString("invalid fake sleep duration: " + raw + "\n")
+		os.Exit(2)
+	}
+	time.Sleep(hold)
 }
 
 func (f *fakeSpawner) lastCall() []string {
