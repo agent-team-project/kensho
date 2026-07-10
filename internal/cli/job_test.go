@@ -2591,29 +2591,29 @@ func TestJobCreateDryRunContractTrailerDistinguishesExplicitEpic(t *testing.T) {
 		want string
 	}{
 		{
-			name: "explicit epic advances",
+			name: "same ticket explicit epic closes",
 			args: []string{
-				"job", "create", "https://github.com/agent-team-project/kensho/issues/324",
+				"job", "create", "https://github.com/agent-team-project/kensho/issues/336",
 				"--repo", tmp,
-				"--pipeline", "ticket_to_pr",
-				"--epic", "agent-team-project/kensho#324",
-				"--kickoff", "Implement epic slice without restating trailer.",
+				"--pipeline", "platform_ticket_to_pr",
+				"--epic", "agent-team-project/kensho#336",
+				"--kickoff", "PR body must include 'Closes #336'",
 				"--dry-run",
-				"--format", "{{.Contract.Trailer}}",
+				"--format", "{{.DeliveryContract}}|{{.Contract.Deliverable}}|{{.Contract.Trailer}}",
 			},
-			want: "Advances #324",
+			want: "ticket_to_pr|pr|Closes #336",
 		},
 		{
-			name: "ordinary issue closes",
+			name: "separate epic advances",
 			args: []string{
-				"job", "create", "https://github.com/agent-team-project/kensho/issues/42",
+				"job", "create", "https://github.com/agent-team-project/kensho/issues/336",
 				"--repo", tmp,
-				"--pipeline", "ticket_to_pr",
-				"--kickoff", "Implement ordinary issue without restating trailer.",
+				"--pipeline", "platform_ticket_to_pr",
+				"--epic", "agent-team-project/kensho#324",
 				"--dry-run",
-				"--format", "{{.Contract.Trailer}}",
+				"--format", "{{.DeliveryContract}}|{{.Contract.Deliverable}}|{{.Contract.Trailer}}",
 			},
-			want: "Closes #42",
+			want: "ticket_to_pr|pr|Advances #324",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

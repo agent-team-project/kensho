@@ -20,6 +20,7 @@ var (
 	numberedCriterionLinePattern = regexp.MustCompile(`^\s*(?:[-*]\s*)?(?:\[[ xX]\]\s*)?(?:[0-9]+[\).])\s+(.+)$`)
 	requiredTrailerPattern       = regexp.MustCompile("(?i)required(?:\\s+pr)?\\s+trailer\\s*:\\s*(?:`([^`]+)`|([^\\n]+))")
 	verifyHintPattern            = regexp.MustCompile(`(?i)\s+\(verify:\s*([^)]+)\)\s*$`)
+	compactGitHubIssueRefPattern = regexp.MustCompile(`(?i)^([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([0-9]+)$`)
 	githubIssueRefPattern        = regexp.MustCompile(`#([0-9]+)`)
 )
 
@@ -49,6 +50,12 @@ type ContractCompileOptions struct {
 	ExplicitEpic    string
 	Gates           string
 	Scope           []string
+}
+
+type githubIssueIdentity struct {
+	owner  string
+	repo   string
+	number string
 }
 
 type criterionSection struct {
@@ -110,7 +117,7 @@ func CompileContract(j *Job, opts ContractCompileOptions) *Contract {
 	if deliverable == "" {
 		return nil
 	}
-	trailer := firstNonEmptyString(opts.RequiredTrailer, requiredTrailerForEpic(opts.ExplicitEpic), extractRequiredTrailer(opts.Text), requiredTrailerForJob(j))
+	trailer := firstNonEmptyString(opts.RequiredTrailer, requiredTrailerForExplicitEpic(j, opts.ExplicitEpic), extractRequiredTrailer(opts.Text), requiredTrailerForJob(j))
 	workItem := firstNonEmptyString(j.TicketURL, j.Ticket, j.ID)
 	if workItem == "" {
 		return nil
@@ -446,6 +453,28 @@ func requiredTrailerForEpic(epic string) string {
 	return ""
 }
 
+func requiredTrailerForExplicitEpic(j *Job, epic string) string {
+	if explicitEpicMatchesJobTicket(j, epic) {
+		return ""
+	}
+	return requiredTrailerForEpic(epic)
+}
+
+func explicitEpicMatchesJobTicket(j *Job, epic string) bool {
+	if j == nil {
+		return false
+	}
+	ticket, ok := githubIssueIdentityFromRef(j.TicketURL)
+	if !ok {
+		return false
+	}
+	epicRef, ok := githubIssueIdentityFromRef(epic)
+	if !ok || ticket.number != epicRef.number {
+		return false
+	}
+	return ticket.owner == "" || epicRef.owner == "" || (ticket.owner == epicRef.owner && ticket.repo == epicRef.repo)
+}
+
 func githubIssueNumberForExplicitJobEpic(j *Job) string {
 	if j == nil {
 		return ""
@@ -454,7 +483,7 @@ func githubIssueNumberForExplicitJobEpic(j *Job) string {
 	if epic == "" {
 		return ""
 	}
-	if ticketEpic := EpicFromTicketURL(j.TicketURL); ticketEpic != "" && strings.EqualFold(epic, ticketEpic) {
+	if explicitEpicMatchesJobTicket(j, epic) {
 		return ""
 	}
 	return githubIssueNumber(epic)
@@ -477,6 +506,35 @@ func githubIssueNumber(raw string) string {
 		return parts[3]
 	}
 	return ""
+}
+
+func githubIssueIdentityFromRef(raw string) (githubIssueIdentity, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return githubIssueIdentity{}, false
+	}
+	u, err := url.Parse(raw)
+	if err == nil && strings.ToLower(strings.TrimPrefix(u.Host, "www.")) == "github.com" {
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(parts) >= 4 && strings.EqualFold(parts[2], "issues") {
+			return githubIssueIdentity{
+				owner:  strings.ToLower(parts[0]),
+				repo:   strings.ToLower(parts[1]),
+				number: parts[3],
+			}, true
+		}
+	}
+	if m := compactGitHubIssueRefPattern.FindStringSubmatch(raw); len(m) == 4 {
+		return githubIssueIdentity{
+			owner:  strings.ToLower(m[1]),
+			repo:   strings.ToLower(m[2]),
+			number: m[3],
+		}, true
+	}
+	if m := githubIssueRefPattern.FindStringSubmatch(raw); len(m) == 2 {
+		return githubIssueIdentity{number: m[1]}, true
+	}
+	return githubIssueIdentity{}, false
 }
 
 func isLinearURL(raw string) bool {

@@ -824,7 +824,7 @@ func deliveryArtifactContract(j *jobstore.Job) string {
 	if jobstore.IsReport(j.Kind) {
 		return deliveryContractReport
 	}
-	if strings.EqualFold(strings.TrimSpace(j.Pipeline), deliveryContractTicketToPR) {
+	if pipelineNameIsTicketToPR(j.Pipeline) {
 		return deliveryContractTicketToPR
 	}
 	for _, step := range j.Steps {
@@ -909,7 +909,7 @@ func payloadDeliveryArtifactContract(payload map[string]any) string {
 		}
 		return deliveryContractReport
 	}
-	if strings.EqualFold(strings.TrimSpace(payloadString(payload, "pipeline")), deliveryContractTicketToPR) {
+	if pipelineNameIsTicketToPR(payloadString(payload, "pipeline")) {
 		return deliveryContractTicketToPR
 	}
 	if firstPayloadString(payload, "pr_url", "pr") != "" {
@@ -990,7 +990,7 @@ func pipelineDeliveryArtifactContract(pipeline *topology.Pipeline) string {
 	if pipeline == nil {
 		return ""
 	}
-	if strings.EqualFold(strings.TrimSpace(pipeline.Name), deliveryContractTicketToPR) {
+	if pipelineNameIsTicketToPR(pipeline.Name) {
 		return deliveryContractTicketToPR
 	}
 	for _, step := range pipeline.Steps {
@@ -999,6 +999,11 @@ func pipelineDeliveryArtifactContract(pipeline *topology.Pipeline) string {
 		}
 	}
 	return ""
+}
+
+func pipelineNameIsTicketToPR(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	return lower == deliveryContractTicketToPR || strings.HasSuffix(lower, "_"+deliveryContractTicketToPR)
 }
 
 func openPullRequestExists(repoRoot, worktree, pr string) bool {
