@@ -711,16 +711,9 @@ match.kind = "research_reconcile"
 event        = "job.step_completed"
 match.target = "research-manager"
 
-[[instances.research-manager.triggers]]
-event        = "job.completed"
-match.target = "research-manager"
-
-[[instances.research-manager.triggers]]
-event        = "deliverable.ready"
-match.target = "research-manager"
-
-# Completion payloads retain the pipeline step role in `target` (for example
-# `research-verifier`), so route portfolio wakes by pipeline identity too.
+# Terminal and deliverable wakes remain pipeline-owned even though the daemon
+# addresses their payload to the declared manual decision owner. This avoids
+# duplicate rules and keeps the user-facing manager out of research results.
 [[instances.research-manager.triggers]]
 event          = "job.completed"
 match.pipeline = "research_study"

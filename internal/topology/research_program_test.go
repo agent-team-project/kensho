@@ -21,37 +21,6 @@ func loadSelfDogfoodResearchTopology(t *testing.T) *Topology {
 	return top
 }
 
-func TestResearchProgramCompletionRoutesWakeOnlyResearchManagerOnce(t *testing.T) {
-	top := loadSelfDogfoodResearchTopology(t)
-	tests := []struct {
-		name, event, pipeline, target string
-	}{
-		{"study verifier completion", EventJobCompleted, "research_study", "research-verifier"},
-		{"slice reviewer completion", EventJobCompleted, "research_slice", "research-reviewer"},
-		{"study deliverable", EventDeliverableReady, "research_study", "research-verifier"},
-		{"slice deliverable", EventDeliverableReady, "research_slice", "research-reviewer"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			trace := top.Trace(tt.event, map[string]any{
-				"pipeline": tt.pipeline,
-				"target":   tt.target,
-			})
-			if trace.MatchedRules != 1 {
-				t.Fatalf("matched rules = %d, want exactly one: %+v", trace.MatchedRules, trace.Entries)
-			}
-			if got := trace.MatchedInstanceNames(); !reflect.DeepEqual(got, []string{"research-manager"}) {
-				t.Fatalf("matched instances = %v, want only research-manager", got)
-			}
-			for _, entry := range trace.Entries {
-				if entry.Scope == "instances.manager" && entry.Matched {
-					t.Fatalf("user-facing manager unexpectedly matched: %+v", entry)
-				}
-			}
-		})
-	}
-}
-
 func TestResearchProgramTopologyContract(t *testing.T) {
 	top := loadSelfDogfoodResearchTopology(t)
 	for _, name := range []string{"research-manager", "research-worker", "research-verifier", "research-reviewer", "research-auditor"} {

@@ -342,7 +342,7 @@ func managerCompletionShouldWake(j *jobstore.Job, completedStep *jobstore.Step, 
 func managerCompletionPayload(j *jobstore.Job, completedStep *jobstore.Step, meta *Metadata, status jobstore.Status) map[string]any {
 	payload := map[string]any{
 		"source":     "daemon:completion",
-		"target":     "manager",
+		"target":     managerCompletionTarget(j),
 		"job_id":     j.ID,
 		"job":        j.ID,
 		"ticket":     j.Ticket,
@@ -415,7 +415,7 @@ func managerGateReady(j *jobstore.Job) bool {
 	}
 	for i := range j.Steps {
 		step := &j.Steps[i]
-		if strings.TrimSpace(step.Target) != "manager" || !jobstore.StepGatePending(j, step) {
+		if step.Gate != jobstore.StepGateManual || !jobstore.StepGatePending(j, step) {
 			continue
 		}
 		if stepDependenciesMet(step, done) {
@@ -423,6 +423,53 @@ func managerGateReady(j *jobstore.Job) bool {
 		}
 	}
 	return false
+}
+
+func managerCompletionTarget(j *jobstore.Job) string {
+	const fallback = "manager"
+	if j == nil {
+		return fallback
+	}
+
+	done := map[string]bool{}
+	for i := range j.Steps {
+		if jobstore.StepSatisfiesDependency(&j.Steps[i]) {
+			done[j.Steps[i].ID] = true
+		}
+	}
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Gate != jobstore.StepGateManual || !jobstore.StepGatePending(j, step) || !stepDependenciesMet(step, done) {
+			continue
+		}
+		if target := strings.TrimSpace(step.Target); target != "" {
+			return target
+		}
+	}
+
+	// Failed jobs can terminate before their decision gate becomes ready. A
+	// single declared manual owner still identifies who must reconcile that
+	// terminal result. Multiple different owners are ambiguous, so retain the
+	// historical user-facing manager fallback.
+	owner := ""
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Gate != jobstore.StepGateManual {
+			continue
+		}
+		target := strings.TrimSpace(step.Target)
+		if target == "" {
+			continue
+		}
+		if owner != "" && owner != target {
+			return fallback
+		}
+		owner = target
+	}
+	if owner != "" {
+		return owner
+	}
+	return fallback
 }
 
 func stepDependenciesMet(step *jobstore.Step, done map[string]bool) bool {
