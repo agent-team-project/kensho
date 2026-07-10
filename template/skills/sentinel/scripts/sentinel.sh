@@ -10,6 +10,8 @@ DOC_PAGES="${SENTINEL_DOC_PAGES:-/,/getting-started.html,/guide/quickstart.html,
 
 failures=()
 tmpdir=""
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+DOC_MARKER_CHECKER="$SCRIPT_DIR/docs_marker_check.py"
 
 log() {
   printf 'sentinel: %s\n' "$*"
@@ -123,7 +125,7 @@ check_rtd_build() {
 }
 
 check_docs_pages() {
-  local page url body_file http_code curl_status
+  local page url body_file http_code curl_status marker_check_output
   while IFS= read -r page; do
     [[ -n "$page" ]] || continue
     if [[ "$page" == "/" ]]; then
@@ -139,8 +141,8 @@ check_docs_pages() {
       continue
     fi
     [[ "$http_code" == "200" ]] || record_failure "docs page returned HTTP $http_code, want 200: $url"
-    if grep -F '{{' "$body_file" >/dev/null; then
-      record_failure "docs page exposes literal '{{' marker: $url"
+    if ! marker_check_output="$(python3 "$DOC_MARKER_CHECKER" "$url" "$body_file" 2>&1)"; then
+      record_failure "$marker_check_output"
     fi
   done < <(printf '%s' "$DOC_PAGES" | tr ',' '\n')
 }
@@ -209,6 +211,7 @@ main() {
   require_cmd gh
   require_cmd jq
   require_cmd curl
+  require_cmd python3
 
   if [[ "${#failures[@]}" -eq 0 ]]; then
     check_repo_metadata
