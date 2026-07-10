@@ -94,7 +94,7 @@ func TestEvent_PipelineAutoAdvanceDispatchesNextStep(t *testing.T) {
 		t.Fatalf("write job branch context: %v", err)
 	}
 
-	if err := m.WaitForReaper("worker-squ-92", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-92"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	if fake.callCount() != 2 {
@@ -153,7 +153,7 @@ func TestEvent_PipelineAutoAdvanceDispatchesNextStep(t *testing.T) {
 	}
 
 	// Let the reviewer finish; the pipeline should then be done.
-	if err := m.WaitForReaper("reviewer-squ-92", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "reviewer-squ-92"); err != nil {
 		t.Fatalf("wait reviewer reaper: %v", err)
 	}
 	j, err = jobstore.Read(teamDir, "squ-92")
@@ -212,14 +212,14 @@ target = "manager"
 after = ["review"]
 gate = "manual"
 `)
-	fake := newSequencedFakeSpawner(time.Second, time.Second, 30*time.Second)
+	fake := newSequencedFakeSpawner(eventShortFakeRuntime, eventShortFakeRuntime, 30*time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
 	defer srv.Close()
 	t.Cleanup(func() {
 		_, _ = m.Stop("manager")
-		_ = m.WaitForReaper("manager", 5*time.Second)
+		_ = waitForEventReaper(t, m, "manager")
 	})
 
 	resp := mustPost(t, srv.URL+"/v1/event",
@@ -227,10 +227,10 @@ gate = "manual"
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-94", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-94"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
-	if err := m.WaitForReaper("reviewer-squ-94", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "reviewer-squ-94"); err != nil {
 		t.Fatalf("wait reviewer reaper: %v", err)
 	}
 	if fake.callCount() != 3 {
@@ -300,7 +300,7 @@ after = ["review"]
 gate = "manual"
 `)
 
-	fake := newFakeSpawner(time.Second)
+	fake := newFakeSpawner(eventShortFakeRuntime)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -311,7 +311,7 @@ gate = "manual"
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-94", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-94"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	if fake.callCount() != 1 {
@@ -373,7 +373,7 @@ id = "implement"
 target = "worker"
 `)
 
-	fake := newFakeSpawner(time.Second)
+	fake := newFakeSpawner(eventShortFakeRuntime)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -384,7 +384,7 @@ target = "worker"
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-155", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-155"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	j, err := jobstore.Read(teamDir, "squ-155")
@@ -448,7 +448,7 @@ target = "worker"
 	if err := jobstore.Write(teamDir, j); err != nil {
 		t.Fatalf("write bogus PR: %v", err)
 	}
-	if err := m.WaitForReaper("worker-squ-156", 15*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-156"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	j, err = jobstore.Read(teamDir, "squ-156")
@@ -495,7 +495,7 @@ after = ["implement"]
 gate = "manual"
 `)
 
-	fake := newFakeSpawner(time.Second)
+	fake := newFakeSpawner(eventShortFakeRuntime)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -506,7 +506,7 @@ gate = "manual"
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-93", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-93"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	if fake.callCount() != 1 {
@@ -560,7 +560,7 @@ target = "reviewer"
 after = ["implement"]
 `)
 
-	fake := newFakeSpawner(time.Second)
+	fake := newFakeSpawner(eventShortFakeRuntime)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -571,7 +571,7 @@ after = ["implement"]
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-94", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-94"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	if fake.callCount() != 1 {
@@ -621,7 +621,7 @@ max_attempts = 1
 retry_on_crash = true
 `)
 
-	fake := newSequencedFakeSpawner(time.Second, 30*time.Second, 30*time.Second)
+	fake := newSequencedFakeSpawner(eventShortFakeRuntime, 30*time.Second, 30*time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -632,14 +632,14 @@ retry_on_crash = true
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-172", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-172"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	if fake.callCount() != 2 {
 		t.Fatalf("spawn calls after implement=%d, want review dispatched", fake.callCount())
 	}
 	killInstance(t, root, "reviewer-squ-172")
-	if err := m.WaitForReaper("reviewer-squ-172", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "reviewer-squ-172"); err != nil {
 		t.Fatalf("wait first reviewer reaper: %v", err)
 	}
 	if fake.callCount() != 3 {
@@ -662,7 +662,7 @@ retry_on_crash = true
 	}
 
 	killInstance(t, root, "reviewer-squ-172")
-	if err := m.WaitForReaper("reviewer-squ-172", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "reviewer-squ-172"); err != nil {
 		t.Fatalf("wait second reviewer reaper: %v", err)
 	}
 	if fake.callCount() != 3 {
@@ -703,7 +703,7 @@ after = ["implement"]
 retry_on_crash = true
 `)
 
-	fake := newSequencedFakeSpawner(time.Second, 30*time.Second)
+	fake := newSequencedFakeSpawner(eventShortFakeRuntime, 30*time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -714,7 +714,7 @@ retry_on_crash = true
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-173", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-173"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	if err := jobstore.AppendGateRecord(teamDir, &jobstore.GateRecord{
@@ -726,7 +726,7 @@ retry_on_crash = true
 		t.Fatalf("append gate: %v", err)
 	}
 	killInstance(t, root, "reviewer-squ-173")
-	if err := m.WaitForReaper("reviewer-squ-173", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "reviewer-squ-173"); err != nil {
 		t.Fatalf("wait reviewer reaper: %v", err)
 	}
 	if fake.callCount() != 2 {
@@ -787,7 +787,7 @@ retry_on_crash = true
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
 	killInstance(t, root, "worker-squ-174")
-	if err := m.WaitForReaper("worker-squ-174", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-174"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	if fake.callCount() != 1 {

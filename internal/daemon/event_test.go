@@ -462,7 +462,7 @@ match.target = "manager"
 	defer srv.Close()
 	t.Cleanup(func() {
 		_, _ = m.Stop("manager")
-		_ = m.WaitForReaper("manager", 5*time.Second)
+		_ = waitForEventReaper(t, m, "manager")
 	})
 
 	resp := mustPost(t, srv.URL+"/v1/event", `{"type":"agent.dispatch","payload":{"target":"manager","ticket":"SQU-301"}}`)
@@ -576,7 +576,7 @@ match.target = "manager"
 	defer srv.Close()
 	t.Cleanup(func() {
 		_, _ = m.Stop("manager")
-		_ = m.WaitForReaper("manager", 5*time.Second)
+		_ = waitForEventReaper(t, m, "manager")
 	})
 
 	resp := mustPost(t, srv.URL+"/v1/event", `{"type":"agent.dispatch","payload":{"target":"manager","ticket":"SQU-302"}}`)
@@ -697,7 +697,7 @@ target = "worker"
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-squ-716-implement")
-		_ = m.WaitForReaper("worker-squ-716-implement", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-squ-716-implement")
 	})
 	if len(result.Outcomes) != 1 || result.Outcomes[0].Instance != "worker" || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-716-implement" {
 		t.Fatalf("outcomes = %+v, want one dispatched worker outcome", result.Outcomes)
@@ -790,7 +790,7 @@ func TestEvent_EphemeralDispatchBackfillsResourceURIs(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-squ-156")
-		_ = m.WaitForReaper("worker-squ-156", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-squ-156")
 	})
 	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
 		t.Fatalf("outcomes = %+v", result.Outcomes)
@@ -878,7 +878,7 @@ func TestEvent_EphemeralDispatchDeliversUnreadMailboxInKickoff(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-squ-64")
-		_ = m.WaitForReaper("worker-squ-64", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-squ-64")
 	})
 
 	prompt, ok := argValue(fake.lastCall(), "-p")
@@ -947,7 +947,7 @@ func TestEvent_EphemeralDispatchWiresMailboxHookForClaude(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-hooks")
-		_ = m.WaitForReaper("worker-hooks", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-hooks")
 	})
 
 	call := fake.lastCall()
@@ -998,7 +998,7 @@ match.target = "worker"
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-no-hooks")
-		_ = m.WaitForReaper("worker-no-hooks", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-no-hooks")
 	})
 	if _, ok := argValue(fake.lastCall(), "--settings"); ok {
 		t.Fatalf("spawn call unexpectedly includes --settings after opt-out: %#v", fake.lastCall())
@@ -1031,7 +1031,7 @@ func TestEvent_EphemeralDispatchInjectsClaudeOTel(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-otel")
-		_ = m.WaitForReaper("worker-otel", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-otel")
 	})
 	env := fake.lastEnv()
 	for _, want := range []string{
@@ -1100,7 +1100,7 @@ match.target = "worker"
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-env-allow")
-		_ = m.WaitForReaper("worker-env-allow", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-env-allow")
 	})
 	env := fake.lastEnv()
 	for _, want := range []string{
@@ -1152,7 +1152,7 @@ func TestEvent_EphemeralDispatchEnvAllowUnsetIsNoOp(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-env-unset")
-		_ = m.WaitForReaper("worker-env-unset", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-env-unset")
 	})
 	if !containsString(fake.lastEnv(), "UNSET_ENV_ALLOW_SECRET=still-present") {
 		t.Fatalf("unset env_allow changed inherited env: %#v", fake.lastEnv())
@@ -1180,7 +1180,7 @@ func TestEvent_EphemeralCodexDispatchWiresMailboxHook(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-codex-hooks")
-		_ = m.WaitForReaper("worker-codex-hooks", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-codex-hooks")
 	})
 	call := fake.lastCall()
 	if len(call) < 2 || call[0] != "codex" || call[1] != "exec" {
@@ -1221,7 +1221,7 @@ func TestEvent_EphemeralCodexDispatchInjectsOTel(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-codex-otel")
-		_ = m.WaitForReaper("worker-codex-otel", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-codex-otel")
 	})
 	env := fake.lastEnv()
 	if !containsEnvPrefix(env, "TRACEPARENT=00-") {
@@ -1282,7 +1282,7 @@ func TestEvent_EphemeralDispatchOTelDisabledNoOp(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-otel-disabled")
-		_ = m.WaitForReaper("worker-otel-disabled", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-otel-disabled")
 	})
 	env := fake.lastEnv()
 	for _, forbidden := range []string{
@@ -1323,7 +1323,7 @@ func TestEvent_EphemeralDispatchLeavesKickoffAloneWhenNoUnreadMailbox(t *testing
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-no-mail")
-		_ = m.WaitForReaper("worker-no-mail", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-no-mail")
 	})
 	prompt, ok := argValue(fake.lastCall(), "-p")
 	if !ok {
@@ -1370,7 +1370,7 @@ func TestEvent_EphemeralDispatchRendersAndPersistsContract(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-gh324-agent-contracts")
-		_ = m.WaitForReaper("worker-gh324-agent-contracts", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-gh324-agent-contracts")
 	})
 
 	prompt, ok := argValue(fake.lastCall(), "-p")
@@ -1471,7 +1471,7 @@ func TestEvent_AssignWorkerDispatchPersistsPRContract(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-squ-14")
-		_ = m.WaitForReaper("worker-squ-14", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-squ-14")
 	})
 
 	prompt, ok := argValue(fake.lastCall(), "-p")
@@ -1565,7 +1565,7 @@ func TestEvent_EphemeralDispatchTruncatesUnreadMailboxKickoff(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-big-mail")
-		_ = m.WaitForReaper("worker-big-mail", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-big-mail")
 	})
 
 	prompt, ok := argValue(fake.lastCall(), "-p")
@@ -1617,7 +1617,7 @@ func TestEvent_EphemeralJobExitPreservesMetadataAndCompletesJob(t *testing.T) {
 	if err := jobstore.Write(teamDir, j); err != nil {
 		t.Fatalf("write job: %v", err)
 	}
-	fake := newFakeSpawner(time.Second)
+	fake := newFakeSpawner(eventShortFakeRuntime)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
 	srv := httptest.NewServer(Handler(m, nil, resolver, root))
@@ -1628,7 +1628,7 @@ func TestEvent_EphemeralJobExitPreservesMetadataAndCompletesJob(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-96", 3*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-96"); err != nil {
 		t.Fatalf("wait reaper: %v", err)
 	}
 	meta, err := ReadMetadata(root, "worker-squ-96")
@@ -1732,7 +1732,7 @@ func TestEvent_EphemeralDispatchUsesCodexRuntime(t *testing.T) {
 		t.Fatalf("metadata = %+v, want codex without Claude session", meta)
 	}
 	_, _ = m.Stop("worker-squ-42")
-	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-42")
 }
 
 func TestEvent_EphemeralDispatchUsesPerLaunchRootAndPreservesPersistentPrompt(t *testing.T) {
@@ -1802,7 +1802,7 @@ func TestEvent_EphemeralDispatchUsesPerLaunchRootAndPreservesPersistentPrompt(t 
 	}
 
 	_, _ = m.Stop(instance)
-	_ = m.WaitForReaper(instance, 5*time.Second)
+	_ = waitForEventReaper(t, m, instance)
 	if _, err := os.Stat(addDir); !os.IsNotExist(err) {
 		t.Fatalf("launch root should be cleaned after reap, stat err=%v", err)
 	}
@@ -1850,7 +1850,7 @@ match.target = "worker"
 		t.Fatalf("codex spawn call should ignore model: %#v", call)
 	}
 	_, _ = m.Stop("worker-squ-44")
-	_ = m.WaitForReaper("worker-squ-44", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-44")
 }
 
 func TestEvent_EphemeralDispatchUsesRepoCodexRuntimeConfig(t *testing.T) {
@@ -1884,7 +1884,7 @@ func TestEvent_EphemeralDispatchUsesRepoCodexRuntimeConfig(t *testing.T) {
 		t.Fatalf("metadata = %+v, want config-backed codex without Claude session", meta)
 	}
 	_, _ = m.Stop("worker-squ-43")
-	_ = m.WaitForReaper("worker-squ-43", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-43")
 }
 
 func TestEvent_EphemeralDispatchUsesDeclaredInstanceRuntime(t *testing.T) {
@@ -1933,7 +1933,7 @@ match.target = "docs-writer"
 		t.Fatalf("metadata = %+v, want declared instance claude runtime", meta)
 	}
 	_, _ = m.Stop("docs-writer-squ-134")
-	_ = m.WaitForReaper("docs-writer-squ-134", 5*time.Second)
+	_ = waitForEventReaper(t, m, "docs-writer-squ-134")
 }
 
 func TestEvent_EphemeralDispatchUsesAgentFrontmatterRuntime(t *testing.T) {
@@ -1971,7 +1971,7 @@ func TestEvent_EphemeralDispatchUsesAgentFrontmatterRuntime(t *testing.T) {
 		t.Fatalf("metadata = %+v, want agent-frontmatter codex without Claude session", meta)
 	}
 	_, _ = m.Stop("worker-squ-77")
-	_ = m.WaitForReaper("worker-squ-77", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-77")
 }
 
 func TestEvent_EphemeralDispatchPayloadRuntimeOverridesDeclaredInstanceRuntime(t *testing.T) {
@@ -2012,7 +2012,7 @@ match.target = "docs-writer"
 		t.Fatalf("metadata = %+v, want payload-backed codex without Claude session", meta)
 	}
 	_, _ = m.Stop("docs-writer-squ-135")
-	_ = m.WaitForReaper("docs-writer-squ-135", 5*time.Second)
+	_ = waitForEventReaper(t, m, "docs-writer-squ-135")
 }
 
 func TestDispatchRuntime_AgentFrontmatterPrecedence(t *testing.T) {
@@ -2082,7 +2082,7 @@ func TestEvent_EphemeralDispatchPayloadRuntimeOverridesEnv(t *testing.T) {
 		t.Fatalf("metadata = %+v, want payload-backed codex-dev without Claude session", meta)
 	}
 	_, _ = m.Stop("worker-squ-44")
-	_ = m.WaitForReaper("worker-squ-44", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-44")
 }
 
 func TestEvent_DirectDispatchWithJobIDWritesLinearInProgress(t *testing.T) {
@@ -2120,7 +2120,7 @@ func TestEvent_DirectDispatchWithJobIDWritesLinearInProgress(t *testing.T) {
 		t.Fatalf("direct job_id dispatch missing in-progress write-back attempt: %+v", events)
 	}
 	_, _ = m.Stop("worker-squ-96")
-	_ = m.WaitForReaper("worker-squ-96", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-96")
 }
 
 func TestEvent_ProbeDispatchMarksJobAndSkipsDeliverySideEffects(t *testing.T) {
@@ -2179,7 +2179,7 @@ func TestEvent_ProbeDispatchMarksJobAndSkipsDeliverySideEffects(t *testing.T) {
 		}
 	}
 	_, _ = m.Stop("worker-squ-97")
-	_ = m.WaitForReaper("worker-squ-97", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-97")
 }
 
 func TestEvent_TicketDispatchCreatesJobAndExportsContext(t *testing.T) {
@@ -2251,7 +2251,7 @@ in_progress_state = "In Progress"
 		}
 	}
 	_, _ = m.Stop("worker-squ-95")
-	_ = m.WaitForReaper("worker-squ-95", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-95")
 }
 
 func TestEvent_EphemeralDispatchRejectsDuplicateRequestedChildName(t *testing.T) {
@@ -2373,7 +2373,7 @@ func TestEvent_TicketWorktreeDispatchNamesBranchFromTicket(t *testing.T) {
 		}
 	}
 	_, _ = m.Stop("worker-squ-42")
-	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-42")
 }
 
 func TestEvent_WorktreeDispatchBasesRequeuedJobOnExistingBranch(t *testing.T) {
@@ -2437,7 +2437,7 @@ func TestEvent_WorktreeDispatchBasesRequeuedJobOnExistingBranch(t *testing.T) {
 	}
 
 	_, _ = m.Stop("worker-squ-198")
-	_ = m.WaitForReaper("worker-squ-198", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-198")
 }
 
 func TestEvent_DirectWorktreeDispatchDoneWithoutDeliverableFailsAndMessagesManager(t *testing.T) {
@@ -2454,7 +2454,7 @@ func TestEvent_DirectWorktreeDispatchDoneWithoutDeliverableFailsAndMessagesManag
 	teamDir := filepath.Join(repoRoot, ".agent_team")
 	writeFixtureAgent(t, teamDir, "worker")
 
-	fake := newFakeSpawner(time.Second)
+	fake := newFakeSpawner(eventShortFakeRuntime)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, mustParseTopo(t))
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -2465,7 +2465,7 @@ func TestEvent_DirectWorktreeDispatchDoneWithoutDeliverableFailsAndMessagesManag
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-155", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-155"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	j, err := jobstore.Read(teamDir, "squ-155")
@@ -2716,7 +2716,7 @@ func TestEvent_EphemeralDispatchCanCreateWorktreeWorkspace(t *testing.T) {
 		t.Fatalf("worktree exclude missing .worker_agent/: err=%v content=%q", eerr, string(exc))
 	}
 	_, _ = m.Stop("worker-squ-42")
-	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-42")
 }
 
 func TestEvent_EphemeralJobExitAutoReapsWorktreeOnClose(t *testing.T) {
@@ -2778,7 +2778,7 @@ func TestEvent_EphemeralJobExitAutoReapsWorktreeOnClose(t *testing.T) {
 	runGit(t, worktreePath, "add", "deliverable.txt")
 	runGit(t, worktreePath, "commit", "-m", "add deliverable")
 
-	if err := m.WaitForReaper("worker-squ-142", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-142"); err != nil {
 		t.Fatalf("wait reaper: %v", err)
 	}
 	updated, err := jobstore.Read(teamDir, "squ-142")
@@ -2842,7 +2842,7 @@ func TestEvent_CodexWorktreeRunsInWorktreeCwd(t *testing.T) {
 		t.Fatalf("codex -C must be the worktree, not the repo root %q", repoRoot)
 	}
 	_, _ = m.Stop("worker-squ-42")
-	_ = m.WaitForReaper("worker-squ-42", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-42")
 }
 
 func TestEvent_EphemeralDispatchRejectsUnsafeRequestedChildName(t *testing.T) {
@@ -2966,7 +2966,7 @@ match.target = "worker"
 		t.Fatalf("metadata workspace = %+v err=%v, want repo root %s", meta, err, repoRoot)
 	}
 	_, _ = m.Stop(id)
-	_ = m.WaitForReaper(id, 5*time.Second)
+	_ = waitForEventReaper(t, m, id)
 }
 
 func TestEvent_EphemeralReapPreservesMetadataAndState(t *testing.T) {
@@ -3000,14 +3000,8 @@ func TestEvent_EphemeralReapPreservesMetadataAndState(t *testing.T) {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	ch := m.reapedChan(id)
-	if ch == nil {
-		t.Fatalf("instance %s has no reaper channel", id)
-	}
-	select {
-	case <-ch:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("reaper for %s did not finish", id)
+	if err := waitForEventReaper(t, m, id); err != nil {
+		t.Fatalf("wait reaper: %v", err)
 	}
 
 	meta, err := ReadMetadata(root, id)
@@ -3123,7 +3117,7 @@ jobs_in_flight = 1
 		t.Fatalf("queue items = %+v, want budget_exhausted without retry time", items)
 	}
 
-	if err := m.WaitForReaper("worker-squ-300", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-300"); err != nil {
 		t.Fatalf("wait first reap: %v", err)
 	}
 	if fake.callCount() != 2 {
@@ -3133,7 +3127,7 @@ jobs_in_flight = 1
 		t.Fatalf("queued item should be removed after budget frees, err=%v", err)
 	}
 	_, _ = m.Stop("worker-squ-301")
-	_ = m.WaitForReaper("worker-squ-301", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-301")
 }
 
 func TestEvent_TokenBudgetQueuesDispatchFromUsageRecords(t *testing.T) {
@@ -3248,7 +3242,7 @@ allocation = "reserve"
 	if len(rows) != 1 || rows[0].TokensAllocated != 60 || rows[0].TokensRemaining != 40 {
 		t.Fatalf("rows before release = %+v, want one outstanding 60-token reserve", rows)
 	}
-	if err := m.WaitForReaper("worker-squ-410", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-410"); err != nil {
 		t.Fatalf("wait first reap: %v", err)
 	}
 	if fake.callCount() != 2 {
@@ -3271,7 +3265,7 @@ allocation = "reserve"
 		t.Fatalf("rows after drain = %+v, want second 60-token allocation outstanding", rows)
 	}
 	_, _ = m.Stop("worker-squ-411")
-	_ = m.WaitForReaper("worker-squ-411", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-411")
 }
 
 func TestEvent_DispatchLockContentionQueuesAndReapDrains(t *testing.T) {
@@ -3350,7 +3344,7 @@ instances = ["worker"]
 	if _, err := m.Stop("worker-squ-100"); err != nil {
 		t.Fatalf("stop first: %v", err)
 	}
-	if err := m.WaitForReaper("worker-squ-100", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-100"); err != nil {
 		t.Fatalf("wait first reap: %v", err)
 	}
 	if fake.callCount() != 2 {
@@ -3364,7 +3358,7 @@ instances = ["worker"]
 		t.Fatalf("snapshots after drain = %+v", snapshots)
 	}
 	_, _ = m.Stop("worker-squ-101")
-	_ = m.WaitForReaper("worker-squ-101", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-101")
 }
 
 func TestEvent_TeamScopedDispatchLockDoesNotContendAcrossTeams(t *testing.T) {
@@ -3455,8 +3449,8 @@ instances = ["platform-worker"]
 	}
 	_, _ = m.Stop("worker-squ-100")
 	_, _ = m.Stop("platform-worker-squ-101")
-	_ = m.WaitForReaper("worker-squ-100", 5*time.Second)
-	_ = m.WaitForReaper("platform-worker-squ-101", 5*time.Second)
+	_ = waitForEventReaper(t, m, "worker-squ-100")
+	_ = waitForEventReaper(t, m, "platform-worker-squ-101")
 }
 
 func TestEvent_LockReleaseDrainsCrossInstanceWaiters(t *testing.T) {
@@ -3520,7 +3514,7 @@ match.target = "reviewer"
 	if _, err := m.Stop("worker-squ-200"); err != nil {
 		t.Fatalf("stop worker: %v", err)
 	}
-	if err := m.WaitForReaper("worker-squ-200", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-200"); err != nil {
 		t.Fatalf("wait worker reap: %v", err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -3542,7 +3536,7 @@ match.target = "reviewer"
 		t.Fatalf("snapshots after drain = %+v", snapshots)
 	}
 	_, _ = m.Stop("reviewer-squ-201")
-	_ = m.WaitForReaper("reviewer-squ-201", 5*time.Second)
+	_ = waitForEventReaper(t, m, "reviewer-squ-201")
 }
 
 func TestEvent_ScheduleDispatchGeneratesUniqueChildName(t *testing.T) {
@@ -3579,7 +3573,7 @@ match.name = "feedback-triage"
 		t.Fatalf("child name = %q, want generated unique name with declared prefix", child)
 	}
 	_, _ = m.Stop(child)
-	_ = m.WaitForReaper(child, 5*time.Second)
+	_ = waitForEventReaper(t, m, child)
 }
 
 func TestEvent_LockRecoveryDropsDeadLedgerRows(t *testing.T) {
@@ -3742,7 +3736,7 @@ func TestEvent_DrainQueuesArmsQueuedTimeoutBudget(t *testing.T) {
 	if result.Dispatched != 1 || len(result.Outcomes) != 1 || result.Outcomes[0].InstanceID != "worker-queued-timeout" {
 		t.Fatalf("drain result = %+v, want dispatched queued timeout", result)
 	}
-	if err := m.WaitForReaper("worker-queued-timeout", 8*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-queued-timeout"); err != nil {
 		t.Fatalf("wait reaper: %v", err)
 	}
 	meta, err := ReadMetadata(root, "worker-queued-timeout")
@@ -4139,7 +4133,7 @@ instances = ["platform-reviewer"]
 		t.Fatalf("origin = %+v, want agent=reviewer team=platform", meta.Origin)
 	}
 	_, _ = m.Stop("platform-reviewer-x1")
-	_ = m.WaitForReaper("platform-reviewer-x1", 5*time.Second)
+	_ = waitForEventReaper(t, m, "platform-reviewer-x1")
 }
 
 func TestEvent_PipelineDispatchOriginIgnoresPayloadTeam(t *testing.T) {
@@ -4330,7 +4324,7 @@ target = "worker"
 	}
 	t.Cleanup(func() {
 		_, _ = m.Stop("worker-squ-92")
-		_ = m.WaitForReaper("worker-squ-92", 5*time.Second)
+		_ = waitForEventReaper(t, m, "worker-squ-92")
 	})
 
 	prompt, ok := argValue(fake.lastCall(), "-p")
@@ -4401,7 +4395,7 @@ timeout = "500ms"
 	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-501" {
 		t.Fatalf("outcomes = %+v, want dispatched worker-squ-501", result.Outcomes)
 	}
-	if err := m.WaitForReaper("worker-squ-501", 8*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-501"); err != nil {
 		t.Fatalf("wait reaper: %v", err)
 	}
 	meta, err := ReadMetadata(root, "worker-squ-501")
@@ -4463,7 +4457,7 @@ time_budget = "100ms"
 	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-502" {
 		t.Fatalf("outcomes = %+v, want dispatched worker-squ-502", result.Outcomes)
 	}
-	if err := m.WaitForReaper("worker-squ-502", 8*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-502"); err != nil {
 		t.Fatalf("wait reaper: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
@@ -4519,7 +4513,7 @@ time_budget = "3s"
 	if err != nil {
 		t.Fatalf("parse topology: %v", err)
 	}
-	fake := newFakeSpawner(time.Second)
+	fake := newFakeSpawner(eventShortFakeRuntime)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 
@@ -4534,7 +4528,7 @@ time_budget = "3s"
 	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].InstanceID != "worker-squ-503" {
 		t.Fatalf("outcomes = %+v, want dispatched worker-squ-503", result.Outcomes)
 	}
-	if err := m.WaitForReaper("worker-squ-503", 8*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-503"); err != nil {
 		t.Fatalf("wait reaper: %v", err)
 	}
 	meta, err := ReadMetadata(root, "worker-squ-503")

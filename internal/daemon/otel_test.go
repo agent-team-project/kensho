@@ -26,7 +26,7 @@ func TestOrchestrationOTelPipelineExportsJobTrace(t *testing.T) {
 	writeOrchestrationOTelConfig(t, teamDir, true, collector.URL)
 	top := mustParseCustomTopo(t, autoAdvancePipelineTOML)
 
-	fake := newSequencedFakeSpawner(time.Second, 3*time.Second)
+	fake := newSequencedFakeSpawner(eventShortFakeRuntime, 3*time.Second)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -37,7 +37,7 @@ func TestOrchestrationOTelPipelineExportsJobTrace(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
 	}
-	if err := m.WaitForReaper("worker-squ-974", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-974"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	running, err := jobstore.Read(teamDir, "squ-974")
@@ -53,7 +53,7 @@ func TestOrchestrationOTelPipelineExportsJobTrace(t *testing.T) {
 	if err := jobstore.Write(teamDir, running); err != nil {
 		t.Fatalf("record PR before review exits: %v", err)
 	}
-	if err := m.WaitForReaper("reviewer-squ-974", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "reviewer-squ-974"); err != nil {
 		t.Fatalf("wait reviewer reaper: %v", err)
 	}
 
@@ -209,7 +209,7 @@ target = "worker"
 	if _, err := m.Stop("worker-lock-holder"); err != nil {
 		t.Fatalf("stop holder: %v", err)
 	}
-	if err := m.WaitForReaper("worker-lock-holder", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-lock-holder"); err != nil {
 		t.Fatalf("wait holder reaper: %v", err)
 	}
 	if fake.callCount() < 2 {
@@ -234,7 +234,7 @@ target = "worker"
 	if err := jobstore.Write(teamDir, running); err != nil {
 		t.Fatalf("record PR before queued step exits: %v", err)
 	}
-	if err := m.WaitForReaper("worker-squ-976", 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, "worker-squ-976"); err != nil {
 		t.Fatalf("wait queued step reaper: %v", err)
 	}
 
@@ -287,7 +287,7 @@ id = "implement"
 target = "worker"
 `)
 
-	fake := newFakeSpawner(time.Second)
+	fake := newFakeSpawner(eventShortFakeRuntime)
 	m := NewInstanceManager(root, fake.spawn)
 	resolver := NewEventResolver(m, teamDir, top)
 	result, err := resolver.EventWithResult("ticket.created", map[string]any{
@@ -301,7 +301,7 @@ target = "worker"
 	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" {
 		t.Fatalf("outcomes = %+v, want dispatched", result.Outcomes)
 	}
-	if err := m.WaitForReaper(result.Outcomes[0].InstanceID, 5*time.Second); err != nil {
+	if err := waitForEventReaper(t, m, result.Outcomes[0].InstanceID); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
 	if got := collector.Requests(); len(got) != 0 {
