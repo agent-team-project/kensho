@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
@@ -14,13 +15,23 @@ import (
 func TestResearchProgramCompletionPayloadRoutesOnlyToResearchManager(t *testing.T) {
 	for _, fixture := range researchRoutingTopologies(t) {
 		t.Run(fixture.name, func(t *testing.T) {
+			assertResearchCompletionTriggersUsePipeline(t, fixture.top)
 			for _, pipeline := range []string{"research_study", "research_slice"} {
 				t.Run(pipeline, func(t *testing.T) {
+					completedTarget := "research-verifier"
+					if pipeline == "research_slice" {
+						completedTarget = "research-reviewer"
+					}
+					for _, event := range []string{topology.EventJobCompleted, topology.EventDeliverableReady} {
+						t.Run("literal completed target/"+event, func(t *testing.T) {
+							assertResearchTrace(t, fixture.top, event, map[string]any{
+								"pipeline": pipeline,
+								"target":   completedTarget,
+							})
+						})
+					}
+
 					t.Run("terminal", func(t *testing.T) {
-						completedTarget := "research-verifier"
-						if pipeline == "research_slice" {
-							completedTarget = "research-reviewer"
-						}
 						j, completed := researchCompletionJob(pipeline, completedTarget, jobstore.StatusFailed, false)
 						assertResearchCompletionRoute(t, fixture.top, topology.EventJobCompleted, j, completed, jobstore.StatusFailed)
 					})
@@ -140,6 +151,11 @@ func assertResearchCompletionRoute(t *testing.T, top *topology.Topology, event s
 	if got := payload["target"]; got != "research-manager" {
 		t.Fatalf("completion payload target = %v, want research-manager: %#v", got, payload)
 	}
+	assertResearchTrace(t, top, event, payload)
+}
+
+func assertResearchTrace(t *testing.T, top *topology.Topology, event string, payload map[string]any) {
+	t.Helper()
 	trace := top.Trace(event, payload)
 	if trace.MatchedRules != 1 {
 		t.Fatalf("matched rules = %d, want exactly one: %+v", trace.MatchedRules, trace.Entries)
@@ -150,6 +166,32 @@ func assertResearchCompletionRoute(t *testing.T, top *topology.Topology, event s
 	for _, entry := range trace.Entries {
 		if entry.Scope == "instances.manager" && entry.Matched {
 			t.Fatalf("user-facing manager unexpectedly matched: %+v", entry)
+		}
+	}
+}
+
+func assertResearchCompletionTriggersUsePipeline(t *testing.T, top *topology.Topology) {
+	t.Helper()
+	instance := top.Instances["research-manager"]
+	if instance == nil {
+		t.Fatal("research-manager instance missing")
+	}
+	got := map[string][]string{}
+	for _, trigger := range instance.Triggers {
+		if trigger.Event != topology.EventJobCompleted && trigger.Event != topology.EventDeliverableReady {
+			continue
+		}
+		if len(trigger.Match) != 1 || trigger.Match["pipeline"].Single == "" {
+			t.Fatalf("research completion trigger must match only pipeline identity: %+v", trigger)
+		}
+		got[trigger.Event] = append(got[trigger.Event], trigger.Match["pipeline"].Single)
+	}
+	want := []string{"research_slice", "research_study"}
+	for _, event := range []string{topology.EventJobCompleted, topology.EventDeliverableReady} {
+		pipelines := got[event]
+		slices.Sort(pipelines)
+		if !reflect.DeepEqual(pipelines, want) {
+			t.Fatalf("%s pipeline routes = %v, want %v", event, pipelines, want)
 		}
 	}
 }
