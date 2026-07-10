@@ -68,6 +68,9 @@ jobs:
           python3 scripts/ci/validate_env_allow.py --self-test
           python3 scripts/ci/validate_env_allow.py
 
+      - name: Test Discord delivery ceiling
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/skills/comms/test_discord_delivery.py
+
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)

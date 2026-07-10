@@ -227,8 +227,9 @@ agent-team daemon status
 
 Hosted docs are published at
 [agent-team.readthedocs.io](https://agent-team.readthedocs.io), and the
-community lives on [Discord](https://discord.gg/sBrPh3Amc) — daily shipped-work
-digests land in #project-updates.
+community lives on [Discord](https://discord.gg/sBrPh3Amc) — meaningful
+shipped-work digests may land in #project-updates, with at most one successful
+Discord delivery in any rolling 24-hour window across all comms modes.
 
 Start with the guide pages:
 

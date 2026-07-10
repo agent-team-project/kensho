@@ -186,7 +186,10 @@ release-announcement mode:
 - Source claims only from the merged changelog, GitHub release notes, merged
   PRs, and closed tickets.
 - Keep Discord content concise and concrete.
-- Post only through the configured webhook path. If no webhook is configured or
-  delivery fails, write the pending announcement to the comms state dir and send
-  it to the supervisor.
+- Post only through the shared comms boundary, using
+  `discord-webhook.sh --kind release --delivery-id "release:<tag>"`. Releases do
+  not bypass the rolling 24-hour ceiling. The helper durably queues unavailable,
+  failed, or ineligible content, gives it priority in the next eligible
+  meaningful post, and notifies the supervisor; do not create or send a second
+  pending copy.
 - Never automate a user account and never let a worker post directly.

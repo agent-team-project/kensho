@@ -825,6 +825,12 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         "--set", "linear.ticket_prefix=SMK",
     ])
     team_dir = socket_dir / ".agent_team"
+    discord_helper = team_dir / "skills" / "comms" / "scripts" / "discord_delivery.py"
+    if not discord_helper.is_file():
+        problems.append(f"full template missing shared Discord delivery helper: {discord_helper}")
+    full_topology = (team_dir / "instances.toml").read_text(encoding="utf-8")
+    if '[schedules.discord-digest]\nevery = "24h"' not in full_topology:
+        problems.append("full template Discord digest schedule is not exactly 24h")
     write_plan_shape_topology_fixture(team_dir)
     sock = team_dir / "daemon.sock"
     pid = team_dir / "daemon.pid"

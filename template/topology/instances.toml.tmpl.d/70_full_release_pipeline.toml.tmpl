@@ -101,9 +101,9 @@ max_attempts = 1
 instructions = """
 Use the release skill and existing comms digest machinery in release-announcement
 mode. Draft the release announcement from the merged changelog and GitHub
-release notes, then deliver only through the sanctioned webhook path; if the
-webhook is unavailable, write the pending announcement and notify the supervisor.
-Never post through worker-owned automation or a user account.
+release notes, then call the shared Discord boundary with kind `release` and
+stable delivery id `release:<tag>`. Releases never bypass its rolling 24-hour
+ceiling; the helper owns durable deferral and supervisor notification. Never
+post through worker-owned automation or a user account.
 """
-
 

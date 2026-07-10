@@ -149,8 +149,9 @@ real bug — without exception.** Read their mailbox reports; triage what they f
 - **sentinel** (6h) — production-health watcher. Caught post-rename repo/docs drift. Note: its
   *expected values* can go stale and false-alarm (fix the expectation, not "production").
 - **feedback-triage** (12h) — turns `feedback submit` items into routed tickets.
-- **comms** (24h) — Discord digest via webhook only (never account automation). Posts only
-  verifiable, merged work.
+- **comms** (24h opportunity) — Discord via the shared webhook gate only (never account
+  automation). The gate permits at most one success in any rolling 24 hours across digests,
+  releases, and manual dispatch; quiet windows stay quiet and catch-up starts at last success.
 
 ## The board, tickets, and the human plane
 
