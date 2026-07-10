@@ -96,6 +96,7 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	if err != nil {
 		return
 	}
+	priorLastStatus := j.LastStatus
 	now := time.Now().UTC()
 	status := jobstore.StatusDone
 	eventType := "instance_exited"
@@ -130,13 +131,48 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	if status == jobstore.StatusDone && jobIsProbe(j) {
 		message = "probe completed; report stored in last-message"
 	}
-	completedStep := reconcilePipelineStepExit(j, meta.Instance, status, now)
+	completedStep, stepTransitioned := reconcilePipelineStepExit(j, meta.Instance, status, now)
 	if completedStep != nil {
-		if status == jobstore.StatusDone && !allPipelineStepsDone(j) {
-			j.Status = jobstore.StatusRunning
-			message = "completed pipeline step"
-		} else {
-			j.Status = status
+		j.Status = pipelineStatusFromSteps(j)
+		switch j.Status {
+		case jobstore.StatusFailed:
+			// A verifier/reviewer can record its step failure before the runtime
+			// process exits cleanly. The durable step graph outranks process exit:
+			// never turn that failure into a successful outer job completion.
+			status = jobstore.StatusFailed
+			if !stepTransitioned {
+				eventType = "pipeline_step_failed"
+				message = strings.TrimSpace(priorLastStatus)
+				if message == "" {
+					message = completedStep.ID + " failed before instance exit"
+				}
+			}
+		case jobstore.StatusRunning:
+			if status == jobstore.StatusDone && stepTransitioned {
+				message = "completed pipeline step"
+			}
+		case jobstore.StatusDone:
+			status = jobstore.StatusDone
+		}
+	} else if len(j.Steps) > 0 {
+		// Even an unmatched process exit cannot close a pipeline independently of
+		// its durable graph. This covers stale or partially rematerialized runtime
+		// metadata without manufacturing a terminal success.
+		j.Status = pipelineStatusFromSteps(j)
+		switch j.Status {
+		case jobstore.StatusFailed:
+			status = jobstore.StatusFailed
+			eventType = "pipeline_step_failed"
+			message = strings.TrimSpace(priorLastStatus)
+			if message == "" {
+				message = "pipeline has a failed required step"
+			}
+		case jobstore.StatusDone:
+			status = jobstore.StatusDone
+		case jobstore.StatusRunning:
+			if status == jobstore.StatusDone {
+				message = "instance exited without completing the pipeline"
+			}
 		}
 	} else {
 		j.Status = status
@@ -206,7 +242,7 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	// `agent-team pipeline tick`. Safe to call here — onReap has already released
 	// r.mu, and this reuses the normal dispatch path (which does its own locking).
 	r.tryAutoAdvancePipeline(j, meta, status)
-	r.publishManagerCompletionEvents(j, completedStep, meta, status)
+	r.publishManagerCompletionEvents(j, completedStep, meta, status, stepTransitioned)
 	r.autoReapJob(meta.Job, worktreepolicy.OnClose)
 }
 
@@ -264,12 +300,12 @@ func jobTimeBudgetTarget(j *jobstore.Job, step *jobstore.Step) (time.Duration, f
 	return parseBudgetNoticeDuration(j.TimeBudget), j.HardMultiplier, ""
 }
 
-func (r *EventResolver) publishManagerCompletionEvents(j *jobstore.Job, completedStep *jobstore.Step, meta *Metadata, status jobstore.Status) {
+func (r *EventResolver) publishManagerCompletionEvents(j *jobstore.Job, completedStep *jobstore.Step, meta *Metadata, status jobstore.Status, stepTransitioned bool) {
 	if !managerCompletionShouldWake(j, completedStep, status) {
 		return
 	}
 	payload := managerCompletionPayload(j, completedStep, meta, status)
-	if completedStep != nil {
+	if completedStep != nil && stepTransitioned {
 		r.publishCompletionEventIfMatched(topology.EventJobStepCompleted, payload)
 		if completionDeliverableReady(j, completedStep, status) {
 			r.publishCompletionEventIfMatched(topology.EventDeliverableReady, payload)
@@ -306,7 +342,7 @@ func managerCompletionShouldWake(j *jobstore.Job, completedStep *jobstore.Step, 
 func managerCompletionPayload(j *jobstore.Job, completedStep *jobstore.Step, meta *Metadata, status jobstore.Status) map[string]any {
 	payload := map[string]any{
 		"source":     "daemon:completion",
-		"target":     "manager",
+		"target":     managerCompletionTarget(j),
 		"job_id":     j.ID,
 		"job":        j.ID,
 		"ticket":     j.Ticket,
@@ -379,7 +415,7 @@ func managerGateReady(j *jobstore.Job) bool {
 	}
 	for i := range j.Steps {
 		step := &j.Steps[i]
-		if strings.TrimSpace(step.Target) != "manager" || !jobstore.StepGatePending(j, step) {
+		if step.Gate != jobstore.StepGateManual || !jobstore.StepGatePending(j, step) {
 			continue
 		}
 		if stepDependenciesMet(step, done) {
@@ -387,6 +423,53 @@ func managerGateReady(j *jobstore.Job) bool {
 		}
 	}
 	return false
+}
+
+func managerCompletionTarget(j *jobstore.Job) string {
+	const fallback = "manager"
+	if j == nil {
+		return fallback
+	}
+
+	done := map[string]bool{}
+	for i := range j.Steps {
+		if jobstore.StepSatisfiesDependency(&j.Steps[i]) {
+			done[j.Steps[i].ID] = true
+		}
+	}
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Gate != jobstore.StepGateManual || !jobstore.StepGatePending(j, step) || !stepDependenciesMet(step, done) {
+			continue
+		}
+		if target := strings.TrimSpace(step.Target); target != "" {
+			return target
+		}
+	}
+
+	// Failed jobs can terminate before their decision gate becomes ready. A
+	// single declared manual owner still identifies who must reconcile that
+	// terminal result. Multiple different owners are ambiguous, so retain the
+	// historical user-facing manager fallback.
+	owner := ""
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if step.Gate != jobstore.StepGateManual {
+			continue
+		}
+		target := strings.TrimSpace(step.Target)
+		if target == "" {
+			continue
+		}
+		if owner != "" && owner != target {
+			return fallback
+		}
+		owner = target
+	}
+	if owner != "" {
+		return owner
+	}
+	return fallback
 }
 
 func stepDependenciesMet(step *jobstore.Step, done map[string]bool) bool {
@@ -441,7 +524,10 @@ func (r *EventResolver) autoReapJob(id, trigger string) {
 	if err != nil || j == nil {
 		return
 	}
-	if j.Status != jobstore.StatusDone && j.Status != jobstore.StatusFailed {
+	// Failed work must remain rematerializable: keep its source worktree/branch
+	// until an explicit retry, close, or cleanup decision. Successful terminal
+	// jobs retain the configured automatic reap behavior.
+	if j.Status != jobstore.StatusDone {
 		return
 	}
 	policy := r.reapWorktreePolicyForJob(j)

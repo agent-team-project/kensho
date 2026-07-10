@@ -53,6 +53,14 @@ enforcement = "audit"
 [authority.instances.manager]
 allow = ["*"]
 
+{{ if eq .template.profile `full` }}
+[authority.instances.research-manager]
+allow = ["event.publish", "job.events", "job.gate.*:own", "job.step:own", "job.bounce:own", "job.close:own", "job.merge:own", "read", "ticket.create", "ticket.comment", "ticket.update"]
+
+[authority.instances.research-auditor]
+allow = ["read"]
+{{ end }}
+
 [authority.agents.worker]
 allow = ["budget.status", "channel.*", "event.publish", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "job.step:own", "status.*"]
 

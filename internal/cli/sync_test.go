@@ -380,10 +380,14 @@ func TestSyncFormatPrintsActionRows(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
 	pid := os.Getpid()
-	for _, name := range []string{"manager", "ticket-manager"} {
+	for _, name := range []string{"manager", "research-manager", "ticket-manager"} {
+		agent := name
+		if name == "research-manager" {
+			agent = "manager"
+		}
 		if err := daemon.WriteMetadata(root, &daemon.Metadata{
 			Instance: name,
-			Agent:    name,
+			Agent:    agent,
 			Status:   daemon.StatusRunning,
 			PID:      pid,
 		}); err != nil {
@@ -493,10 +497,14 @@ func TestSyncFormatHonorsAgentFilter(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
 	pid := os.Getpid()
-	for _, name := range []string{"manager", "ticket-manager"} {
+	for _, name := range []string{"manager", "research-manager", "ticket-manager"} {
+		agent := name
+		if name == "research-manager" {
+			agent = "manager"
+		}
 		if err := daemon.WriteMetadata(root, &daemon.Metadata{
 			Instance: name,
-			Agent:    name,
+			Agent:    agent,
 			Status:   daemon.StatusRunning,
 			PID:      pid,
 		}); err != nil {
@@ -523,7 +531,7 @@ func TestSyncFormatHonorsAgentFilter(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --agent manager --format: %v\nstderr: %s", err, stderr.String())
 	}
-	if got, want := strings.TrimSpace(out.String()), "manager:skip:running"; got != want {
+	if got, want := strings.TrimSpace(out.String()), "manager:skip:running\nresearch-manager:skip:running"; got != want {
 		t.Fatalf("sync --agent manager rows = %q, want %q", got, want)
 	}
 }
@@ -590,13 +598,15 @@ func TestSyncFormatHonorsActionFilter(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
-	if err := daemon.WriteMetadata(root, &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
-		Status:   daemon.StatusRunning,
-		PID:      os.Getpid(),
-	}); err != nil {
-		t.Fatalf("write manager metadata: %v", err)
+	for _, name := range []string{"manager", "research-manager"} {
+		if err := daemon.WriteMetadata(root, &daemon.Metadata{
+			Instance: name,
+			Agent:    "manager",
+			Status:   daemon.StatusRunning,
+			PID:      os.Getpid(),
+		}); err != nil {
+			t.Fatalf("write %s metadata: %v", name, err)
+		}
 	}
 	mgr := daemon.NewInstanceManager(root, nil)
 	if err := mgr.LoadFromDisk(); err != nil {
@@ -618,7 +628,7 @@ func TestSyncFormatHonorsActionFilter(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --action keep --format: %v\nstderr: %s", err, stderr.String())
 	}
-	if got, want := strings.TrimSpace(out.String()), "manager:skip:running"; got != want {
+	if got, want := strings.TrimSpace(out.String()), "manager:skip:running\nresearch-manager:skip:running"; got != want {
 		t.Fatalf("sync --action keep rows = %q, want %q", got, want)
 	}
 }
@@ -632,13 +642,15 @@ func TestSyncWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
-	if err := daemon.WriteMetadata(root, &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
-		Status:   daemon.StatusRunning,
-		PID:      os.Getpid(),
-	}); err != nil {
-		t.Fatalf("write manager metadata: %v", err)
+	for _, name := range []string{"manager", "research-manager"} {
+		if err := daemon.WriteMetadata(root, &daemon.Metadata{
+			Instance: name,
+			Agent:    "manager",
+			Status:   daemon.StatusRunning,
+			PID:      os.Getpid(),
+		}); err != nil {
+			t.Fatalf("write %s metadata: %v", name, err)
+		}
 	}
 	mgr := daemon.NewInstanceManager(root, nil)
 	if err := mgr.LoadFromDisk(); err != nil {
@@ -669,11 +681,11 @@ func TestSyncWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 	if body.Health == nil || !body.Health.Healthy {
 		t.Fatalf("filtered wait health = %+v, want healthy manager-only health", body.Health)
 	}
-	if len(body.Actions) != 1 || body.Actions[0].Instance != "manager" || body.Actions[0].Action != "skip" {
-		t.Fatalf("filtered wait actions = %+v, want manager skip only", body.Actions)
+	if len(body.Actions) != 2 || body.Actions[0].Instance != "manager" || body.Actions[1].Instance != "research-manager" || body.Actions[0].Action != "skip" || body.Actions[1].Action != "skip" {
+		t.Fatalf("filtered wait actions = %+v, want both manager seats skipped", body.Actions)
 	}
-	if body.Health.Declared.Persistent != 1 || body.Health.Declared.Running != 1 || body.Health.Declared.Missing != 0 {
-		t.Fatalf("filtered wait declared health = %+v, want only manager declared", body.Health.Declared)
+	if body.Health.Declared.Persistent != 2 || body.Health.Declared.Running != 2 || body.Health.Declared.Missing != 0 {
+		t.Fatalf("filtered wait declared health = %+v, want both manager seats declared", body.Health.Declared)
 	}
 }
 
@@ -887,10 +899,11 @@ func TestSyncStopExtrasHonorsAgentFilter(t *testing.T) {
 	root := daemon.DaemonRoot(teamDir)
 	sleepers := map[string]*exec.Cmd{}
 	for name, agent := range map[string]string{
-		"manager":        "manager",
-		"ticket-manager": "ticket-manager",
-		"adhoc-manager":  "manager",
-		"adhoc-worker":   "worker",
+		"manager":          "manager",
+		"research-manager": "manager",
+		"ticket-manager":   "ticket-manager",
+		"adhoc-manager":    "manager",
+		"adhoc-worker":     "worker",
 	} {
 		sleepers[name] = startSleepMetadataForSyncTest(t, root, tmp, name, agent)
 	}
@@ -926,6 +939,7 @@ func TestSyncStopExtrasHonorsAgentFilter(t *testing.T) {
 	for _, want := range []string{
 		"adhoc-manager:stop:stopped",
 		"manager:skip:running",
+		"research-manager:skip:running",
 	} {
 		if !rows[want] {
 			t.Fatalf("sync --stop-extras filtered actions missing %q: %+v", want, actions)

@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -162,6 +164,175 @@ func TestEvent_PipelineAutoAdvanceDispatchesNextStep(t *testing.T) {
 	}
 	if j.Status != jobstore.StatusDone {
 		t.Fatalf("job status=%s, want done; steps=%+v", j.Status, j.Steps)
+	}
+}
+
+func TestEvent_PipelineStepFailureSurvivesCleanRuntimeExitAndPreservesRetryEvidence(t *testing.T) {
+	teamDir := autoAdvanceTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
+	repoRoot := filepath.Dir(teamDir)
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "Test User")
+	runGit(t, repoRoot, "checkout", "-B", "main")
+	reportRel := filepath.Join("reports", "study-preregistration.md")
+	reportBody := []byte("# Preregistration\n\nProduct verdict and Kensho/process verdict remain separate.\n")
+	if err := os.MkdirAll(filepath.Join(repoRoot, "reports"), 0o755); err != nil {
+		t.Fatalf("mkdir reports: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, reportRel), reportBody, 0o644); err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	runGit(t, repoRoot, "add", reportRel)
+	runGit(t, repoRoot, "commit", "-m", "seed immutable report")
+
+	root := DaemonRoot(teamDir)
+	fake := newFakeSpawner(2 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	if err := WriteMetadata(root, &Metadata{
+		Instance:  "research-manager",
+		Agent:     "manager",
+		Workspace: repoRoot,
+		PID:       os.Getpid(),
+		StartedAt: time.Now().UTC(),
+		Status:    StatusRunning,
+	}); err != nil {
+		t.Fatalf("write research-manager metadata: %v", err)
+	}
+	if err := Reconcile(root, m); err != nil {
+		t.Fatalf("adopt research-manager metadata: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.research-manager]
+agent = "manager"
+ephemeral = false
+
+[[instances.research-manager.triggers]]
+event = "job.completed"
+match.pipeline = "research_study"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.research_study]
+trigger.event = "research.study.requested"
+auto_advance = true
+reap_worktree = "on_close"
+
+[[pipelines.research_study.steps]]
+id = "verify"
+target = "worker"
+workspace = "repo"
+
+[[pipelines.research_study.steps]]
+id = "review"
+target = "worker"
+after = ["verify"]
+`)
+	resolver := NewEventResolver(m, teamDir, top)
+	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/event",
+		`{"type":"research.study.requested","payload":{"ticket":"RESEARCH-001","kind":"report","deliverable":"report:reports/study-preregistration.md","workspace":"repo"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("event: %d %s", resp.StatusCode, readBody(t, resp))
+	}
+
+	worktree := filepath.Join(repoRoot, ".claude", "worktrees", "research-001-report")
+	if err := os.MkdirAll(filepath.Dir(worktree), 0o755); err != nil {
+		t.Fatalf("mkdir worktree parent: %v", err)
+	}
+	branch := "research-001-report"
+	runGit(t, repoRoot, "worktree", "add", "-b", branch, worktree)
+	wantReportDigest := sha256.Sum256(reportBody)
+
+	j, err := jobstore.Read(teamDir, "research-001")
+	if err != nil {
+		t.Fatalf("read running research job: %v", err)
+	}
+	if len(j.Steps) != 2 || j.Steps[0].Instance == "" {
+		t.Fatalf("research job steps = %+v, want running verify owner", j.Steps)
+	}
+	verifierInstance := j.Steps[0].Instance
+	now := time.Now().UTC()
+	j.Worktree = worktree
+	j.Branch = branch
+	j.Steps[0].Status = jobstore.StatusFailed
+	j.Steps[0].FinishedAt = now
+	j.Status = jobstore.StatusFailed
+	j.LastEvent = "step_failed"
+	j.LastStatus = "verify fail: report contract gate failed"
+	j.UpdatedAt = now
+	if err := jobstore.Write(teamDir, j); err != nil {
+		t.Fatalf("record failed verifier step: %v", err)
+	}
+	if err := jobstore.AppendGateRecord(teamDir, &jobstore.GateRecord{
+		TS:        now,
+		JobID:     j.ID,
+		Name:      "report-preregistration-contract",
+		Status:    jobstore.GateStatusFail,
+		Signature: "missing required section",
+		Actor:     verifierInstance,
+	}); err != nil {
+		t.Fatalf("record verifier gate: %v", err)
+	}
+
+	if err := waitForEventReaper(t, m, verifierInstance); err != nil {
+		t.Fatalf("wait verifier reaper: %v", err)
+	}
+	updated, err := jobstore.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatalf("read reaped research job: %v", err)
+	}
+	if updated.Status != jobstore.StatusFailed || updated.Steps[0].Status != jobstore.StatusFailed {
+		t.Fatalf("job/verify status = %s/%s, want failed/failed; steps=%+v", updated.Status, updated.Steps[0].Status, updated.Steps)
+	}
+	if updated.Steps[1].Status == jobstore.StatusDone {
+		t.Fatalf("review step = %+v, must not complete after verifier failure", updated.Steps[1])
+	}
+	if updated.Worktree != worktree || updated.Branch != branch {
+		t.Fatalf("retry source = %q/%q, want preserved %q/%q", updated.Worktree, updated.Branch, worktree, branch)
+	}
+	if _, err := os.Stat(worktree); err != nil {
+		t.Fatalf("failed-job worktree was reaped: %v", err)
+	}
+	preservedReport, err := os.ReadFile(filepath.Join(worktree, reportRel))
+	if err != nil {
+		t.Fatalf("read preserved report: %v", err)
+	}
+	if got := sha256.Sum256(preservedReport); got != wantReportDigest {
+		t.Fatalf("preserved report digest = %x, want %x", got, wantReportDigest)
+	}
+	gates, err := jobstore.ListGateRecords(teamDir, j.ID)
+	if err != nil {
+		t.Fatalf("read preserved gates: %v", err)
+	}
+	if len(gates) != 1 || gates[0].Status != jobstore.GateStatusFail || gates[0].Actor != verifierInstance {
+		t.Fatalf("gate evidence = %+v, want verifier failure", gates)
+	}
+
+	messages, err := ReadMessages(root, "research-manager")
+	if err != nil {
+		t.Fatalf("read research-manager messages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("research-manager messages = %+v, want one job.completed wake", messages)
+	}
+	var wake struct {
+		Event   string         `json:"event"`
+		Payload map[string]any `json:"payload"`
+	}
+	if err := json.Unmarshal([]byte(messages[0].Body), &wake); err != nil {
+		t.Fatalf("decode completion wake: %v", err)
+	}
+	if wake.Event != "job.completed" || wake.Payload["status"] != "failed" || wake.Payload["job_status"] != "failed" {
+		t.Fatalf("completion wake = %+v, want durable failed/failed status", wake)
 	}
 }
 

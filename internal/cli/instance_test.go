@@ -1013,7 +1013,7 @@ func TestSelectLifecycleTargets_DefaultIgnoresAdhocMetadata(t *testing.T) {
 	for _, target := range targets {
 		names = append(names, target.name)
 	}
-	if strings.Join(names, ",") != "advisor,manager,ticket-manager" {
+	if strings.Join(names, ",") != "advisor,manager,research-auditor,research-manager,ticket-manager" {
 		t.Fatalf("default targets = %v, want declared persistent only", names)
 	}
 }
@@ -1039,7 +1039,7 @@ func TestSelectAllLifecycleTargetsIncludesDaemonKnownExtras(t *testing.T) {
 	for _, target := range targets {
 		names = append(names, target.name)
 	}
-	if strings.Join(names, ",") != "advisor,manager,ticket-manager,adhoc-a,adhoc-b" {
+	if strings.Join(names, ",") != "advisor,manager,research-auditor,research-manager,ticket-manager,adhoc-a,adhoc-b" {
 		t.Fatalf("all lifecycle targets = %v", names)
 	}
 	if !targets[1].running() || targets[1].name != "manager" {
@@ -1068,7 +1068,7 @@ func TestSelectAgentLifecycleTargetsIncludesDeclaredAndDaemonKnown(t *testing.T)
 	for _, target := range targets {
 		names = append(names, target.name)
 	}
-	if strings.Join(names, ",") != "manager,adhoc-b" {
+	if strings.Join(names, ",") != "manager,research-manager,adhoc-b" {
 		t.Fatalf("manager lifecycle targets = %v, want declared manager then daemon-known adhoc-b", names)
 	}
 	if !targets[0].running() {
@@ -2135,13 +2135,15 @@ func TestInstanceUpWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
-	if err := daemon.WriteMetadata(root, &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
-		Status:   daemon.StatusRunning,
-		PID:      os.Getpid(),
-	}); err != nil {
-		t.Fatalf("write manager metadata: %v", err)
+	for _, name := range []string{"manager", "research-manager"} {
+		if err := daemon.WriteMetadata(root, &daemon.Metadata{
+			Instance: name,
+			Agent:    "manager",
+			Status:   daemon.StatusRunning,
+			PID:      os.Getpid(),
+		}); err != nil {
+			t.Fatalf("write %s metadata: %v", name, err)
+		}
 	}
 	mgr := daemon.NewInstanceManager(root, nil)
 	if err := mgr.LoadFromDisk(); err != nil {
@@ -2172,11 +2174,11 @@ func TestInstanceUpWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 	if body.Health == nil || !body.Health.Healthy {
 		t.Fatalf("filtered instance up wait health = %+v, want healthy manager-only health", body.Health)
 	}
-	if len(body.Actions) != 1 || body.Actions[0].Instance != "manager" || body.Actions[0].Action != "skip" {
-		t.Fatalf("filtered instance up wait actions = %+v, want manager skip only", body.Actions)
+	if len(body.Actions) != 2 || body.Actions[0].Instance != "manager" || body.Actions[1].Instance != "research-manager" || body.Actions[0].Action != "skip" || body.Actions[1].Action != "skip" {
+		t.Fatalf("filtered instance up wait actions = %+v, want both manager seats skipped", body.Actions)
 	}
-	if body.Health.Declared.Persistent != 1 || body.Health.Declared.Running != 1 || body.Health.Declared.Missing != 0 {
-		t.Fatalf("filtered instance up wait declared health = %+v, want only manager declared", body.Health.Declared)
+	if body.Health.Declared.Persistent != 2 || body.Health.Declared.Running != 2 || body.Health.Declared.Missing != 0 {
+		t.Fatalf("filtered instance up wait declared health = %+v, want both manager seats declared", body.Health.Declared)
 	}
 }
 

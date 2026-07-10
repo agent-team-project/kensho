@@ -200,7 +200,37 @@ gate = "manual"
 
 Pipeline state is stored in jobs, not in a separate scheduler database. A step with `gate = "manual"` stays blocked after its dependencies finish until an operator approves it with `agent-team pipeline approve <pipeline>`, `agent-team team approve <team>`, or `agent-team job approve <job-id> --step <step-id>`; after that, normal `job advance`, `pipeline advance`, `team advance`, or `tick` dispatch can run it. Use `agent-team job reject <job-id> --step <step-id>` when the manual gate should fail instead.
 
-When daemon-managed jobs reach manager-relevant completion points, the daemon publishes `job.step_completed`, `job.completed`, and `deliverable.ready` events with `target = "manager"`. A persistent manager can subscribe to those events to wake after workers, verifiers, or reviewers finish, inspect blocked manual gates, and continue the unattended review/merge loop.
+When daemon-managed jobs reach manager-relevant completion points, the daemon
+publishes `job.step_completed`, `job.completed`, and `deliverable.ready` events.
+A persistent manager can subscribe to those events to wake after workers,
+verifiers, or reviewers finish, inspect blocked manual gates, and continue the
+unattended review/merge loop. In a multi-manager topology, route ownership by
+pipeline as well as direct target: completion payloads may retain the step role
+in `target`, and a broad manager target can wake the wrong portfolio owner.
+
+```toml
+[[instances.research-manager.triggers]]
+event = "job.completed"
+match.pipeline = "research_study"
+
+[[instances.research-manager.triggers]]
+event = "deliverable.ready"
+match.pipeline = "research_study"
+```
+
+Verifier steps can declare deterministic gates directly in their instructions.
+The bundled verifier executes a fenced `agent-team-verify-gates` block before
+considering repository defaults, which is important for report pipelines that
+must not inherit unrelated build/test gates:
+
+````toml
+instructions = """
+```agent-team-verify-gates
+report-exists :: p="${AGENT_TEAM_ROOT%/.agent_team}/reports/study.md"; test -s "$p"
+report-digest :: p="${AGENT_TEAM_ROOT%/.agent_team}/reports/study.md"; if command -v sha256sum >/dev/null 2>&1; then sha256sum "$p"; else shasum -a 256 "$p"; fi
+```
+"""
+````
 
 Use `gate = "pr"` when a later step should wait for PR metadata. The step remains blocked with `waiting_for = ["pr"]` until the job has `pr` set, for example through `agent-team job update <job-id> --pr <url> --advance --dry-run` followed by the non-dry-run update, GitHub intake reconciliation with `agent-team intake github --payload-file github-webhook.json --reconcile-job --advance --dry-run` plus optional `--commands`, or status-file reconciliation.
 

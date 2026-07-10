@@ -9,7 +9,7 @@
 [template]
 name        = "default"
 version     = "1.0.0"
-description = "Slim manager + worker + verifier + reviewer starter by default; full profile adds ticket-manager, scheduled loops, and the self-dogfood topology."
+description = "Slim manager + worker + verifier + reviewer starter by default; full profile adds ticket-manager, standing research, scheduled loops, and the self-dogfood topology."
 
 [[parameter]]
 key         = "project.id"
@@ -258,7 +258,7 @@ exclude = [
 ]
 
 [profiles.full]
-description = "Full self-dogfood topology with platform, quality, release, docs, comms, and sentinel loops."
+description = "Full self-dogfood topology with platform, research, quality, release, docs, comms, and sentinel loops."
 exclude = [
   "topology",
 ]

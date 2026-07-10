@@ -669,6 +669,286 @@ GitHub issue #228 and do not create duplicate docs tickets. When the issue
 comment/report is posted, let the job finish without opening a PR.
 """
 
+# Standing empirical software-research organization. Research execution is
+# pipeline-only: the persistent manager selects safe waves, independent seats
+# verify and review them, and manual gates retain activation/integration
+# judgment. Token capacity is deliberately high; the research charter's
+# coupling, WIP, and absorption rules control actual width.
+[instances.research-manager]
+agent         = "manager"
+ephemeral     = false
+brief         = true
+token_budget  = "100M"
+time_budget   = "2h"
+description   = "Persistent research director: study portfolio, safe waves, evidence synthesis, and framework-improvement loop."
+
+[[instances.research-manager.triggers]]
+event = "user_invocation"
+
+[[instances.research-manager.triggers]]
+event        = "agent.dispatch"
+match.target = "research-manager"
+
+[[instances.research-manager.triggers]]
+event      = "schedule"
+match.name = "research-reconcile"
+match.kind = "research_reconcile"
+
+[[instances.research-manager.triggers]]
+event        = "job.step_completed"
+match.target = "research-manager"
+
+# Terminal and deliverable wakes remain pipeline-owned even though the daemon
+# addresses their payload to the declared manual decision owner. This avoids
+# duplicate rules and keeps the user-facing manager out of research results.
+[[instances.research-manager.triggers]]
+event          = "job.completed"
+match.pipeline = "research_study"
+
+[[instances.research-manager.triggers]]
+event          = "job.completed"
+match.pipeline = "research_slice"
+
+[[instances.research-manager.triggers]]
+event          = "deliverable.ready"
+match.pipeline = "research_study"
+
+[[instances.research-manager.triggers]]
+event          = "deliverable.ready"
+match.pipeline = "research_slice"
+
+[instances.research-worker]
+agent         = "worker"
+ephemeral     = true
+replicas      = 8
+token_budget  = "80M"
+time_budget   = "90m"
+description   = "Research product/study worker. Executes only declared research pipeline steps with explicit evidence contracts."
+
+[[instances.research-worker.triggers]]
+event        = "agent.dispatch"
+match.target = "research-worker"
+
+[instances.research-verifier]
+agent         = "verifier"
+ephemeral     = true
+replicas      = 3
+token_budget  = "15M"
+time_budget   = "30m"
+description   = "Deterministic research verifier: reproduces product/study gates and emits canonical evidence before review."
+
+[[instances.research-verifier.triggers]]
+event        = "agent.dispatch"
+match.target = "research-verifier"
+
+[instances.research-reviewer]
+agent         = "reviewer"
+ephemeral     = true
+replicas      = 3
+token_budget  = "30M"
+time_budget   = "45m"
+description   = "Independent research reviewer: adversarial product semantics, evidence integrity, and falsification review."
+
+[[instances.research-reviewer.triggers]]
+event        = "agent.dispatch"
+match.target = "research-reviewer"
+
+[instances.research-auditor]
+agent         = "reviewer"
+ephemeral     = false
+brief         = true
+token_budget  = "20M"
+time_budget   = "45m"
+description   = "Persistent read-only evidence auditor: freezes preregistration digests and reconciles claims against canonical evidence."
+
+[[instances.research-auditor.triggers]]
+event = "user_invocation"
+
+[[instances.research-auditor.triggers]]
+event        = "agent.dispatch"
+match.target = "research-auditor"
+
+[[instances.research-auditor.triggers]]
+event      = "schedule"
+match.name = "research-evidence-audit"
+match.kind = "research_evidence_audit"
+
+[schedules.research-reconcile]
+every = "2h"
+run_on_start = true
+
+[schedules.research-reconcile.payload]
+kind   = "research_reconcile"
+target = "research-manager"
+task   = "Reconcile the active research portfolio from canonical repo/job/gate evidence. Dispatch graph-safe work, record a concrete hold/block, or close the checkpoint; never silently depend on an external manager wake."
+
+[schedules.research-evidence-audit]
+every = "84h"
+
+[schedules.research-evidence-audit.payload]
+kind   = "research_evidence_audit"
+target = "research-auditor"
+task   = "Audit active and newly terminal studies against frozen preregistration digests, durable jobs, gates, repository state, and artifact digests. Block unsupported research verdicts without blocking product releases."
+
+# Study registration is evidence work, not product implementation. It freezes
+# hypotheses, oracles, gates, falsifiers, and the topology snapshot first.
+[pipelines.research_study]
+trigger.event = "research.study.requested"
+auto_advance = true
+redispatch_on_reentry = false
+reap_worktree = "on_close"
+
+[[pipelines.research_study.steps]]
+id           = "preregister"
+target       = "research-worker"
+workspace    = "worktree"
+timeout      = "90m"
+token_budget = "80M"
+time_budget  = "90m"
+max_attempts = 1
+instructions = """
+Produce only the study's declared preregistration/report deliverable. Freeze
+product behavior, objective oracles, hard gates, process hypotheses, metrics,
+falsifiers, topology/budget, evidence schema, confounders, and any shadow
+requirements-graph experiment before implementation. Pin claims to source
+commits and canonical job/gate/repo evidence. Do not implement product code,
+open a PR, or bypass downstream verification/review.
+"""
+
+[[pipelines.research_study.steps]]
+id           = "verify"
+target       = "research-verifier"
+after        = ["preregister"]
+workspace    = "repo"
+timeout      = "30m"
+token_budget = "15M"
+time_budget  = "30m"
+max_attempts = 1
+retry_on_crash = true
+instructions = """
+Verify the exact preregistration artifact recorded by the job. Check source
+commit/digest claims, required sections, objective gate commands, closed
+vocabularies, graph references, and internal consistency. Record every check as
+a durable gate and attach reproducible evidence. Do not edit the artifact.
+
+```agent-team-verify-gates
+report-artifact :: r="${AGENT_TEAM_REPORT_PATH:-${AGENT_TEAM_DELIVERABLE#report:}}"; p="${AGENT_TEAM_ROOT%/.agent_team}/$r"; test -n "$r" && test -s "$p" && { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$p"; else shasum -a 256 "$p"; fi; } > "$AGENT_TEAM_GATE_EVIDENCE_DIR/report.sha256"
+report-verdict-separation :: r="${AGENT_TEAM_REPORT_PATH:-${AGENT_TEAM_DELIVERABLE#report:}}"; p="${AGENT_TEAM_ROOT%/.agent_team}/$r"; rg -qi 'product verdict' "$p" && rg -qi '(Kensho|process) verdict' "$p"
+report-preregistration-contract :: r="${AGENT_TEAM_REPORT_PATH:-${AGENT_TEAM_DELIVERABLE#report:}}"; p="${AGENT_TEAM_ROOT%/.agent_team}/$r"; rg -qi 'hypothes' "$p" && rg -qi 'falsif' "$p" && rg -qi 'hard gate' "$p" && rg -qi 'requirements[- ]graph' "$p" && rg -qi '(activate|revise|stop)' "$p"
+```
+"""
+
+[[pipelines.research_study.steps]]
+id           = "review"
+target       = "research-reviewer"
+after        = ["verify"]
+workspace    = "repo"
+timeout      = "45m"
+token_budget = "30M"
+time_budget  = "45m"
+max_attempts = 1
+retry_on_crash = true
+instructions = """
+Adversarially review the preregistration after verifier success. Judge whether
+hypotheses are genuinely falsifiable, product/process verdicts are separated,
+metrics cannot be gamed, baseline evidence is not overclaimed, the proposed
+parallel waves respect coupling seams, and the requirements graph remains a
+shadow hypothesis rather than an unearned control-plane mandate. Report an
+APPROVE or clause-keyed BOUNCE through the durable review gate. Do not edit.
+"""
+
+[[pipelines.research_study.steps]]
+id           = "activate"
+target       = "research-manager"
+after        = ["review"]
+gate         = "manual"
+instructions = """
+Activate the study only when the report deliverable exists and verifier/reviewer
+evidence is green. Record the study in the cumulative ledger and open only the
+first graph-safe implementation/checkpoint waves through `research_slice`. On
+bounce, use the durable job bounce path. Never dispatch ungated product work.
+"""
+
+# Release-bearing implementation uses the ordinary verify/review discipline.
+[pipelines.research_slice]
+trigger.event = "research.slice.ready"
+auto_advance = true
+redispatch_on_reentry = false
+reap_worktree = "on_merge"
+
+[[pipelines.research_slice.steps]]
+id           = "implement"
+target       = "research-worker"
+workspace    = "worktree"
+timeout      = "90m"
+token_budget = "80M"
+time_budget  = "90m"
+max_attempts = 1
+instructions = """
+Implement exactly one preregistered study slice against its pinned requirement,
+acceptance nodes, source revision, integration duty, and focused gates. Produce
+the declared branch/PR plus evidence manifest. Do not weaken gates, broaden
+scope, or dispatch follow-on work directly.
+"""
+
+[[pipelines.research_slice.steps]]
+id           = "verify"
+target       = "research-verifier"
+after        = ["implement"]
+workspace    = "repo"
+timeout      = "30m"
+token_budget = "15M"
+time_budget  = "30m"
+max_attempts = 1
+retry_on_crash = true
+instructions = """
+Reproduce the slice's declared focused and integration gates against the exact
+worker commit. Emit structured evidence with commands, environment, timestamps,
+results, counts, artifact digests, and requirement-node references. Do not edit
+product code.
+"""
+
+[[pipelines.research_slice.steps]]
+id           = "review"
+target       = "research-reviewer"
+after        = ["verify"]
+workspace    = "repo"
+timeout      = "45m"
+token_budget = "30M"
+time_budget  = "45m"
+max_attempts = 1
+retry_on_crash = true
+instructions = """
+Review content and claims independently after verifier success. Check the pinned
+requirement/acceptance nodes, semantic edge cases, integration obligations,
+test sensitivity, evidence integrity, and scope. Report APPROVE or clause-keyed
+BOUNCE; never push fixes.
+"""
+
+[[pipelines.research_slice.steps]]
+id           = "integrate"
+target       = "research-manager"
+after        = ["review"]
+gate         = "manual"
+instructions = """
+Integrate only on green verifier/reviewer evidence and a clean canonical
+requirements-graph reconciliation. Record accepted evidence and update the
+study ledger. Bounce through the durable findings path; do not amend a worker
+branch. Keep cross-cutting, security, contract, and release claims manual in v1.
+"""
+
+[teams.research]
+description = "Standing empirical software studies: local products, preregistered hypotheses, mandatory verification/review, and cross-study learning."
+instances   = ["research-manager", "research-worker", "research-verifier", "research-reviewer", "research-auditor"]
+pipelines   = ["research_study", "research_slice"]
+schedules   = ["research-reconcile", "research-evidence-audit"]
+
+[budgets.research]
+# Research is evidence-limited, not token-limited. Release-bearing WIP starts
+# at four and may expand to six only after measured healthy waves.
+tokens_per_day = 100_000_000_000
+jobs_in_flight = 16
+
 [teams.pr]
 description = "Public relations: community digests, announcements, discussions, outward feedback intake."
 instances   = ["comms"]
@@ -701,6 +981,12 @@ enforcement = "enforce"
 
 [authority.instances.manager]
 allow = ["*"]
+
+[authority.instances.research-manager]
+allow = ["event.publish", "job.events", "job.gate.*:own", "job.step:own", "job.bounce:own", "job.close:own", "job.merge:own", "read", "ticket.create", "ticket.comment", "ticket.update"]
+
+[authority.instances.research-auditor]
+allow = ["read"]
 
 [authority.agents.worker]
 allow = ["budget.status", "channel.*", "event.publish", "feedback.*", "inbox.*", "job.events", "job.gate.*:own", "job.show", "job.step:own", "status.*"]

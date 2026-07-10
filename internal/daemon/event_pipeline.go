@@ -846,9 +846,9 @@ func (r *EventResolver) readInstanceFinalMessage(instance string) string {
 	return strings.TrimSpace(string(data))
 }
 
-func reconcilePipelineStepExit(j *jobstore.Job, instance string, status jobstore.Status, now time.Time) *jobstore.Step {
+func reconcilePipelineStepExit(j *jobstore.Job, instance string, status jobstore.Status, now time.Time) (*jobstore.Step, bool) {
 	if j == nil || instance == "" {
-		return nil
+		return nil, false
 	}
 	for i := range j.Steps {
 		step := &j.Steps[i]
@@ -856,7 +856,10 @@ func reconcilePipelineStepExit(j *jobstore.Job, instance string, status jobstore
 			continue
 		}
 		if step.Status != jobstore.StatusRunning && step.Status != jobstore.StatusQueued {
-			continue
+			// Step-owned commands can persist a terminal result before the runtime
+			// exits. Return the owner without mutating that authoritative result so
+			// the reaper can derive the outer status from the full graph.
+			return step, false
 		}
 		step.Status = status
 		if step.StartedAt.IsZero() {
@@ -869,9 +872,9 @@ func reconcilePipelineStepExit(j *jobstore.Job, instance string, status jobstore
 			step.RunningAt = step.StartedAt
 		}
 		step.FinishedAt = now
-		return step
+		return step, true
 	}
-	return nil
+	return nil, false
 }
 
 func allPipelineStepsDone(j *jobstore.Job) bool {
@@ -879,9 +882,25 @@ func allPipelineStepsDone(j *jobstore.Job) bool {
 		return false
 	}
 	for _, step := range j.Steps {
-		if step.Status != jobstore.StatusDone {
+		if !jobstore.StepSatisfiesDependency(&step) {
 			return false
 		}
 	}
 	return true
+}
+
+func pipelineStatusFromSteps(j *jobstore.Job) jobstore.Status {
+	if j == nil || len(j.Steps) == 0 {
+		return jobstore.StatusRunning
+	}
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if !step.Optional && step.Status == jobstore.StatusFailed {
+			return jobstore.StatusFailed
+		}
+	}
+	if allPipelineStepsDone(j) {
+		return jobstore.StatusDone
+	}
+	return jobstore.StatusRunning
 }

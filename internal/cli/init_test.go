@@ -198,6 +198,7 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	for _, unwanted := range []string{
 		"ticket-manager",
 		"platform_ticket_to_pr",
+		"research-manager",
 		"release-worker",
 		"sentinel",
 	} {
@@ -300,6 +301,13 @@ func TestInit_FullProfilePreservesSelfDogfoodTemplate(t *testing.T) {
 		"[schedules.sentinel]",
 		"run_on_start = true",
 		"[pipelines.platform_ticket_to_pr]",
+		"[instances.research-manager]",
+		"[pipelines.research_study]",
+		"[pipelines.research_slice]",
+		"[budgets.research]",
+		"[authority.instances.research-manager]",
+		"[authority.instances.research-auditor]",
+		"report-preregistration-contract ::",
 		"[pipelines.release]",
 		`instances   = ["manager", "ticket-manager", "worker", "verifier", "reviewer", "feedback-triage"]`,
 		`schedules   = ["feedback-triage"]`,

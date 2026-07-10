@@ -33,3 +33,4 @@ target/agent-evidence/
 .agent_team/jobs/
 .agent_team/feedback/
 .agent_team/budget/
+.agent_team/outcomes/

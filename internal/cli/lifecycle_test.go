@@ -1381,13 +1381,15 @@ func TestStartWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
-	if err := daemon.WriteMetadata(root, &daemon.Metadata{
-		Instance: "manager",
-		Agent:    "manager",
-		Status:   daemon.StatusRunning,
-		PID:      os.Getpid(),
-	}); err != nil {
-		t.Fatalf("write manager metadata: %v", err)
+	for _, name := range []string{"manager", "research-manager"} {
+		if err := daemon.WriteMetadata(root, &daemon.Metadata{
+			Instance: name,
+			Agent:    "manager",
+			Status:   daemon.StatusRunning,
+			PID:      os.Getpid(),
+		}); err != nil {
+			t.Fatalf("write %s metadata: %v", name, err)
+		}
 	}
 	mgr := daemon.NewInstanceManager(root, nil)
 	if err := mgr.LoadFromDisk(); err != nil {
@@ -1418,11 +1420,11 @@ func TestStartWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 	if body.Health == nil || !body.Health.Healthy {
 		t.Fatalf("filtered start wait health = %+v, want healthy manager-only health", body.Health)
 	}
-	if len(body.Actions) != 1 || body.Actions[0].Instance != "manager" || body.Actions[0].Action != "skip" {
-		t.Fatalf("filtered start wait actions = %+v, want manager skip only", body.Actions)
+	if len(body.Actions) != 2 || body.Actions[0].Instance != "manager" || body.Actions[1].Instance != "research-manager" || body.Actions[0].Action != "skip" || body.Actions[1].Action != "skip" {
+		t.Fatalf("filtered start wait actions = %+v, want both manager seats skipped", body.Actions)
 	}
-	if body.Health.Declared.Persistent != 1 || body.Health.Declared.Running != 1 || body.Health.Declared.Missing != 0 {
-		t.Fatalf("filtered start wait declared health = %+v, want only manager declared", body.Health.Declared)
+	if body.Health.Declared.Persistent != 2 || body.Health.Declared.Running != 2 || body.Health.Declared.Missing != 0 {
+		t.Fatalf("filtered start wait declared health = %+v, want both manager seats declared", body.Health.Declared)
 	}
 }
 
@@ -1472,13 +1474,15 @@ func startDeclaredLifecycleInstancesForTest(t *testing.T) (string, *daemon.Insta
 	}
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
-	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 10*time.Second))
 	cleanupDaemon := startRunTestDaemon(t, teamDir, mgr)
 	for _, spec := range []struct {
 		name  string
 		agent string
 	}{
 		{name: "manager", agent: "manager"},
+		{name: "research-manager", agent: "manager"},
+		{name: "research-auditor", agent: "reviewer"},
 		{name: "ticket-manager", agent: "ticket-manager"},
 	} {
 		if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: spec.agent, Name: spec.name, Workspace: tmp}); err != nil {
@@ -3060,6 +3064,10 @@ func TestRestartWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 		t.Fatalf("dispatch manager: %v", err)
 	}
 	defer stopAndWaitForTest(t, mgr, "manager")
+	if _, err := mgr.Dispatch(daemon.DispatchInput{Agent: "manager", Name: "research-manager", Workspace: tmp}); err != nil {
+		t.Fatalf("dispatch research-manager: %v", err)
+	}
+	defer stopAndWaitForTest(t, mgr, "research-manager")
 
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -3083,11 +3091,11 @@ func TestRestartWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 	if body.Health == nil || !body.Health.Healthy {
 		t.Fatalf("filtered restart wait health = %+v, want healthy manager-only health", body.Health)
 	}
-	if len(body.Actions) != 1 || body.Actions[0].Instance != "manager" || body.Actions[0].Action != "restart" {
-		t.Fatalf("filtered restart wait actions = %+v, want manager restart only", body.Actions)
+	if len(body.Actions) != 2 || body.Actions[0].Instance != "manager" || body.Actions[1].Instance != "research-manager" || body.Actions[0].Action != "restart" || body.Actions[1].Action != "restart" {
+		t.Fatalf("filtered restart wait actions = %+v, want both manager seats restarted", body.Actions)
 	}
-	if body.Health.Declared.Persistent != 1 || body.Health.Declared.Running != 1 || body.Health.Declared.Missing != 0 {
-		t.Fatalf("filtered restart wait declared health = %+v, want only manager declared", body.Health.Declared)
+	if body.Health.Declared.Persistent != 2 || body.Health.Declared.Running != 2 || body.Health.Declared.Missing != 0 {
+		t.Fatalf("filtered restart wait declared health = %+v, want both manager seats declared", body.Health.Declared)
 	}
 }
 

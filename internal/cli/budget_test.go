@@ -72,7 +72,13 @@ jobs_in_flight = 2
 
 func TestBudgetStatusNoBudgetsIsNoop(t *testing.T) {
 	tmp := t.TempDir()
-	initInto(t, tmp)
+	initCmd := NewRootCmd()
+	initCmd.SetOut(&bytes.Buffer{})
+	initCmd.SetErr(&bytes.Buffer{})
+	initCmd.SetArgs([]string{"init", "--target", tmp, "--no-input"})
+	if err := initCmd.Execute(); err != nil {
+		t.Fatalf("slim init: %v", err)
+	}
 
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
