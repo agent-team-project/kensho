@@ -17,6 +17,29 @@ Topology adds:
 - pipeline declarations
 - team ownership
 
+## Runtime And Model Policy
+
+Use one shared policy when most seats should run on the same runtime/model:
+
+```toml
+[model_policy]
+runtime = "codex"
+model = "gpt-5.6-sol"
+effort = "high"
+```
+
+Every instance inherits omitted `runtime`, `model`, and `effort` values from
+this table. A pipeline step inherits omitted values from its target instance,
+so an explicit instance exception also survives pipeline dispatch. Explicit
+instance fields override the shared policy, and explicit step fields override
+the resolved target instance.
+
+The bundled full topology uses this policy for every non-Fable seat. Its only
+exceptions are `advisor`, `harness-reviewer`, and `org-review`, each declared
+with `runtime = "claude"`, `model = "claude-fable-5"`, and `effort = "max"`.
+This keeps selection repo-owned and reviewable instead of relying on a
+developer's Claude or Codex user configuration.
+
 ## Instances
 
 ```toml
@@ -53,7 +76,7 @@ Fields:
 | `brief` | Generate and inject a recoverable catch-up brief for persistent instances |
 | `runtime` | Optional runtime kind override: `claude`, `codex`, or `docker` |
 | `runtime_bin` | Optional runtime binary override |
-| `model` | Optional Claude Code model id; only used when the effective runtime is `claude` |
+| `model` | Optional model id; passed as `--model` for Claude and Codex |
 | `effort` | Optional reasoning effort; passed as `--effort` for Claude and `model_reasoning_effort` for Codex |
 | `locks` | Named dispatch locks held by spawned ephemeral children |
 | `replicas` | Max concurrent ephemeral runs |
@@ -161,7 +184,7 @@ target = "ticket-manager"
 [[pipelines.ticket_to_pr.steps]]
 id = "implement"
 target = "worker"
-model = "claude-sonnet-5"
+model = "gpt-5.6-sol"
 after = ["triage"]
 
 [[pipelines.ticket_to_pr.steps]]
@@ -181,7 +204,7 @@ Use `agent-team job step <job-id> <step-id> --skip` when a stage is intentionall
 
 Use `optional = true` when a stage is useful but should not block the workflow if it fails. Optional failures still appear in `job explain`, `pipeline explain`, and retry views, but downstream `after` dependencies are treated as satisfied.
 
-Pipeline steps may set `runtime`, `runtime_bin`, `model`, and `effort` to override the spawned runtime for that step. `model` is passed only to Claude-runtime launches. `effort` becomes `--effort <level>` for Claude and `-c model_reasoning_effort="<level>"` for Codex. Leave either empty to keep the target instance's existing default behavior.
+Pipeline steps may set `runtime`, `runtime_bin`, `model`, and `effort` to override the spawned runtime for that step. `model` becomes `--model <id>` for Claude and Codex. `effort` becomes `--effort <level>` for Claude and `-c model_reasoning_effort="<level>"` for Codex. Omitted or empty fields inherit the resolved target instance, including `[model_policy]` defaults.
 
 Use `[pipelines.<name>.infra_signatures]` to classify failed gate signatures
 reported with `agent-team job gate set`. These regexes only classify explicit

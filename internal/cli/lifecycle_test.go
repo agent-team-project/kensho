@@ -1704,7 +1704,27 @@ func TestRestartAttachStreamsSelectedInstanceLog(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	root := daemon.DaemonRoot(teamDir)
-	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	baseSpawner := fakeSpawnerForTest(t, 2*time.Second)
+	spawnCount := 0
+	mgr := daemon.NewInstanceManager(root, func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		proc, err := baseSpawner(args, env, workspace, stdoutPath, stderrPath, stdinContent)
+		if err != nil {
+			return nil, err
+		}
+		spawnCount++
+		if spawnCount > 1 {
+			go func() {
+				time.Sleep(350 * time.Millisecond)
+				f, openErr := os.OpenFile(stdoutPath, os.O_WRONLY|os.O_APPEND, 0o644)
+				if openErr != nil {
+					return
+				}
+				_, _ = f.WriteString("after restart\n")
+				_ = f.Close()
+			}()
+		}
+		return proc, nil
+	})
 	cleanup := startRunTestDaemon(t, teamDir, mgr)
 	defer cleanup()
 	defer func() {
@@ -1720,7 +1740,7 @@ func TestRestartAttachStreamsSelectedInstanceLog(t *testing.T) {
 	}
 	writeChildLogForTest(t, root, "manager", "before restart\n")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	cmd := NewRootCmd()
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -1732,7 +1752,7 @@ func TestRestartAttachStreamsSelectedInstanceLog(t *testing.T) {
 		t.Fatalf("restart --attach: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
 	body := out.String()
-	for _, want := range []string{"restart", "attaching to manager", "before restart\n"} {
+	for _, want := range []string{"restart", "attaching to manager", "after restart\n"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("restart --attach output missing %q:\n%s", want, body)
 		}

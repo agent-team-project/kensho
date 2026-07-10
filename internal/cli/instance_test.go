@@ -140,6 +140,8 @@ func TestPrintRuntimeMetadata_PrintsDaemonFields(t *testing.T) {
 		Status:          daemon.StatusRunning,
 		Runtime:         "codex",
 		RuntimeBinary:   "codex-dev",
+		Model:           "gpt-5.6-sol",
+		Effort:          "high",
 		PID:             12345,
 		Workspace:       tmp,
 		SessionID:       "session-1",
@@ -161,6 +163,8 @@ func TestPrintRuntimeMetadata_PrintsDaemonFields(t *testing.T) {
 		"agent:       manager",
 		"runtime:     codex",
 		"binary:      codex-dev",
+		"model:       gpt-5.6-sol",
+		"effort:      high",
 		"pid:         12345",
 		"workspace:   " + filepath.ToSlash(tmp),
 		"session_id:  session-1",
@@ -1009,7 +1013,7 @@ func TestSelectLifecycleTargets_DefaultIgnoresAdhocMetadata(t *testing.T) {
 	for _, target := range targets {
 		names = append(names, target.name)
 	}
-	if strings.Join(names, ",") != "manager,ticket-manager" {
+	if strings.Join(names, ",") != "advisor,manager,ticket-manager" {
 		t.Fatalf("default targets = %v, want declared persistent only", names)
 	}
 }
@@ -1035,11 +1039,11 @@ func TestSelectAllLifecycleTargetsIncludesDaemonKnownExtras(t *testing.T) {
 	for _, target := range targets {
 		names = append(names, target.name)
 	}
-	if strings.Join(names, ",") != "manager,ticket-manager,adhoc-a,adhoc-b" {
+	if strings.Join(names, ",") != "advisor,manager,ticket-manager,adhoc-a,adhoc-b" {
 		t.Fatalf("all lifecycle targets = %v", names)
 	}
-	if !targets[0].running() {
-		t.Fatalf("manager target should carry running daemon metadata: %+v", targets[0])
+	if !targets[1].running() || targets[1].name != "manager" {
+		t.Fatalf("manager target should carry running daemon metadata: %+v", targets[1])
 	}
 }
 
@@ -1623,6 +1627,79 @@ description = "Persistent Claude manager."
 	}
 	if got, ok := argValue(args, "--effort"); !ok || got != "max" {
 		t.Fatalf("daemon args --effort = %q, %v; want max in %v", got, ok, args)
+	}
+}
+
+func TestInstanceUpForwardsInheritedCodexModelAndEffort(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-instance-up-codex-model-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[model_policy]
+runtime = "codex"
+model = "gpt-5.6-sol"
+effort = "high"
+
+[instances.manager]
+agent = "manager"
+description = "Persistent Codex manager."
+`)
+
+	base := fakeSpawnerForTest(t, 2*time.Second)
+	var (
+		mu      sync.Mutex
+		gotArgs []string
+	)
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		mu.Lock()
+		gotArgs = append([]string(nil), args...)
+		mu.Unlock()
+		return base(args, env, workspace, stdoutPath, stderrPath, stdinContent)
+	})
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	defer func() {
+		for _, meta := range mgr.List() {
+			if meta.Instance == "manager" && meta.Status == daemon.StatusRunning {
+				stopAndWaitForTest(t, mgr, "manager")
+				return
+			}
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"instance", "up", "manager", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("instance up manager --json: %v\nstderr=%s", err, stderr.String())
+	}
+
+	mu.Lock()
+	args := append([]string(nil), gotArgs...)
+	mu.Unlock()
+	if len(args) < 2 || args[0] != "codex" || args[1] != "exec" {
+		t.Fatalf("daemon args = %v, want codex exec", args)
+	}
+	if got, ok := argValue(args, "--model"); !ok || got != "gpt-5.6-sol" {
+		t.Fatalf("daemon args --model = %q, %v; want gpt-5.6-sol in %v", got, ok, args)
+	}
+	if !containsArgSubstring(args, `model_reasoning_effort="high"`) {
+		t.Fatalf("daemon args missing high effort: %v", args)
+	}
+	meta, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if meta.Model != "gpt-5.6-sol" || meta.Effort != "high" {
+		t.Fatalf("metadata model/effort = %q/%q", meta.Model, meta.Effort)
 	}
 }
 

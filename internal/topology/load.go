@@ -50,6 +50,7 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 	}
 	merged := &Topology{Instances: map[string]*Instance{}, Locks: map[string]*Lock{}, Channels: map[string]*Channel{}, Pipelines: map[string]*Pipeline{}, Schedules: map[string]*Schedule{}, Teams: map[string]*Team{}, Budgets: map[string]*Budget{}}
 	if templateLayer != nil {
+		merged.ModelPolicy = templateLayer.ModelPolicy
 		for name, inst := range templateLayer.Instances {
 			merged.Instances[name] = inst
 		}
@@ -75,6 +76,9 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 		merged.Authority = templateLayer.Authority
 	}
 	if repoLayer != nil {
+		if repoLayer.ModelPolicy != nil {
+			merged.ModelPolicy = repoLayer.ModelPolicy
+		}
 		for name, inst := range repoLayer.Instances {
 			merged.Instances[name] = inst
 		}
@@ -103,6 +107,7 @@ func LoadLayered(templatePath, repoPath string) (*Topology, error) {
 			merged.Authority = repoLayer.Authority
 		}
 	}
+	applyModelPolicyDefaults(merged)
 	if err := validateTopologyTeams(merged); err != nil {
 		return nil, err
 	}

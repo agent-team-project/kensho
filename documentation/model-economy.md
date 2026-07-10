@@ -3,13 +3,24 @@
 **DESIGN DECISION** — 2026-07-09. Authored for the model-allocation policy referenced by the
 constitution §VI.1 (#239). Ratification per the amendment process; open questions flagged §9.
 
-The mechanism already exists: any `[instances.<name>]` block in `instances.toml` may declare
-`runtime`, `model`, and `effort` (e.g. `runtime = "claude"`, `model = "claude-fable-5"`,
-`effort = "max"` — today live on `org-review` and `advisor`; `model` is passed as `--model`
-on Claude-runtime launches, and `effort` maps to each runtime's reasoning-effort setting). This
-document is the **policy**: which capability tier each unit of Kensho runs on, how the tier is
-chosen per task, and how the allocation corrects itself from observed outcomes once the
-unlimited-token period ends and capability is spent, not assumed.
+The mechanism is topology-owned. `[model_policy]` supplies shared `runtime`, `model`, and
+`effort` defaults; explicit instance declarations override it, and explicit pipeline-step
+declarations override their resolved target instance. `model` is passed as `--model` on
+Claude and Codex launches, and `effort` maps to each runtime's reasoning-effort setting.
+
+## Active binding — 2026-07-10
+
+Every non-Fable Kensho seat runs `runtime = "codex"`, `model = "gpt-5.6-sol"`, and
+`effort = "high"`. This includes named and persistent seats, scheduled and replicated
+instances, delivery/platform/release/docs pipelines, and dynamic dispatches.
+
+Exactly three advisory seats are exceptions: `advisor`, `harness-reviewer`, and
+`org-review`. They remain `runtime = "claude"`, `model = "claude-fable-5"`, and
+`effort = "max"`. There is no compatibility alias, dual binding, or lower-model fallback.
+
+The tier analysis below remains the economic framework for a future differentiated policy,
+but its older per-role bindings are not the active runtime configuration. Until the operator
+changes this decision, the topology binding above is authoritative.
 
 ---
 

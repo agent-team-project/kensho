@@ -156,6 +156,9 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			"runtime":               meta.Runtime,
 			"session_id":            meta.SessionID,
 		}
+		if strings.TrimSpace(meta.Model) != "" {
+			resp["model"] = meta.Model
+		}
 		if strings.TrimSpace(meta.Effort) != "" {
 			resp["effort"] = meta.Effort
 		}

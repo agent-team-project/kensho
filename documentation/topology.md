@@ -35,8 +35,9 @@ the daemon and operator commands read the rendered vendored copy.
 
 This package owns the data model and pure matching behavior.
 
-- `topology.go` defines the parsed model: instances, triggers, locks,
-  channels, pipelines, schedules, teams, budgets, and authority policy.
+- `topology.go` defines the parsed model: shared model policy, instances,
+  triggers, locks, channels, pipelines, schedules, teams, budgets, and
+  authority policy.
 - `load.go` provides `LoadFromTeamDir`, the runtime entry point for
   `.agent_team/instances.toml`, plus `LoadLayered` for callers that need the
   template/repo merge path.
@@ -161,14 +162,18 @@ Important layering rules:
 - During init, template defaults and repo overrides can be merged; repo entries
   replace whole resources by name rather than merging field-by-field.
 - At runtime, `.agent_team/instances.toml` is the single source of truth.
+- `[model_policy]` supplies shared `runtime`, `model`, and `effort` values.
+  Omitted instance fields inherit the policy; omitted pipeline-step fields
+  inherit their resolved target instance. Explicit step fields outrank instance
+  fields, and explicit instance fields outrank the shared policy.
 - `[instances.<name>.config]` becomes declared per-instance config and is
   layered above repo config when ephemeral runtime state is prepared.
 - `[instances.<name>]` fields `runtime`, `runtime_bin`, `model`, and `effort`
-  customize the launched runtime. `model` is passed as `--model <value>` only
-  for Claude runtime launches. `effort` is passed as `--effort <value>` for
-  Claude and `-c model_reasoning_effort="<value>"` for Codex. Omitted or empty
-  values leave existing runtime defaults unchanged, and Docker launches ignore
-  model/effort.
+  customize the launched runtime. `model` is passed as `--model <value>` for
+  Claude and Codex runtime launches. `effort` is passed as `--effort <value>`
+  for Claude and `-c model_reasoning_effort="<value>"` for Codex. Omitted or
+  empty values inherit the topology chain described above; Docker launches
+  ignore model/effort.
 - Teams own instances, pipelines, schedules, and channels for operator
   commands, origin envelopes, usage accounting, and scoped resources.
 - Budgets are keyed by team; locks and channels may be scoped by machine, team,

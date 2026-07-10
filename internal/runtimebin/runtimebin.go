@@ -98,15 +98,15 @@ func Resolve(opts ResolveOptions) (Runtime, error) {
 	}
 
 	// A deliberate runtime env override outranks static topology/agent
-	// defaults. Binary-only env overrides are handled by CurrentFromConfig
-	// when resolution falls through to repo/default runtime selection.
+	// defaults. A binary-only env override supplies the executable without
+	// changing a topology-owned runtime kind.
 	if strings.TrimSpace(os.Getenv(EnvRuntime)) == "" {
-		if rt, ok, err := FromFields(opts.Instance.Kind, opts.Instance.Binary); err != nil {
+		if rt, ok, err := fromDeclaredFields(opts.Instance, opts.ConfigPath); err != nil {
 			return Runtime{}, fmt.Errorf("instance %q runtime: %w", opts.Instance.Name, err)
 		} else if ok {
 			return runtimeWithImage(rt, opts.ConfigPath)
 		}
-		if rt, ok, err := FromFields(opts.Agent.Kind, opts.Agent.Binary); err != nil {
+		if rt, ok, err := fromDeclaredFields(opts.Agent, opts.ConfigPath); err != nil {
 			return Runtime{}, fmt.Errorf("agent %q runtime: %w", opts.Agent.Name, err)
 		} else if ok {
 			return runtimeWithImage(rt, opts.ConfigPath)
@@ -128,6 +128,45 @@ func Resolve(opts ResolveOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	return rt, nil
+}
+
+// fromDeclaredFields keeps a topology/agent-owned runtime kind authoritative
+// while allowing a machine-local binary selection to supply the executable.
+// This lets repos commit `runtime = "codex"` without also committing a
+// developer-specific wrapper path.
+func fromDeclaredFields(fields Fields, configPath string) (Runtime, bool, error) {
+	kindRaw := strings.TrimSpace(fields.Kind)
+	if kindRaw == "" {
+		return Runtime{}, false, nil
+	}
+	kind, err := ParseKind(kindRaw)
+	if err != nil {
+		return Runtime{}, false, err
+	}
+	bin := strings.TrimSpace(fields.Binary)
+	if bin == "" {
+		bin = strings.TrimSpace(os.Getenv(EnvBinary))
+	}
+	if bin == "" {
+		cfg, cfgErr := loadRuntimeConfig(configPath)
+		if cfgErr != nil {
+			return Runtime{}, false, cfgErr
+		}
+		if cfgKind := strings.TrimSpace(cfg.Kind); cfgKind == "" || strings.EqualFold(cfgKind, string(kind)) {
+			bin = strings.TrimSpace(cfg.Binary)
+			if bin == "" {
+				bin = strings.TrimSpace(cfg.Bin)
+			}
+		}
+	}
+	if bin == "" {
+		bin = defaultBinary(kind)
+	}
+	rt := Runtime{Kind: kind, Binary: bin}
+	if kind == KindDocker {
+		rt.Image = defaultImage(kind)
+	}
+	return rt, true, nil
 }
 
 func currentWithConfig(cfg runtimeConfig) (Runtime, error) {

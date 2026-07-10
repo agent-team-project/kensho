@@ -53,6 +53,25 @@ match.name = "org-review"
 match.kind = "org_review"
 
 
+# The advisor is the persistent Fable exception for hard, high-leverage
+# reasoning. It is advisory only and does not participate in delivery lanes.
+[instances.advisor]
+agent        = "advisor"
+runtime      = "claude"
+model        = "claude-fable-5"
+effort       = "max"
+ephemeral    = false
+env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
+description  = "Persistent Fable max effort reasoning consultant for hard architecture and strategy calls."
+
+[[instances.advisor.triggers]]
+event = "user_invocation"
+
+[[instances.advisor.triggers]]
+event        = "agent.dispatch"
+match.target = "advisor"
+
+
 # The sentinel loop: every six hours, check the post-merge public surface that
 # reviewers cannot see from a green PR alone — main CI, Read the Docs build and
 # rendered pages, release assets, and repo metadata. Failures are submitted as
@@ -100,4 +119,3 @@ description  = "Scheduled product verifier: headless UI-vs-CLI correctness plus 
 event      = "schedule"
 match.name = "product-verify"
 match.kind = "product_verify"
-

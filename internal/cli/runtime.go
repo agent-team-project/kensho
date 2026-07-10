@@ -345,8 +345,9 @@ type runtimeInfo struct {
 }
 
 type runtimeSelection struct {
-	Kind   string
-	Binary string
+	Kind     string
+	Binary   string
+	Instance runtimebin.Fields
 }
 
 func newRuntimeLsCmd() *cobra.Command {
@@ -756,6 +757,7 @@ func runtimeFromConfigWithOverrides(configPath string, selection runtimeSelectio
 	if kindRaw := strings.TrimSpace(selection.Kind); kindRaw != "" {
 		rt, err := runtimebin.Resolve(runtimebin.ResolveOptions{
 			Explicit:   runtimebin.Fields{Kind: kindRaw, Binary: selection.Binary},
+			Instance:   selection.Instance,
 			ConfigPath: configPath,
 		})
 		if err != nil {
@@ -763,15 +765,13 @@ func runtimeFromConfigWithOverrides(configPath string, selection runtimeSelectio
 		}
 		return rt, nil
 	}
-	rt, err := runtimebin.CurrentFromConfig(configPath)
+	rt, err := runtimebin.Resolve(runtimebin.ResolveOptions{
+		Explicit:   runtimebin.Fields{Binary: selection.Binary},
+		Instance:   selection.Instance,
+		ConfigPath: configPath,
+	})
 	if err != nil {
 		return runtimebin.Runtime{}, err
-	}
-	if bin := strings.TrimSpace(selection.Binary); bin != "" {
-		rt.Binary = bin
-	}
-	if strings.TrimSpace(rt.Binary) == "" {
-		rt.Binary = runtimebin.DefaultBinaryForKind(rt.Kind)
 	}
 	return rt, nil
 }

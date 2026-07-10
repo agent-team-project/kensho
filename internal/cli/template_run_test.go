@@ -59,19 +59,12 @@ func TestTemplateRun_TargetUsed(t *testing.T) {
 	if st, err := os.Stat(stateDir); err != nil || !st.IsDir() {
 		t.Errorf("expected state dir at %s, got %v", stateDir, err)
 	}
-	// captureRun's args confirm we actually invoked claude with --agents.
-	if cap.agentsJSON == "" {
-		t.Errorf("expected --agents to be present in captured args: %v", cap.args)
+	// The bundled topology selects Codex for non-Fable seats.
+	if len(cap.args) == 0 || cap.args[0] != "exec" {
+		t.Errorf("expected codex exec in captured args: %v", cap.args)
 	}
-	// Forwarded prompt.
-	foundPrompt := false
-	for i := 0; i < len(cap.args)-1; i++ {
-		if cap.args[i] == "-p" && cap.args[i+1] == "hello from file" {
-			foundPrompt = true
-		}
-	}
-	if !foundPrompt {
-		t.Errorf("kickoff prompt not forwarded: %v", cap.args)
+	if !strings.Contains(cap.stdin, "hello from file") {
+		t.Errorf("kickoff prompt not forwarded in Codex stdin: %q", cap.stdin)
 	}
 }
 
@@ -96,8 +89,8 @@ func TestTemplateRun_DefaultAlias(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(target, ".agent_team", ".template.lock")); err != nil {
 		t.Fatalf("template lock missing: %v", err)
 	}
-	if cap.agentsJSON == "" {
-		t.Errorf("expected --agents to be present in captured args: %v", cap.args)
+	if len(cap.args) == 0 || cap.args[0] != "exec" {
+		t.Errorf("expected codex exec in captured args: %v", cap.args)
 	}
 }
 
@@ -564,7 +557,7 @@ func TestTemplateRun_ForwardsClaudeArgs(t *testing.T) {
 }
 
 // TestTemplateRun_BypassesDaemon checks that `template run` always exec's
-// claude directly and never attempts to dispatch via the daemon. We verify
+// the selected runtime directly and never attempts to dispatch via the daemon. We verify
 // this by observing that captureRun's hook fires (it only runs when
 // runAgent reaches execClaude, not the daemon dispatch path).
 func TestTemplateRun_BypassesDaemon(t *testing.T) {
@@ -585,8 +578,8 @@ func TestTemplateRun_BypassesDaemon(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("template run: %v", err)
 	}
-	if cap.agentsJSON == "" {
-		t.Errorf("execClaude was not invoked — daemon bypass appears broken")
+	if len(cap.args) == 0 || cap.args[0] != "exec" {
+		t.Errorf("direct runtime hook was not invoked — daemon bypass appears broken: %v", cap.args)
 	}
 }
 

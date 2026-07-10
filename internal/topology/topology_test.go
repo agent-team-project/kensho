@@ -540,6 +540,82 @@ retry_on_crash = true
 	}
 }
 
+func TestParse_ModelPolicyResolvesInstancesAndPipelineTargets(t *testing.T) {
+	top, err := Parse([]byte(`
+[model_policy]
+runtime = "codex"
+model = "gpt-5.6-sol"
+effort = "high"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[instances.advisor]
+agent = "advisor"
+runtime = "claude"
+model = "claude-fable-5"
+effort = "max"
+
+[pipelines.delivery]
+trigger.event = "ticket.created"
+
+[[pipelines.delivery.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.delivery.steps]]
+id = "consult"
+target = "advisor"
+after = ["implement"]
+
+[[pipelines.delivery.steps]]
+id = "override"
+target = "worker"
+runtime = "docker"
+model = "special-model"
+effort = "low"
+after = ["consult"]
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := top.ModelPolicy; got == nil || got.Runtime != "codex" || got.Model != "gpt-5.6-sol" || got.Effort != "high" {
+		t.Fatalf("model policy = %+v", got)
+	}
+	if got := top.Instances["worker"]; got.Runtime != "codex" || got.Model != "gpt-5.6-sol" || got.Effort != "high" {
+		t.Fatalf("worker policy = %q/%q/%q", got.Runtime, got.Model, got.Effort)
+	}
+	if got := top.Instances["advisor"]; got.Runtime != "claude" || got.Model != "claude-fable-5" || got.Effort != "max" {
+		t.Fatalf("advisor override = %q/%q/%q", got.Runtime, got.Model, got.Effort)
+	}
+	steps := top.Pipelines["delivery"].Steps
+	for _, want := range []struct {
+		index                  int
+		runtime, model, effort string
+	}{
+		{0, "codex", "gpt-5.6-sol", "high"},
+		{1, "claude", "claude-fable-5", "max"},
+		{2, "docker", "special-model", "low"},
+	} {
+		got := steps[want.index]
+		if got.Runtime != want.runtime || got.Model != want.model || got.Effort != want.effort {
+			t.Fatalf("step %s policy = %q/%q/%q, want %q/%q/%q", got.ID, got.Runtime, got.Model, got.Effort, want.runtime, want.model, want.effort)
+		}
+	}
+}
+
+func TestParse_ModelPolicyValidatesFieldTypes(t *testing.T) {
+	_, err := Parse([]byte(`
+[model_policy]
+runtime = "codex"
+model = 56
+`))
+	if err == nil || !strings.Contains(err.Error(), "model_policy: model must be a string") {
+		t.Fatalf("Parse error = %v, want model policy type error", err)
+	}
+}
+
 func TestParse_DockerRuntime(t *testing.T) {
 	top, err := Parse([]byte(`
 [instances.worker]
@@ -636,13 +712,38 @@ func TestParse_FableMaxEffortExamples(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse self-dogfood topology: %v", err)
 	}
-	for _, name := range []string{"advisor", "harness-reviewer", "org-review"} {
-		inst := top.Instances[name]
-		if inst == nil {
-			t.Fatalf("self-dogfood instance %q missing", name)
+	if got := top.ModelPolicy; got == nil || got.Runtime != "codex" || got.Model != "gpt-5.6-sol" || got.Effort != "high" {
+		t.Fatalf("self-dogfood model policy = %+v", got)
+	}
+	fable := make([]string, 0, 3)
+	for name, inst := range top.Instances {
+		if inst.Model == "claude-fable-5" {
+			fable = append(fable, name)
+			if inst.Runtime != "claude" || inst.Effort != "max" {
+				t.Fatalf("self-dogfood Fable seat %s = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
+			}
+			continue
 		}
+		if inst.Runtime != "codex" || inst.Model != "gpt-5.6-sol" || inst.Effort != "high" {
+			t.Fatalf("self-dogfood non-Fable seat %s = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
+		}
+	}
+	sort.Strings(fable)
+	if want := []string{"advisor", "harness-reviewer", "org-review"}; !reflect.DeepEqual(fable, want) {
+		t.Fatalf("self-dogfood Fable seats = %v, want %v", fable, want)
+	}
+	for _, name := range fable {
+		inst := top.Instances[name]
 		if inst.Runtime != "claude" || inst.Model != "claude-fable-5" || inst.Effort != "max" {
 			t.Fatalf("self-dogfood %s runtime/model/effort = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
+		}
+	}
+	for pipelineName, pipeline := range top.Pipelines {
+		for _, step := range pipeline.Steps {
+			target := top.Instances[step.Target]
+			if target == nil || step.Runtime != target.Runtime || step.Model != target.Model || step.Effort != target.Effort {
+				t.Fatalf("self-dogfood pipeline %s step %s policy = %q/%q/%q, target=%+v", pipelineName, step.ID, step.Runtime, step.Model, step.Effort, target)
+			}
 		}
 	}
 
@@ -654,7 +755,7 @@ func TestParse_FableMaxEffortExamples(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse template quality loops: %v", err)
 	}
-	for _, name := range []string{"harness-reviewer", "org-review"} {
+	for _, name := range []string{"advisor", "harness-reviewer", "org-review"} {
 		inst := top.Instances[name]
 		if inst == nil {
 			t.Fatalf("template instance %q missing", name)

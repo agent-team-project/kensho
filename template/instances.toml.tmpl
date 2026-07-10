@@ -9,11 +9,19 @@
 # defaults below mirror the bundled team's natural shape — edit / extend as
 # your project grows.
 #
+# The shared policy is inherited by every instance and pipeline step unless an
+# explicit declaration overrides it. Keep runtime/model/effort topology-owned
+# so launches never depend on a developer's runtime user config.
+[model_policy]
+runtime = "codex"
+model   = "gpt-5.6-sol"
+effort  = "high"
+
 # Per-instance runtime overrides are optional:
 #   runtime     = "claude" | "codex" | "docker"
 #   runtime_bin = "claude"
-#   model       = "claude-fable-5"  # Claude runtime only; omitted/empty = default model
-#   effort      = "max"             # Runtime-specific reasoning effort; omitted/empty = default effort
+#   model       = "claude-fable-5"
+#   effort      = "max"
 
 [instances.manager]
 agent       = "manager"
@@ -417,6 +425,25 @@ match.name = "org-review"
 match.kind = "org_review"
 
 
+# The advisor is the persistent Fable exception for hard, high-leverage
+# reasoning. It is advisory only and does not participate in delivery lanes.
+[instances.advisor]
+agent        = "advisor"
+runtime      = "claude"
+model        = "claude-fable-5"
+effort       = "max"
+ephemeral    = false
+env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
+description  = "Persistent Fable max effort reasoning consultant for hard architecture and strategy calls."
+
+[[instances.advisor.triggers]]
+event = "user_invocation"
+
+[[instances.advisor.triggers]]
+event        = "agent.dispatch"
+match.target = "advisor"
+
+
 # The sentinel loop: every six hours, check the post-merge public surface that
 # reviewers cannot see from a green PR alone — main CI, Read the Docs build and
 # rendered pages, release assets, and repo metadata. Failures are submitted as
@@ -464,7 +491,6 @@ description  = "Scheduled product verifier: headless UI-vs-CLI correctness plus 
 event      = "schedule"
 match.name = "product-verify"
 match.kind = "product_verify"
-
 # The comms team: the project's public voice. A daily schedule dispatches the
 # comms agent to digest the last 24h of shipped work into Discord (via
 # webhook — sanctioned automation; falls back to a supervisor draft when no

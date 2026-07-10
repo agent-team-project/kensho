@@ -252,6 +252,7 @@ type inspectRuntimeJSON struct {
 	Agent            string `json:"agent,omitempty"`
 	Runtime          string `json:"runtime,omitempty"`
 	RuntimeBinary    string `json:"runtime_binary,omitempty"`
+	Model            string `json:"model,omitempty"`
 	Effort           string `json:"effort,omitempty"`
 	Job              string `json:"job,omitempty"`
 	Ticket           string `json:"ticket,omitempty"`
@@ -333,6 +334,7 @@ func inspectRuntimeJSONFromMetaAt(teamDir string, meta *daemon.Metadata, now tim
 		Agent:          meta.Agent,
 		Runtime:        meta.Runtime,
 		RuntimeBinary:  meta.RuntimeBinary,
+		Model:          meta.Model,
 		Effort:         meta.Effort,
 		Job:            meta.Job,
 		Ticket:         meta.Ticket,
@@ -492,6 +494,9 @@ func printRuntimeMetadata(w fmtWriter, runtime *inspectRuntimeJSON) {
 	}
 	if runtime.RuntimeBinary != "" {
 		fmt.Fprintf(w, "  binary:      %s\n", runtime.RuntimeBinary)
+	}
+	if runtime.Model != "" {
+		fmt.Fprintf(w, "  model:       %s\n", runtime.Model)
 	}
 	if runtime.Effort != "" {
 		fmt.Fprintf(w, "  effort:      %s\n", runtime.Effort)

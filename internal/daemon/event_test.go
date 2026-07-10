@@ -1811,7 +1811,7 @@ func TestEvent_EphemeralDispatchUsesPerLaunchRootAndPreservesPersistentPrompt(t 
 	}
 }
 
-func TestEvent_EphemeralDispatchIgnoresModelForCodexRuntime(t *testing.T) {
+func TestEvent_EphemeralDispatchForwardsModelForCodexRuntime(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
 	root := t.TempDir()
@@ -1821,12 +1821,14 @@ func TestEvent_EphemeralDispatchIgnoresModelForCodexRuntime(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 	top := mustParseCustomTopo(t, `
+[model_policy]
+runtime = "codex"
+model = "gpt-5.6-sol"
+effort = "high"
+
 [instances.worker]
 agent = "worker"
 ephemeral = true
-runtime = "codex"
-model = "claude-fable-5"
-effort = "max"
 
 [[instances.worker.triggers]]
 event = "agent.dispatch"
@@ -1847,18 +1849,18 @@ match.target = "worker"
 	if len(call) < 2 || call[0] != "codex" || call[1] != "exec" {
 		t.Fatalf("spawn call = %#v, want codex exec", call)
 	}
-	if containsString(call, "--model") || containsString(call, "claude-fable-5") {
-		t.Fatalf("codex spawn call should ignore model: %#v", call)
+	if got, ok := argValue(call, "--model"); !ok || got != "gpt-5.6-sol" {
+		t.Fatalf("codex spawn call model = %q, %v; want gpt-5.6-sol in %#v", got, ok, call)
 	}
-	if !containsArgSubstring(call, `model_reasoning_effort="max"`) {
+	if !containsArgSubstring(call, `model_reasoning_effort="high"`) {
 		t.Fatalf("codex spawn call missing effort config: %#v", call)
 	}
 	meta, err := ReadMetadata(root, "worker-squ-44")
 	if err != nil {
 		t.Fatalf("read metadata: %v", err)
 	}
-	if meta.Effort != "max" {
-		t.Fatalf("metadata effort = %q, want max", meta.Effort)
+	if meta.Model != "gpt-5.6-sol" || meta.Effort != "high" {
+		t.Fatalf("metadata model/effort = %q/%q, want gpt-5.6-sol/high", meta.Model, meta.Effort)
 	}
 	_, _ = m.Stop("worker-squ-44")
 	_ = waitForEventReaper(t, m, "worker-squ-44")
@@ -4070,8 +4072,8 @@ tokens_per_day = 100
 	if meta.SpecURI != stepSpecURI || meta.JobURI != "agt://project-1/job/squ-92" {
 		t.Fatalf("metadata URIs = %+v", meta)
 	}
-	if meta.Effort != "high" {
-		t.Fatalf("metadata effort = %q, want high", meta.Effort)
+	if meta.Model != "claude-sonnet-5" || meta.Effort != "high" {
+		t.Fatalf("metadata model/effort = %q/%q, want claude-sonnet-5/high", meta.Model, meta.Effort)
 	}
 	env := fake.lastEnv()
 	if !containsString(env, "AGENT_TEAM_BUDGET_TOKENS=30") || !containsString(env, "AGENT_TEAM_BUDGET_TIME=45m0s") {

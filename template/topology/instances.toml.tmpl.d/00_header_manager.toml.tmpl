@@ -9,11 +9,19 @@
 # defaults below mirror the bundled team's natural shape — edit / extend as
 # your project grows.
 #
+# The shared policy is inherited by every instance and pipeline step unless an
+# explicit declaration overrides it. Keep runtime/model/effort topology-owned
+# so launches never depend on a developer's runtime user config.
+[model_policy]
+runtime = "codex"
+model   = "gpt-5.6-sol"
+effort  = "high"
+
 # Per-instance runtime overrides are optional:
 #   runtime     = "claude" | "codex" | "docker"
 #   runtime_bin = "claude"
-#   model       = "claude-fable-5"  # Claude runtime only; omitted/empty = default model
-#   effort      = "max"             # Runtime-specific reasoning effort; omitted/empty = default effort
+#   model       = "claude-fable-5"
+#   effort      = "max"
 
 [instances.manager]
 agent       = "manager"

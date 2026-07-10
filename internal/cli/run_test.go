@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -200,6 +201,15 @@ func containsString(items []string, want string) bool {
 	return false
 }
 
+func containsArgSubstring(items []string, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
+}
+
 func argValue(items []string, flag string) (string, bool) {
 	for i := 0; i+1 < len(items); i++ {
 		if items[i] == flag {
@@ -295,6 +305,50 @@ func initInto(t *testing.T, dir string) {
 	}
 }
 
+func TestInitFullResolvesComprehensiveModelPolicy(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	top, err := topology.LoadFromTeamDir(filepath.Join(tmp, ".agent_team"))
+	if err != nil {
+		t.Fatalf("load generated topology: %v", err)
+	}
+	if top == nil || top.ModelPolicy == nil {
+		t.Fatal("generated topology missing model policy")
+	}
+	if got := top.ModelPolicy; got.Runtime != "codex" || got.Model != "gpt-5.6-sol" || got.Effort != "high" {
+		t.Fatalf("generated model policy = %+v", got)
+	}
+
+	fable := make([]string, 0, 3)
+	for name, inst := range top.Instances {
+		if inst.Model == "claude-fable-5" {
+			fable = append(fable, name)
+			if inst.Runtime != "claude" || inst.Effort != "max" {
+				t.Fatalf("generated Fable seat %s = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
+			}
+			continue
+		}
+		if inst.Runtime != "codex" || inst.Model != "gpt-5.6-sol" || inst.Effort != "high" {
+			t.Fatalf("generated non-Fable seat %s = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
+		}
+	}
+	sort.Strings(fable)
+	if want := []string{"advisor", "harness-reviewer", "org-review"}; !reflect.DeepEqual(fable, want) {
+		t.Fatalf("generated Fable seats = %v, want %v", fable, want)
+	}
+	for pipelineName, pipeline := range top.Pipelines {
+		for _, step := range pipeline.Steps {
+			target := top.Instances[step.Target]
+			if target == nil {
+				t.Fatalf("generated pipeline %s step %s has unknown target %s", pipelineName, step.ID, step.Target)
+			}
+			if step.Runtime != target.Runtime || step.Model != target.Model || step.Effort != target.Effort {
+				t.Fatalf("generated pipeline %s step %s = %q/%q/%q, target %s = %q/%q/%q", pipelineName, step.ID, step.Runtime, step.Model, step.Effort, step.Target, target.Runtime, target.Model, target.Effort)
+			}
+		}
+	}
+}
+
 func writeOTelRunConfig(t *testing.T, dir string) {
 	t.Helper()
 	body := `[team]
@@ -355,7 +409,7 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message"})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--runtime", "claude"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -522,7 +576,7 @@ func TestRun_MailboxHookOptOutSuppressesClaudeSettings(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--set", "runtime.hooks.mailbox_injection=false", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--set", "runtime.hooks.mailbox_injection=false", "--no-daemon", "--runtime", "claude"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -542,7 +596,7 @@ func TestRun_ClaudeOTelInjectionFromConfig(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--no-daemon", "--runtime", "claude"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -632,7 +686,7 @@ func TestRunPromptFileFromStdin(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt-file", "-"})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt-file", "-", "--runtime", "claude"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run prompt file stdin: %v", err)
 	}
@@ -1138,7 +1192,8 @@ done
 }
 
 func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
-	t.Setenv(runtimebin.EnvRuntime, string(runtimebin.KindCodex))
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-run-codex-detach-")
 	if err != nil {
 		t.Fatal(err)
@@ -1147,10 +1202,13 @@ func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
 	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[model_policy]
+runtime = "codex"
+model = "gpt-5.6-sol"
+effort = "high"
+
 [instances.manager]
 agent       = "manager"
-runtime     = "codex"
-model       = "claude-fable-5"
 description = "Persistent Codex manager."
 `)
 	wantWorkspace, err := filepath.EvalSymlinks(tmp)
@@ -1198,7 +1256,7 @@ description = "Persistent Codex manager."
 	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
 		t.Fatalf("json body: %v\nstdout: %s", err, out.String())
 	}
-	if body.Instance != "manager" || body.Agent != "manager" || body.Runtime != "codex" || body.PID == 0 || body.SessionID != "" || body.Follow == "" {
+	if body.Instance != "manager" || body.Agent != "manager" || body.Runtime != "codex" || body.Model != "gpt-5.6-sol" || body.Effort != "high" || body.PID == 0 || body.SessionID != "" || body.Follow == "" {
 		t.Fatalf("dispatch body = %+v", body)
 	}
 
@@ -1217,8 +1275,11 @@ description = "Persistent Codex manager."
 	if containsString(args, "--session-id") || containsString(args, "--agents") || containsString(args, "--append-system-prompt-file") {
 		t.Fatalf("codex daemon args include Claude-only flags: %v", args)
 	}
-	if _, ok := argValue(args, "--model"); ok {
-		t.Fatalf("codex daemon args include Claude-only --model: %v", args)
+	if got, ok := argValue(args, "--model"); !ok || got != "gpt-5.6-sol" {
+		t.Fatalf("codex daemon args model = %q, %v; want gpt-5.6-sol in %v", got, ok, args)
+	}
+	if !containsArgSubstring(args, `model_reasoning_effort="high"`) {
+		t.Fatalf("codex daemon args missing high effort: %v", args)
 	}
 	if !containsString(args, "--add-dir") || args[len(args)-1] != "-" {
 		t.Fatalf("codex daemon args missing add-dir or stdin marker: %v", args)
@@ -1722,6 +1783,12 @@ func TestRunDetachDispatchesThroughDaemonWithoutPrompt(t *testing.T) {
 		wantWorkspace = eval
 	}
 	teamDir := filepath.Join(tmp, ".agent_team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[instances.manager]
+agent = "manager"
+runtime = "claude"
+description = "Persistent Claude manager."
+`)
 
 	base := fakeSpawnerForTest(t, 2*time.Second)
 	var (
@@ -1858,7 +1925,7 @@ func TestRunDetachLaunchesClaudeProcessWithPersistentPromptFile(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--detach", "--json"})
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--detach", "--json", "--runtime", "claude", "--runtime-bin", fakeClaude})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run --detach --json: %v\nstderr: %s", err, stderr.String())
 	}

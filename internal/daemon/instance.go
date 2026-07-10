@@ -356,6 +356,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		Origin:              in.Origin,
 		Runtime:             string(rt.Kind),
 		RuntimeBinary:       rt.Binary,
+		Model:               strings.TrimSpace(in.Model),
 		Effort:              strings.TrimSpace(in.Effort),
 		EffectiveRuntime:    dispatchEffectiveRuntime(rt.Kind, in.EffectiveRuntime),
 		Workspace:           in.Workspace,
@@ -539,12 +540,13 @@ func dispatchArgs(rt runtimebin.Runtime, sessionID string, in DispatchInput) ([]
 			if in.Args[0] != "exec" {
 				return nil, errors.New("codex daemon dispatch requires args beginning with exec; use agent-team run --prompt for managed Codex runs")
 			}
-			return append([]string{rt.Binary}, codexExecArgsWithEffort(in.Args, in.Effort)...), nil
+			return append([]string{rt.Binary}, codexExecArgsWithPolicy(in.Args, in.Model, in.Effort)...), nil
 		}
 		if strings.TrimSpace(in.Prompt) == "" {
 			return nil, errors.New("codex daemon dispatch requires exec args or a prompt")
 		}
 		codexArgs := []string{rt.Binary, "exec", "--json"}
+		codexArgs = append(codexArgs, codexModelArgs(in.Model)...)
 		codexArgs = append(codexArgs, codexEffortConfigArgs(in.Effort)...)
 		codexArgs = append(codexArgs, runtimebin.CodexAutonomousExecArgs()...)
 		codexArgs = append(codexArgs, "-")
@@ -590,17 +592,25 @@ func codexExecArgsWithJSON(args []string) []string {
 	return append([]string{"exec", "--json"}, out[1:]...)
 }
 
-func codexExecArgsWithEffort(args []string, effort string) []string {
+func codexExecArgsWithPolicy(args []string, model, effort string) []string {
 	out := codexExecArgsWithJSON(args)
-	effortArgs := codexEffortConfigArgs(effort)
-	if len(effortArgs) == 0 || len(out) == 0 || out[0] != "exec" {
+	policyArgs := append(codexModelArgs(model), codexEffortConfigArgs(effort)...)
+	if len(policyArgs) == 0 || len(out) == 0 || out[0] != "exec" {
 		return out
 	}
-	next := make([]string, 0, len(out)+len(effortArgs))
+	next := make([]string, 0, len(out)+len(policyArgs))
 	next = append(next, out[0])
-	next = append(next, effortArgs...)
+	next = append(next, policyArgs...)
 	next = append(next, out[1:]...)
 	return next
+}
+
+func codexModelArgs(model string) []string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil
+	}
+	return []string{"--model", model}
 }
 
 func codexEffortConfigArgs(effort string) []string {
@@ -1284,7 +1294,7 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 	if bin == "" {
 		bin = runtimebin.DefaultBinaryForKind(baseRuntime)
 	}
-	args := managedResumeArgs(baseRuntime, bin, base.SessionID, base.Effort, opts.ResumePrompt)
+	args := managedResumeArgs(baseRuntime, bin, base.SessionID, base.Model, base.Effort, opts.ResumePrompt)
 	if baseRuntime == runtimebin.KindCodex && len(otelCodexArgs) > 0 {
 		// Codex exporter selection/config live in argv, not env — a resumed
 		// child needs the CURRENT config's -c otel.* args like a dispatch does.
@@ -1335,15 +1345,19 @@ func runtimeKindSupportsManagedResume(kind runtimebin.Kind) bool {
 	return kind == runtimebin.KindClaude || kind == runtimebin.KindCodex
 }
 
-func managedResumeArgs(kind runtimebin.Kind, bin, sessionID, effort, resumePrompt string) []string {
+func managedResumeArgs(kind runtimebin.Kind, bin, sessionID, model, effort, resumePrompt string) []string {
 	if kind == runtimebin.KindCodex {
 		args := []string{bin, "exec"}
+		args = append(args, codexModelArgs(model)...)
 		args = append(args, codexEffortConfigArgs(effort)...)
 		args = append(args, runtimebin.CodexAutonomousExecArgs()...)
 		args = append(args, "resume", sessionID, "-")
 		return args
 	}
 	args := []string{bin, "--resume", sessionID}
+	if model := strings.TrimSpace(model); model != "" {
+		args = append(args, "--model", model)
+	}
 	if effort := strings.TrimSpace(effort); effort != "" {
 		args = append(args, "--effort", effort)
 	}
@@ -1830,6 +1844,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 		Origin:              in.Origin,
 		Runtime:             string(rt.Kind),
 		RuntimeBinary:       rt.Binary,
+		Model:               strings.TrimSpace(in.Model),
 		Effort:              strings.TrimSpace(in.Effort),
 		EffectiveRuntime:    dispatchEffectiveRuntime(rt.Kind, in.EffectiveRuntime),
 		Workspace:           in.Workspace,

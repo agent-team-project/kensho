@@ -113,6 +113,7 @@ def main(argv: list[str]) -> int:
             )
             print(f"real Codex probe: ok={probe.get('ok')} output={probe_output}")
         configure_fake_runtime(repo, args.runtime, fake_runtime)
+        configure_demo_model_policy(repo, args.runtime)
 
         step("validate topology and runtime")
         run(binary, "runtime", "--repo", repo, "--json", env=env, parse_json=True)
@@ -904,6 +905,32 @@ def configure_fake_runtime(repo: Path, runtime: str, fake_runtime: Path) -> None
         f.write("\n[runtime]\n")
         f.write(f'kind = "{runtime}"\n')
         f.write(f'binary = "{toml_string(str(fake_runtime))}"\n')
+
+
+def configure_demo_model_policy(repo: Path, runtime: str) -> None:
+    if runtime != "claude":
+        return
+    topology = repo / ".agent_team" / "instances.toml"
+    body = topology.read_text(encoding="utf-8")
+    bundled = textwrap.dedent(
+        """\
+        [model_policy]
+        runtime = "codex"
+        model   = "gpt-5.6-sol"
+        effort  = "high"
+        """
+    )
+    claude_demo = textwrap.dedent(
+        """\
+        [model_policy]
+        runtime = "claude"
+        model   = "claude-fable-5"
+        effort  = "max"
+        """
+    )
+    if body.count(bundled) != 1:
+        raise DemoError("bundled topology no longer has the expected model policy")
+    topology.write_text(body.replace(bundled, claude_demo, 1), encoding="utf-8")
 
 
 def enable_demo_schedule(repo: Path) -> None:

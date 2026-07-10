@@ -858,11 +858,11 @@ func TestSyncStopExtrasSummaryJSONCountsActions(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
 		t.Fatalf("decode sync --stop-extras summary json: %v\nbody=%s", err, out.String())
 	}
-	if body.Summary.Total != 3 || body.Summary.Actions["stop"] != 1 || body.Summary.Actions["skip"] != 2 {
-		t.Fatalf("summary = %+v, want one stop and two skips", body.Summary)
+	if body.Summary.Total != 4 || body.Summary.Actions["stop"] != 1 || body.Summary.Actions["skip"] != 2 || body.Summary.Actions["start"] != 1 {
+		t.Fatalf("summary = %+v, want one stop, two skips, and one start", body.Summary)
 	}
-	if body.Summary.Statuses["stopped"] != 1 || body.Summary.Statuses["running"] != 2 {
-		t.Fatalf("statuses = %+v, want stopped=1 running=2", body.Summary.Statuses)
+	if body.Summary.Statuses["stopped"] != 1 || body.Summary.Statuses["running"] != 3 {
+		t.Fatalf("statuses = %+v, want stopped=1 running=3", body.Summary.Statuses)
 	}
 	_ = sleepers["adhoc"].Wait()
 	delete(sleepers, "adhoc")

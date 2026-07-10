@@ -104,6 +104,38 @@ func TestCurrentFromConfigEnvOverridesRepoRuntime(t *testing.T) {
 	}
 }
 
+func TestResolveDeclaredRuntimeUsesMachineLocalBinary(t *testing.T) {
+	t.Setenv(EnvRuntime, "")
+	t.Setenv(EnvBinary, "")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[runtime]\nkind = \"codex\"\nbinary = \"codex-wrapper\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rt, err := Resolve(ResolveOptions{
+		Instance:   Fields{Name: "worker", Kind: "codex"},
+		ConfigPath: path,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Kind != KindCodex || rt.Binary != "codex-wrapper" {
+		t.Fatalf("Resolve() = %+v, want topology codex with repo-local wrapper", rt)
+	}
+
+	t.Setenv(EnvBinary, "codex-machine")
+	rt, err = Resolve(ResolveOptions{
+		Instance:   Fields{Name: "worker", Kind: "codex"},
+		ConfigPath: path,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Binary != "codex-machine" {
+		t.Fatalf("Resolve() binary = %q, want env override", rt.Binary)
+	}
+}
+
 func TestCurrentRejectsUnknownRuntime(t *testing.T) {
 	t.Setenv(EnvRuntime, "llama")
 

@@ -221,6 +221,7 @@ type dispatchResponse struct {
 	StartedAt           time.Time `json:"started_at"`
 	PID                 int       `json:"pid"`
 	Runtime             string    `json:"runtime,omitempty"`
+	Model               string    `json:"model,omitempty"`
 	Effort              string    `json:"effort,omitempty"`
 	SessionID           string    `json:"session_id,omitempty"`
 }

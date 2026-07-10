@@ -100,11 +100,11 @@ func TestPlanBundledFullProfileTopologyCanary(t *testing.T) {
 	// This is the one Go canary for the bundled template's full topology.
 	// Other exact plan-shape tests overwrite instances.toml with a local
 	// fixture so adding a bundled instance only updates this test.
-	if body.Summary.Total != 17 || body.Summary.Actions["start"] != 2 || body.Summary.Actions["on-demand"] != 15 || !body.Summary.DryRun {
+	if body.Summary.Total != 18 || body.Summary.Actions["start"] != 3 || body.Summary.Actions["on-demand"] != 15 || !body.Summary.DryRun {
 		t.Fatalf("bundled topology summary = %+v, want current bundled default shape", body.Summary)
 	}
-	if body.Summary.Statuses["unknown"] != 17 {
-		t.Fatalf("bundled topology statuses = %+v, want unknown=17", body.Summary.Statuses)
+	if body.Summary.Statuses["unknown"] != 18 {
+		t.Fatalf("bundled topology statuses = %+v, want unknown=18", body.Summary.Statuses)
 	}
 }
 
@@ -456,11 +456,11 @@ func TestPlanJSONFiltersByAction(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
 		t.Fatalf("decode action-filtered plan json: %v\nbody=%s", err, out.String())
 	}
-	if body.Summary.Total != 1 || body.Summary.Start != 1 {
-		t.Fatalf("summary = %+v, want only one start row", body.Summary)
+	if body.Summary.Total != 2 || body.Summary.Start != 2 {
+		t.Fatalf("summary = %+v, want two start rows", body.Summary)
 	}
-	if len(body.Instances) != 1 || body.Instances[0].Instance != "ticket-manager" || body.Instances[0].Action != "start" {
-		t.Fatalf("instances = %+v, want ticket-manager start only", body.Instances)
+	if len(body.Instances) != 2 || body.Instances[0].Instance != "advisor" || body.Instances[1].Instance != "ticket-manager" || body.Instances[0].Action != "start" || body.Instances[1].Action != "start" {
+		t.Fatalf("instances = %+v, want advisor and ticket-manager starts", body.Instances)
 	}
 }
 

@@ -642,6 +642,7 @@ func TestInstance_DispatchCodexRuntimeExecArgs(t *testing.T) {
 	meta, err := m.Dispatch(DispatchInput{
 		Agent:     "worker",
 		Name:      "worker-runtime",
+		Model:     "gpt-5.6-sol",
 		Effort:    "high",
 		Workspace: t.TempDir(),
 		Args:      []string{"exec", "-C", t.TempDir(), "hello"},
@@ -652,8 +653,8 @@ func TestInstance_DispatchCodexRuntimeExecArgs(t *testing.T) {
 	if meta.Runtime != string(runtimebin.KindCodex) || meta.SessionID != "" {
 		t.Fatalf("metadata = %+v, want codex without captured session", meta)
 	}
-	if meta.Effort != "high" {
-		t.Fatalf("metadata effort = %q, want high", meta.Effort)
+	if meta.Model != "gpt-5.6-sol" || meta.Effort != "high" {
+		t.Fatalf("metadata model/effort = %q/%q, want gpt-5.6-sol/high", meta.Model, meta.Effort)
 	}
 	args := fake.lastCall()
 	if len(args) < 2 || args[0] != "codex" || args[1] != "exec" {
@@ -661,6 +662,9 @@ func TestInstance_DispatchCodexRuntimeExecArgs(t *testing.T) {
 	}
 	if !containsString(args, "--json") {
 		t.Fatalf("codex args = %v, want --json for session capture", args)
+	}
+	if got, ok := argValue(args, "--model"); !ok || got != "gpt-5.6-sol" {
+		t.Fatalf("codex args model = %q, %v; want gpt-5.6-sol in %v", got, ok, args)
 	}
 	if !containsArgSubstring(args, `model_reasoning_effort="high"`) {
 		t.Fatalf("codex args = %v, want model_reasoning_effort high", args)
@@ -948,6 +952,7 @@ func TestInstance_StartCodexResumeCarriesCurrentOTelArgs(t *testing.T) {
 		Agent:         "manager",
 		Runtime:       string(runtimebin.KindCodex),
 		RuntimeBinary: "codex",
+		Model:         "gpt-5.6-sol",
 		Effort:        "max",
 		Workspace:     workspace,
 		PID:           123,
@@ -981,6 +986,9 @@ func TestInstance_StartCodexResumeCarriesCurrentOTelArgs(t *testing.T) {
 	}
 	if !containsArgSubstring(args, `model_reasoning_effort="max"`) {
 		t.Fatalf("resumed codex argv missing effort config: %#v", args)
+	}
+	if got, ok := argValue(args, "--model"); !ok || got != "gpt-5.6-sol" {
+		t.Fatalf("resumed codex argv model = %q, %v; want gpt-5.6-sol in %#v", got, ok, args)
 	}
 	if args[1] != "exec" || args[len(args)-1] != "-" {
 		t.Fatalf("resume argv shape broken: %#v", args)
@@ -1975,7 +1983,7 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	m := NewInstanceManager(root, fake.spawn)
 
 	workspace := t.TempDir()
-	disp, err := m.Dispatch(DispatchInput{Agent: "manager", Name: "mgr", Workspace: workspace, Effort: "max"})
+	disp, err := m.Dispatch(DispatchInput{Agent: "manager", Name: "mgr", Workspace: workspace, Model: "claude-fable-5", Effort: "max"})
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
@@ -2000,8 +2008,8 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	if resumed.ResumeCount != 1 || resumed.FreshFallback || resumed.FreshFallbacks != 0 {
 		t.Fatalf("resume metadata = %+v, want resume_count=1 without fresh fallback", resumed)
 	}
-	if resumed.Effort != "max" {
-		t.Fatalf("resume effort = %q, want max", resumed.Effort)
+	if resumed.Model != "claude-fable-5" || resumed.Effort != "max" {
+		t.Fatalf("resume model/effort = %q/%q, want claude-fable-5/max", resumed.Model, resumed.Effort)
 	}
 	disk, err := ReadMetadata(root, "mgr")
 	if err != nil {
@@ -2010,8 +2018,8 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	if disk.ResumeCount != 1 || disk.FreshFallback || disk.FreshFallbacks != 0 {
 		t.Fatalf("disk resume metadata = %+v, want resume_count=1 without fresh fallback", disk)
 	}
-	if disk.Effort != "max" {
-		t.Fatalf("disk effort = %q, want max", disk.Effort)
+	if disk.Model != "claude-fable-5" || disk.Effort != "max" {
+		t.Fatalf("disk model/effort = %q/%q, want claude-fable-5/max", disk.Model, disk.Effort)
 	}
 	args := fake.lastCall()
 	foundResume := false
@@ -2025,6 +2033,9 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	}
 	if got, ok := argValue(args, "--effort"); !ok || got != "max" {
 		t.Errorf("expected --effort max in args, got %q/%v from %v", got, ok, args)
+	}
+	if got, ok := argValue(args, "--model"); !ok || got != "claude-fable-5" {
+		t.Errorf("expected --model claude-fable-5 in args, got %q/%v from %v", got, ok, args)
 	}
 
 	// Cleanup.

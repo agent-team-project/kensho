@@ -1904,7 +1904,7 @@ func TestHealthCommandFormatExitsUnhealthy(t *testing.T) {
 	if !errors.As(err, &code) || code != 1 {
 		t.Fatalf("err = %v, want exit 1", err)
 	}
-	if got, want := stdout.String(), "false:false:0:3\n"; got != want {
+	if got, want := stdout.String(), "false:false:0:4\n"; got != want {
 		t.Fatalf("health --format output = %q, want %q", got, want)
 	}
 }
@@ -2046,7 +2046,7 @@ func TestHealthWaitFormatTimesOutWithFinalSnapshot(t *testing.T) {
 	if !errors.As(err, &code) || code != 1 {
 		t.Fatalf("err = %v, want exit 1", err)
 	}
-	if got, want := stdout.String(), "false:3\n"; got != want {
+	if got, want := stdout.String(), "false:4\n"; got != want {
 		t.Fatalf("health --wait --format output = %q, want %q", got, want)
 	}
 }

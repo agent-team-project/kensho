@@ -427,10 +427,10 @@ func TestDoctorWarnsOnDaemonBuildMismatch(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
-		if bin != "claude" {
-			t.Fatalf("look path bin = %q, want claude", bin)
+		if bin != "claude" && bin != "codex" {
+			t.Fatalf("look path bin = %q, want claude or codex", bin)
 		}
-		return "/usr/local/bin/claude", nil
+		return "/usr/local/bin/" + bin, nil
 	})
 	withDaemonFindAgentTeamd(t, "/test/bin/agent-teamd")
 
@@ -476,10 +476,10 @@ func TestDoctor_RepoFlagOverridesTarget(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
-		if bin != "claude" {
-			t.Fatalf("look path bin = %q, want claude", bin)
+		if bin != "claude" && bin != "codex" {
+			t.Fatalf("look path bin = %q, want claude or codex", bin)
 		}
-		return "/usr/local/bin/claude", nil
+		return "/usr/local/bin/" + bin, nil
 	})
 
 	tmp := t.TempDir()
@@ -506,10 +506,10 @@ func TestDoctorResolvesRepoFromAgentTeamRootEnv(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
-		if bin != "claude" {
-			t.Fatalf("look path bin = %q, want claude", bin)
+		if bin != "claude" && bin != "codex" {
+			t.Fatalf("look path bin = %q, want claude or codex", bin)
 		}
-		return "/usr/local/bin/claude", nil
+		return "/usr/local/bin/" + bin, nil
 	})
 	withDaemonFindAgentTeamd(t, "/test/bin/agent-teamd")
 
@@ -601,11 +601,14 @@ func TestDoctorStrictDaemonFailsWhenAgentTeamdMissing(t *testing.T) {
 }
 
 func TestDoctor_WarnsWhenRuntimeBinaryMissing(t *testing.T) {
-	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvRuntime, "claude")
 	t.Setenv(runtimebin.EnvBinary, "missing-runtime")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin == "codex" {
+			return "/usr/local/bin/codex", nil
+		}
 		if bin != "missing-runtime" {
-			t.Fatalf("look path bin = %q, want missing-runtime", bin)
+			t.Fatalf("look path bin = %q, want codex or missing-runtime", bin)
 		}
 		return "", exec.ErrNotFound
 	})
@@ -725,8 +728,11 @@ func TestDoctorCanaryCodexSuccessCleansState(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin == "codex" {
+			return "/usr/local/bin/codex", nil
+		}
 		if bin != "codex-test" {
-			t.Fatalf("look path bin = %q, want codex-test", bin)
+			t.Fatalf("look path bin = %q, want codex or codex-test", bin)
 		}
 		return "/usr/local/bin/codex-test", nil
 	})
@@ -782,8 +788,11 @@ func TestDoctorCanaryClassifiesMissingDaemonRuntimeBinary(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin == "codex" {
+			return "/usr/local/bin/codex", nil
+		}
 		if bin != "missing-codex-doctor-test" {
-			t.Fatalf("look path bin = %q, want missing-codex-doctor-test", bin)
+			t.Fatalf("look path bin = %q, want codex or missing-codex-doctor-test", bin)
 		}
 		return "", exec.ErrNotFound
 	})
@@ -828,7 +837,7 @@ func TestDoctorCanaryClassifiesMissingDaemonRuntimeBinary(t *testing.T) {
 }
 
 func TestDoctorFormatReportsWarnings(t *testing.T) {
-	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvRuntime, "claude")
 	t.Setenv(runtimebin.EnvBinary, "missing-runtime")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
 		return "", exec.ErrNotFound
@@ -854,7 +863,7 @@ func TestDoctorFormatReportsWarnings(t *testing.T) {
 }
 
 func TestDoctorStrictRuntimeFailsWhenRuntimeBinaryMissing(t *testing.T) {
-	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvRuntime, "claude")
 	t.Setenv(runtimebin.EnvBinary, "missing-runtime")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
 		return "", exec.ErrNotFound
@@ -885,11 +894,14 @@ func TestDoctorStrictRuntimeFailsWhenRuntimeBinaryMissing(t *testing.T) {
 }
 
 func TestDoctorStrictEnablesDaemonAndRuntimeChecks(t *testing.T) {
-	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvRuntime, "claude")
 	t.Setenv(runtimebin.EnvBinary, "missing-runtime")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
+		if bin == "codex" {
+			return "/usr/local/bin/codex", nil
+		}
 		if bin != "missing-runtime" {
-			t.Fatalf("look path bin = %q, want missing-runtime", bin)
+			t.Fatalf("look path bin = %q, want codex or missing-runtime", bin)
 		}
 		return "", exec.ErrNotFound
 	})
@@ -937,6 +949,8 @@ func TestDoctorStrictRuntimePromotesPipelineAndTeamRuntimeWarnings(t *testing.T)
 	t.Setenv(runtimebin.EnvBinary, "")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
 		switch bin {
+		case "codex":
+			return "/usr/local/bin/codex", nil
 		case "claude":
 			return "/usr/local/bin/claude", nil
 		case "missing-codex":
@@ -1049,6 +1063,8 @@ func TestDoctorStrictRuntimePromotesAgentRuntimeWarnings(t *testing.T) {
 	t.Setenv(runtimebin.EnvBinary, "")
 	withRuntimeLookPath(t, func(bin string) (string, error) {
 		switch bin {
+		case "codex":
+			return "/usr/local/bin/codex", nil
 		case "claude":
 			return "/usr/local/bin/claude", nil
 		case "missing-codex":
