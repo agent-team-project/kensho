@@ -20,7 +20,10 @@
         </div>
         <label class="token-field">
           <span>Bearer token</span>
-          <input id="tokenInput" type="password" autocomplete="off" spellcheck="false">
+          <input id="tokenInput" type="password" autocomplete="off" spellcheck="false" aria-describedby="tokenHelp">
+          <span class="token-help" id="tokenHelp">
+            Paste the token from <code>.agent_team/daemon/operator.token</code> or run <code>cat .agent_team/daemon/operator.token</code>.
+          </span>
         </label>
         <label class="auto-refresh">
           <input id="autoRefresh" type="checkbox">

@@ -1645,7 +1645,7 @@ function humanError(error) {
   if (error instanceof HTTPError) {
     const body = readableErrorBody(error.body);
     if (error.status === 401) {
-      return "Unauthorized. Enter a bearer token and connect.";
+      return "Unauthorized. Paste the token from .agent_team/daemon/operator.token and connect.";
     }
     if (error.status === 403) {
       return "Forbidden. This token does not have access to the requested daemon resource.";

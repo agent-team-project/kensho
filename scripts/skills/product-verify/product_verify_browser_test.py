@@ -60,7 +60,7 @@ class ProductVerifyBrowserTest(unittest.TestCase):
         snapshot["panels"] = dict(snapshot["panels"])
         snapshot["panels"]["jobs"] = {
             "rows": 1,
-            "text": "Jobs unavailable Unauthorized. Enter a bearer token and connect.",
+            "text": "Jobs unavailable Unauthorized. Paste the token from .agent_team/daemon/operator.token and connect.",
         }
 
         checks = verifier.checks_for_dom_snapshot(snapshot)
@@ -71,7 +71,7 @@ class ProductVerifyBrowserTest(unittest.TestCase):
                 "ok": False,
                 "detail": {
                     "marker": "unavailable",
-                    "text": "Jobs unavailable Unauthorized. Enter a bearer token and connect.",
+                    "text": "Jobs unavailable Unauthorized. Paste the token from .agent_team/daemon/operator.token and connect.",
                 },
             },
             checks,

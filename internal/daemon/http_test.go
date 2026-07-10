@@ -1880,6 +1880,16 @@ func TestHTTP_UIShellServedWithoutTokenDataGated(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "agent-team-ui") {
 		t.Fatalf("unauthenticated ui body missing root marker: %s", rr.Body.String())
 	}
+	operatorTokenSource := ".agent_team/daemon/operator.token"
+	operatorTokenCommand := "cat .agent_team/daemon/operator.token"
+	if !strings.Contains(rr.Body.String(), operatorTokenSource) || !strings.Contains(rr.Body.String(), operatorTokenCommand) {
+		t.Fatalf("unauthenticated ui body missing operator token guidance: %s", rr.Body.String())
+	}
+	if inputAt := strings.Index(rr.Body.String(), `id="tokenInput"`); inputAt < 0 {
+		t.Fatalf("unauthenticated ui body missing token input: %s", rr.Body.String())
+	} else if helpAt := strings.Index(rr.Body.String(), `id="tokenHelp"`); helpAt < 0 || helpAt < inputAt {
+		t.Fatalf("operator token guidance should appear alongside the token input: input=%d help=%d body=%s", inputAt, helpAt, rr.Body.String())
+	}
 	// Data endpoints stay gated even though the shell is open.
 	req = httptest.NewRequest(http.MethodGet, "http://daemon/v1/instances", nil)
 	req = req.WithContext(context.WithValue(req.Context(), daemonTransportContextKey{}, daemonTransportTCP))

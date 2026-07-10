@@ -175,16 +175,29 @@ h2 {
   gap: 4px;
   color: var(--muted);
   font-size: 12px;
+  max-width: min(320px, 72vw);
 }
 
 .token-field input {
-  width: min(260px, 58vw);
+  width: 100%;
   height: 36px;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0 10px;
   background: var(--input);
   color: var(--text);
+}
+
+.token-help {
+  max-width: 100%;
+  line-height: 1.3;
+}
+
+.token-help code {
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .token-field input:focus-visible,
