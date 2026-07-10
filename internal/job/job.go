@@ -305,6 +305,18 @@ func ValidStatus(s Status) bool {
 	}
 }
 
+// IsHandledTerminalEvent reports whether a manager has already handled the
+// terminal job outcome. Runtime status is only a worker observation; it must
+// not supersede one of these durable manager actions.
+func IsHandledTerminalEvent(event string) bool {
+	switch strings.TrimSpace(event) {
+	case "merged", "pr.merged", "pr.closed", "closed", "cleanup":
+		return true
+	default:
+		return false
+	}
+}
+
 // ParseStatus validates a status string.
 func ParseStatus(raw string) (Status, error) {
 	s := Status(strings.ToLower(strings.TrimSpace(raw)))

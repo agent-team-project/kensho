@@ -717,6 +717,92 @@ agent = "manager"
 	stopAndWaitForTest(t, mgr, "manager")
 }
 
+func TestTickManagerWakeStaysSilentForHandledTerminalJobWithStaleStatus(t *testing.T) {
+	target, err := os.MkdirTemp("/tmp", "agent-team-manager-wake-terminal-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(target)
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "agents", "manager"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "agents", "manager", "agent.md"), []byte("---\ndescription: test manager\n---\n\nYou are a test manager.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	j := &job.Job{
+		ID:         "gh-393",
+		Ticket:     "GH-393",
+		Target:     "worker",
+		Status:     job.StatusDone,
+		LastEvent:  "cleanup",
+		LastStatus: "nothing to clean",
+		CreatedAt:  now.Add(-2 * time.Hour),
+		UpdatedAt:  now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write handled job: %v", err)
+	}
+	writeStatus(t, filepath.Join(teamDir, "state", "worker-gh-393"), `[status]
+phase = "done"
+description = "stale worker summary"
+since = "2026-07-10T15:00:00Z"
+
+[work]
+job = "gh-393"
+ticket = "GH-393"
+pr = "https://github.com/agent-team-project/kensho/pull/393"
+branch = "worker-gh-393"
+worktree = "/tmp/stale-worker-gh-393"
+`, now.Add(-time.Hour))
+	jobBefore, err := os.ReadFile(job.Path(teamDir, j.ID))
+	if err != nil {
+		t.Fatalf("read handled job before tick: %v", err)
+	}
+
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		cmd := NewRootCmd()
+		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(stderr)
+		cmd.SetArgs([]string{"tick", "--target", target, "--skip-schedules", "--skip-advance", "--json"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("tick attempt %d: %v\nstderr=%s", attempt, err, stderr.String())
+		}
+		var result tickResult
+		if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+			t.Fatalf("decode tick attempt %d: %v\nbody=%s", attempt, err, out.String())
+		}
+		if len(result.JobStatus) != 0 {
+			t.Fatalf("tick attempt %d status reconciliation = %+v, want none", attempt, result.JobStatus)
+		}
+		if result.ManagerWake == nil || len(result.ManagerWake.IdleWakeups) != 0 {
+			t.Fatalf("tick attempt %d manager wake = %+v, want silent", attempt, result.ManagerWake)
+		}
+		if _, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "manager"); !os.IsNotExist(err) {
+			t.Fatalf("tick attempt %d started manager, metadata err=%v", attempt, err)
+		}
+		jobAfter, err := os.ReadFile(job.Path(teamDir, j.ID))
+		if err != nil {
+			t.Fatalf("read handled job after tick %d: %v", attempt, err)
+		}
+		if !bytes.Equal(jobAfter, jobBefore) {
+			t.Fatalf("tick attempt %d changed handled job bytes\nbefore:\n%s\nafter:\n%s", attempt, jobBefore, jobAfter)
+		}
+	}
+}
+
 func TestTickDryRunIncludesDueSchedules(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-tick-")
 	if err != nil {

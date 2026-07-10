@@ -306,12 +306,10 @@ func jobHasPendingManagerDeliverable(j *jobstore.Job) bool {
 	if strings.TrimSpace(j.PR) == "" && strings.TrimSpace(j.Branch) == "" && strings.TrimSpace(j.Worktree) == "" {
 		return false
 	}
-	switch strings.TrimSpace(j.LastEvent) {
-	case "merged", "pr.merged", "pr.closed", "closed", "cleanup":
+	if jobstore.IsHandledTerminalEvent(j.LastEvent) {
 		return false
-	default:
-		return true
 	}
+	return true
 }
 
 func managerHasActiveChildWork(manager string, candidate *jobstore.Job, jobs []*jobstore.Job, metas []*Metadata) bool {

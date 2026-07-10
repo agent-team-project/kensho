@@ -4767,6 +4767,95 @@ branch = "worker-squ-120"
 	}
 }
 
+func TestJobReconcileStatusPreservesHandledTerminalJobs(t *testing.T) {
+	for _, lastEvent := range []string{"cleanup", "closed"} {
+		t.Run(lastEvent, func(t *testing.T) {
+			tmp := t.TempDir()
+			initInto(t, tmp)
+			teamDir := filepath.Join(tmp, ".agent_team")
+			now := time.Date(2026, 7, 10, 18, 0, 0, 0, time.UTC)
+			j := &job.Job{
+				ID:         "gh-393-" + strings.ReplaceAll(lastEvent, ".", "-"),
+				Ticket:     "GH-393",
+				Target:     "worker",
+				Status:     job.StatusDone,
+				LastEvent:  lastEvent,
+				LastStatus: "manager already handled terminal job",
+				CreatedAt:  now.Add(-2 * time.Hour),
+				UpdatedAt:  now,
+			}
+			if err := job.Write(teamDir, j); err != nil {
+				t.Fatalf("write job: %v", err)
+			}
+			if err := job.AppendSnapshotEvent(teamDir, j, lastEvent, "manager", j.LastStatus, nil); err != nil {
+				t.Fatalf("append terminal event: %v", err)
+			}
+			instance := "worker-" + j.ID
+			writeStatus(t, filepath.Join(teamDir, "state", instance), fmt.Sprintf(`[status]
+phase = "done"
+description = "stale worker summary"
+since = "2026-07-10T15:00:00Z"
+
+[work]
+job = %q
+ticket = "GH-393"
+pr = "https://github.com/agent-team-project/kensho/pull/393"
+branch = "stale-gh-393"
+worktree = %q
+`, j.ID, filepath.Join(tmp, ".claude", "worktrees", "stale-gh-393")), now.Add(-time.Hour))
+
+			jobBefore, err := os.ReadFile(job.Path(teamDir, j.ID))
+			if err != nil {
+				t.Fatalf("read job before reconcile: %v", err)
+			}
+			eventsBefore, err := os.ReadFile(job.EventPath(teamDir, j.ID))
+			if err != nil {
+				t.Fatalf("read events before reconcile: %v", err)
+			}
+
+			for attempt := 1; attempt <= 2; attempt++ {
+				cmd := NewRootCmd()
+				out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+				cmd.SetOut(out)
+				cmd.SetErr(stderr)
+				cmd.SetArgs([]string{"job", "reconcile", "status", "--repo", tmp, "--json"})
+				if err := cmd.Execute(); err != nil {
+					t.Fatalf("reconcile attempt %d: %v\nstderr=%s", attempt, err, stderr.String())
+				}
+				var results []jobStatusReconcileResult
+				if err := json.Unmarshal(out.Bytes(), &results); err != nil {
+					t.Fatalf("decode attempt %d: %v\nbody=%s", attempt, err, out.String())
+				}
+				if len(results) != 0 {
+					t.Fatalf("attempt %d results = %+v, want handled terminal status ignored", attempt, results)
+				}
+				jobAfter, err := os.ReadFile(job.Path(teamDir, j.ID))
+				if err != nil {
+					t.Fatalf("read job after attempt %d: %v", attempt, err)
+				}
+				if !bytes.Equal(jobAfter, jobBefore) {
+					t.Fatalf("attempt %d changed terminal job bytes\nbefore:\n%s\nafter:\n%s", attempt, jobBefore, jobAfter)
+				}
+				eventsAfter, err := os.ReadFile(job.EventPath(teamDir, j.ID))
+				if err != nil {
+					t.Fatalf("read events after attempt %d: %v", attempt, err)
+				}
+				if !bytes.Equal(eventsAfter, eventsBefore) {
+					t.Fatalf("attempt %d changed terminal event history", attempt)
+				}
+			}
+
+			preserved, err := job.Read(teamDir, j.ID)
+			if err != nil {
+				t.Fatalf("read preserved job: %v", err)
+			}
+			if preserved.LastEvent != lastEvent || preserved.LastStatus != j.LastStatus || preserved.Instance != "" || preserved.Branch != "" || preserved.PR != "" || preserved.Worktree != "" {
+				t.Fatalf("preserved job = %+v", preserved)
+			}
+		})
+	}
+}
+
 func TestJobReconcileStatusDoneWithoutDeliveryArtifactFails(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

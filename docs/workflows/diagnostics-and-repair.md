@@ -437,6 +437,27 @@ Add `--runtime codex` or `--runtime-bin <path>` when repair retry or final tick 
 | Worker blocked | `agent-team job unblock <job-id> <answer...>` |
 | Done job cleanup after merge | `agent-team job cleanup <job-id> --dry-run`, then `--merged --verify-pr` |
 
+Terminal jobs whose last event is `merged`, `pr.merged`, `pr.closed`,
+`closed`, or `cleanup` are authoritative over older instance `status.toml`
+files. Repeated status reconciliation leaves those records unchanged even if
+the instance file still contains historical ownership, branch, PR, or
+worktree fields.
+
+For a terminal record that an older binary already overwrote with
+`status_reconcile`, inspect its event history before repairing it:
+
+```sh
+agent-team job show <job-id> --events all
+agent-team job cleanup <job-id> --dry-run --verify-pr
+agent-team job cleanup <job-id> --merged --verify-pr
+```
+
+The merge-verified cleanup path restores the durable `cleanup` event without
+deleting an open PR or unmerged branch. For a deliberately closed, unmerged
+job, confirm the provider state and use `job close` to restore `closed`; do not
+use cleanup's `--merged` confirmation. Once the handled event is restored,
+`job reconcile status` cannot resurrect the stale instance metadata.
+
 ## Design Requirements for New Diagnostics
 
 When adding diagnostic behavior:

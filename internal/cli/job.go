@@ -11471,6 +11471,9 @@ func reconcileSelectedJobsFromStatus(teamDir string, jobs []*job.Job, dryRun boo
 		if statusRowSupersededByUnblock(j, row) {
 			continue
 		}
+		if statusRowSupersededByHandledTerminalEvent(j) {
+			continue
+		}
 		result := reconcileJobFromStatusRow(teamDir, j, row, matchedBy, dryRun, now)
 		if result.Changed && !dryRun {
 			data := map[string]string{
@@ -11989,6 +11992,10 @@ func statusRowSupersededByUnblock(j *job.Job, row instanceRow) bool {
 		return false
 	}
 	return !row.StatusAt.After(j.UpdatedAt)
+}
+
+func statusRowSupersededByHandledTerminalEvent(j *job.Job) bool {
+	return j != nil && jobStatusTerminal(j.Status) && job.IsHandledTerminalEvent(j.LastEvent)
 }
 
 func jobForStatusRow(jobs []*job.Job, row instanceRow) (*job.Job, string) {
