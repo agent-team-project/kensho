@@ -480,6 +480,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 			StateURI:            runResources.StateURI,
 			Runtime:             string(rt.Kind),
 			RuntimeBinary:       rt.Binary,
+			Model:               declaredRunModel(teamDir, instance, agentName, rt),
 			Args:                runtimeArgs,
 			Env:                 runtimeArgEnv,
 			Stdin:               runtimeStdin,
@@ -613,6 +614,25 @@ func runLaunchRootShouldPersist(teamDir, instance, agent string) bool {
 		return false
 	}
 	return !inst.Ephemeral
+}
+
+func declaredRunModel(teamDir, instance, agent string, rt runtimebin.Runtime) string {
+	if rt.Kind != runtimebin.KindClaude {
+		return ""
+	}
+	topo, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil || topo == nil {
+		return ""
+	}
+	inst := topo.Find(strings.TrimSpace(instance))
+	if inst == nil {
+		return ""
+	}
+	declaredAgent := strings.TrimSpace(inst.Agent)
+	if agent = strings.TrimSpace(agent); agent != "" && declaredAgent != "" && declaredAgent != agent {
+		return ""
+	}
+	return strings.TrimSpace(inst.Model)
 }
 
 func prepareRunLaunchRoot(stateDir string, mode runLaunchRootMode) (runLaunchRoot, error) {

@@ -1558,6 +1558,70 @@ description = "Persistent manager."
 	}
 }
 
+func TestInstanceUpForwardsDeclaredClaudeModel(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-instance-up-model-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[instances.manager]
+agent       = "manager"
+runtime     = "claude"
+model       = "claude-fable-5"
+description = "Persistent Claude manager."
+`)
+
+	base := fakeSpawnerForTest(t, 2*time.Second)
+	var (
+		mu      sync.Mutex
+		gotArgs []string
+	)
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		mu.Lock()
+		gotArgs = append([]string(nil), args...)
+		mu.Unlock()
+		return base(args, env, workspace, stdoutPath, stderrPath, stdinContent)
+	})
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	defer func() {
+		for _, meta := range mgr.List() {
+			if meta.Instance == "manager" && meta.Status == daemon.StatusRunning {
+				stopAndWaitForTest(t, mgr, "manager")
+				return
+			}
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"instance", "up", "manager", "--json", "--target", tmp})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("instance up manager --json: %v\nstderr=%s", err, stderr.String())
+	}
+	var rows []lifecycleActionResult
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatalf("decode instance up json: %v\nbody=%s", err, out.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "start" || rows[0].Instance != "manager" || rows[0].Status != string(daemon.StatusRunning) || rows[0].PID == 0 {
+		t.Fatalf("instance up result = %+v, want one running manager", rows)
+	}
+
+	mu.Lock()
+	args := append([]string(nil), gotArgs...)
+	mu.Unlock()
+	if got, ok := argValue(args, "--model"); !ok || got != "claude-fable-5" {
+		t.Fatalf("daemon args --model = %q, %v; want claude-fable-5 in %v", got, ok, args)
+	}
+}
+
 func TestInstanceUpFreshLaunchPersistsPromptFile(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-instance-up-fresh-")
 	if err != nil {
