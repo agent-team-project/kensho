@@ -4664,7 +4664,7 @@ func newJobCleanupCmd() *cobra.Command {
 				renderJobCleanupPreview(cmd.OutOrStdout(), preview)
 				return nil
 			}
-			if err := validateJobCleanupReady(j); err != nil {
+			if err := validateJobCleanupReady(j, verifyPR); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job cleanup: %v\n", err)
 				return exitErr(2)
 			}
@@ -11471,6 +11471,9 @@ func reconcileSelectedJobsFromStatus(teamDir string, jobs []*job.Job, dryRun boo
 		if statusRowSupersededByUnblock(j, row) {
 			continue
 		}
+		if statusRowSupersededByHandledTerminalEvent(j) {
+			continue
+		}
 		result := reconcileJobFromStatusRow(teamDir, j, row, matchedBy, dryRun, now)
 		if result.Changed && !dryRun {
 			data := map[string]string{
@@ -11989,6 +11992,10 @@ func statusRowSupersededByUnblock(j *job.Job, row instanceRow) bool {
 		return false
 	}
 	return !row.StatusAt.After(j.UpdatedAt)
+}
+
+func statusRowSupersededByHandledTerminalEvent(j *job.Job) bool {
+	return j != nil && jobStatusTerminal(j.Status) && job.IsHandledTerminalEvent(j.LastEvent)
 }
 
 func jobForStatusRow(jobs []*job.Job, row instanceRow) (*job.Job, string) {
@@ -13939,14 +13946,14 @@ func runJobExplainWatch(ctx context.Context, w io.Writer, teamDir, id string, st
 	}
 }
 
-func validateJobCleanupReady(j *job.Job) error {
+func validateJobCleanupReady(j *job.Job, verifyPR bool) error {
 	if j == nil {
 		return fmt.Errorf("job is required")
 	}
 	if j.Status != job.StatusDone {
 		return fmt.Errorf("job %q is %s; close or reconcile it as done before cleanup", j.ID, j.Status)
 	}
-	if !jobNeedsCleanup(j) {
+	if !jobNeedsCleanup(j) && !(verifyPR && strings.TrimSpace(j.PR) != "") {
 		return fmt.Errorf("job %q has no worktree or branch to clean", j.ID)
 	}
 	return nil
@@ -14193,7 +14200,8 @@ func jobCleanupBatchHasApplyCommand(result jobCleanupBatchResult) bool {
 }
 
 func jobCleanupPreviewHasApplyCommand(preview jobCleanupPreview) bool {
-	return preview.DryRun && (preview.WouldRemoveWorktree || preview.WouldRemoveBranch)
+	verifiedPRRepair := preview.PRVerification != nil && preview.PRVerification.Verified
+	return preview.DryRun && (preview.WouldRemoveWorktree || preview.WouldRemoveBranch || verifiedPRRepair)
 }
 
 func jobCleanupApplyCommandArgs(opts jobCleanupCommandOptions) []string {
