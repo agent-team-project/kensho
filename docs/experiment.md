@@ -84,7 +84,9 @@ product-verifier, and docs-freshness loops:
 | Docs freshness | Every 24 hours. | Check docs against the live CLI, release record, repo identity, links, and quickstart; file findings or fix them directly when dispatched. |
 
 The PR team's 24h Discord digest schedule is part of the current topology, but
-it is outward communication rather than the core self-improvement loop.
+it is only an opportunity for outward communication. The shared delivery gate
+allows at most one successful Discord post per rolling 24 hours across digest,
+release, and manual paths; no meaningful material means no post.
 
 ## The Delivery Loop
 

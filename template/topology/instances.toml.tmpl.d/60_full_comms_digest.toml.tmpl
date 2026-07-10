@@ -1,7 +1,7 @@
-# The comms team: the project's public voice. A daily schedule dispatches the
-# comms agent to digest the last 24h of shipped work into Discord (via
-# webhook — sanctioned automation; falls back to a supervisor draft when no
-# webhook is configured). Community signal flows back in through the
+# The comms team: the project's public voice. A 24h schedule offers a digest
+# opportunity; the shared webhook helper enforces one success per rolling 24h
+# across digest, release, and manual paths. Quiet windows remain quiet and
+# ineligible material is retained. Community signal flows back through the
 # feedback store. See template/agents/comms/agent.md for the voice rules.
 [schedules.discord-digest]
 every = "24h"
@@ -14,7 +14,7 @@ agent        = "comms"
 ephemeral    = true
 token_budget = "15M"
 env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
-description  = "Public-relations agent: daily shipped-work digest, release announcements, community intake."
+description  = "Public-relations agent: 24-hour-capped shipped-work digest, release announcements, community intake."
 
 [[instances.comms.triggers]]
 event      = "schedule"
@@ -24,5 +24,4 @@ match.kind = "discord_digest"
 [[instances.comms.triggers]]
 event        = "agent.dispatch"
 match.target = "comms"
-
 
