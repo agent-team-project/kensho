@@ -188,8 +188,15 @@ The following are structural wireframes, not snapshot test outputs. Every row
 inside each `text` fence is normative terminal-cell data: one ASCII character is
 one cell, there are no tabs or implicit margins, and the row count and width
 MUST equal the geometry in its heading. A documentation check counts those
-source rows and cells directly. Canonical goldens use the same regions and the
-exact fixture defined under Acceptance.
+source rows and cells directly. It also checks every multi-pane junction for its
+full inclusive source-row span: the 120×30 Jobs/Detail junction is column 70 on
+rows 5–14; the 160×50 Live-org/Context junction is column 105 on rows 3–13; and
+the wide Pipelines/Budgets, Schedules/Teams, and Deployments/Deadlines junctions
+are column 73 on rows 14–19, 20–24, and 25–47 respectively. Every listed row,
+including pane headers, content, separators, and closing rows, MUST contain `|`
+or `+` at exactly that column and MUST NOT shift to either adjacent column.
+Canonical goldens use the same regions and the exact fixture defined under
+Acceptance.
 
 ### 80×24 — compact overview
 
@@ -232,7 +239,7 @@ opens the complete row as a full-width detail pane.
 +----------------------------------------------------------------------------------------------------------------------+
 | Query: status:active bounce:capability                                             4 matching / 12                   |
 + Jobs --------------------------------------------------------------+ Detail -----------------------------------------+
-| ID                 Ticket   Status       Pipeline       Model/Tier  | gh383-tui-spec                                 |
+| ID                 Ticket   Status       Pipeline       Model/Tier | gh383-tui-spec                                  |
 | > gh383-tui-spec   GH-383   implementing frontend...   gpt-5.6/T2  | instance frontend-worker                        |
 |   gh382-discord    GH-382   review       frontend...   gpt-5.6/T2  | pipeline frontend_ticket_to_pr                  |
 |   gh381-research   GH-381   running      platform...   gpt-5.6/T2  | runtime codex                                   |
@@ -240,7 +247,7 @@ opens the complete row as a full-width detail pane.
 |                                                                    | updated 12:03:51                                |
 |                                                                    |                                                 |
 |                                                                    | [Enter] work detail (later)                     |
-+ Model / tier -------------------------------------------------------+------------------------------------------------+
++ Model / tier ------------------------------------------------------+-------------------------------------------------+
 | gpt-5.6 / T2       jobs 3    active 3    bounces 1                                                                   |
 | not reported       jobs 1    active 1    bounces -                                                                   |
 + Bounce classes ------------------------------------------------------------------------------------------------------+
@@ -269,7 +276,7 @@ becomes a full-width pane below the list.
 + agent-team | FLEET / TOPOLOGY --------------------------------------------------------------- CONNECTED 12:04:05 --------------------------------------------+
 | OVERVIEW | WORK | FLEET | ACTIVITY | LOGS | RESEARCH | REQUIREMENTS | RELEASE                                  ? Help                                        |
 +----------------------+--------------------------------------------------------------------------------+------------------------------------------------------+
-| Fleet                | Live org                                                                      | Context                                               |
+| Fleet                | Live org                                                                       | Context                                              |
 |   Org                | Worker                                            2 working  1 idle            | platform-worker                                      |
 |   Instances          | > platform-worker       2/2 running / 1 queued    [working]                    | ephemeral                                            |
 | > Topology           |     frontend-worker-1   GH-383 / writing spec     [implementing] [running]     | replica cap 2                                        |
@@ -280,10 +287,10 @@ becomes a full-width pane below the list.
 |                      |                                                                                | Enter: lane detail                                   |
 | Activity             +--------------------------------------------------------------------------------+                                                      |
 | Logs                 | Pipelines                                      | Budgets                                                                              |
-| Research             | frontend_ticket_to_pr  agent.dispatch           | frontend  40M/day  cap 2  active 1  open 1                                          |
-| Requirements         | implement -> worker (60M / 1h)                  | platform  80M/day  cap 2  active 2  open 0                                          |
-| Release              | verify -> verifier (10M / 20m)                  |                                                                                     |
-|                      | review -> reviewer (20M / 30m)                  |                                                                                     |
+| Research             | frontend_ticket_to_pr  agent.dispatch          | frontend  40M/day  cap 2  active 1  open 1                                           |
+| Requirements         | implement -> worker (60M / 1h)                 | platform  80M/day  cap 2  active 2  open 0                                           |
+| Release              | verify -> verifier (10M / 20m)                 |                                                                                      |
+|                      | review -> reviewer (20M / 30m)                 |                                                                                      |
 |                      +------------------------------------------------+------------------------------------------------------                                +
 |                      | Schedules                                      | Teams                                                                                |
 |                      | product-verify  24h   09:00  quality           | frontend  4 instances  1 pipeline  1 channel                                         |
@@ -312,7 +319,7 @@ becomes a full-width pane below the list.
 |                      |                                                |                                                                                      |
 |                      |                                                |                                                                                      |
 |                      |                                                |                                                                                      |
-+----------------------+--------------------------------------------------------------------------------+------------------------------------------------------+
++----------------------+------------------------------------------------+--------------------------------------------------------------------------------------+
 | Query: none | Snapshot 12:04:05 | collections 3/3 | resources 24/24 | topology section: org                                                                  |
 | Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  ^K commands  ? help  q quit                                                               |
 +--------------------------------------------------------------------------------------------------------------------------------------------------------------+
@@ -389,21 +396,22 @@ cross-resource search requires its own platform API and is not a cutover gate.
 - Normal mode may use terminal colors, but text labels and structure carry all
   meaning.
 - If `NO_COLOR` is present (regardless of value), color output is disabled.
-- With `TERM=dumb`, the renderer uses ASCII borders, no cursor-addressing
-  animation, no OSC sequences, and a conservative one-frame redraw. All read
-  functions remain available.
+- With `TERM=dumb`, the renderer uses ASCII borders, emits no terminal escape
+  output, and uses a conservative one-frame redraw. All read functions remain
+  available.
 - Capability detection is injected into the model at startup. Pure views do not
   query environment variables or the terminal.
 
 `TERM=dumb` is an executable profile, not an alias for `NO_COLOR`. At all three
 canonical geometries its golden capture MUST use only `+`, `-`, and `|` for
-borders; contain no Unicode box-drawing characters, CSI (`ESC [`), OSC
-(`ESC ]`), or SGR/color sequences; and preserve the same textual status and
-focus labels as the plain profile. A PTY flow at 80×24 sends `Tab`, arrows,
-`Enter`, `/`, `r`, `?`, and `q`, and proves that navigation, filtering, inspect,
-refresh, help, and quit remain readable and functional without cursor
-addressing. The machine form and forbidden-byte assertions are in
-`parity.yaml`.
+borders; contain no Unicode box-drawing characters; and contain no `0x1b` ESC,
+`0x9b` C1 CSI, or `0x9d` C1 OSC byte anywhere. Forbidding ESC as a byte rejects
+all 7-bit terminal control forms, including CSI, OSC, SGR/color, and cursor
+save/restore (`ESC 7` / `ESC 8`), rather than recognizing only selected
+prefixes. A PTY flow at 80×24 sends `Tab`, arrows, `Enter`, `/`, `r`, `?`, and
+`q`, and proves that navigation, filtering, inspect, refresh, help, and quit
+remain readable and functional without cursor addressing. The machine form and
+raw-byte assertions are in `parity.yaml`.
 
 ### Non-TTY and `--once`
 
@@ -637,7 +645,7 @@ a PTY.
 | `unit` | Pure update and projection tables | Every message × applicable canonical states; sort/filter/aggregate tests match the current dashboard formulas captured in `parity.yaml`. |
 | `golden` | Canonical renders | Every implemented screen at 80×24, 120×30, and 160×50 in color, `NO_COLOR`, and `TERM=dumb`; two consecutive clean renders are byte-identical. Golden diffs are review artifacts. |
 | `pty` | `teatest` keyboard/process integration | Binding registry sweep, focus traversal, help/palette/search, mixed-aspect resize boundary vectors plus a resize storm, disconnect→stale→reconnect, and attach suspend/restore. |
-| `term-dumb` | Plain render plus PTY byte/keyboard assertions | At all canonical geometries use ASCII borders and emit no Unicode box drawing, CSI/cursor-addressing, OSC, SGR, or color dependency; at 80×24 retain readable keyboard navigation, filter, inspect, refresh, help, and quit. |
+| `term-dumb` | Plain render plus PTY byte/keyboard assertions | At all canonical geometries use ASCII borders and reject every `0x1b`, `0x9b`, and `0x9d` byte, thereby excluding all 7-bit escape forms (including cursor save/restore), 8-bit CSI/OSC, SGR, and color dependency; at 80×24 retain readable keyboard navigation, filter, inspect, refresh, help, and quit. |
 | `live-daemon` | Seeded local daemon parity and discovery | TUI projections for every `covered` parity row equal canonical API/CLI ground truth from the same `tui-small-v1` state. A fresh repository with all daemon endpoint/token environment variables unset proves persisted-HTTP-before-socket precedence, default operator-token acquisition, Unix-socket fallback, and fail-closed stale pidfile behavior. No TUI test parses human CLI output; the harness compares typed normalized values. |
 | `non-tty` | Pipe/exit/control-sequence assertions | Interactive pipe refuses with exit `2`; `--once` exact plain 120×30 frame and exit codes `0/1`; stdout contains no cursor-control sequence. |
 | `cutover-lints` | Permanent surface-removal checks | All deletion and anti-regression rules in `parity.yaml`, including the dedicated auth regression, are green. Enabled only by the cutover PR and permanent thereafter. |
@@ -660,9 +668,14 @@ The authoritative machine form is `cutover` in
 
 1. provide evidence for every `covered` parity row and a cited decision for every
    `dropped-by-decision` row;
-2. prove that the cutover parent's complete embedded-UI/route/auth source digest
-   exactly matches the inventoried digest; any mismatch fails closed and
-   requires a reviewed inventory refresh before deletion;
+2. build one synthetic integration case from the exact current PR target head
+   and cutover head; prove the target input's complete embedded-UI/route/auth
+   source digest matches the inventory, then run deletion, path-absence, rewrite,
+   auth, and lint gates on that case's result tree. The target ref MUST still
+   resolve to the recorded SHA immediately before merge; otherwise all evidence
+   is invalidated and the integration case is rebuilt. Any digest mismatch or
+   target-side UI/route/auth addition fails closed and requires a reviewed
+   inventory refresh before deletion;
 3. pass all acceptance tiers—including zero-environment discovery and the
    distinct `TERM=dumb` render/PTY gate—the 100-instance/500-job performance
    fixture, and the one-hour soak;
@@ -687,7 +700,10 @@ there is no “delete now, guard later” interval. The architecture records may
 retain historical `/ui` text, so docs lints exclude this directory while
 checking all user-facing guides. No daemon `/v1` behavior changes are allowed in
 that PR; the only daemon-handler edits are removal of UI registration/auth code
-and their tests.
+and their tests. Freshness necessarily reads the pre-deletion target input while
+absence reads the post-deletion result; both SHAs and the result tree are one
+recorded integration proof and no gate may substitute a merge base, stale target,
+or branch-only tree.
 
 ## Serial seams and ownership
 

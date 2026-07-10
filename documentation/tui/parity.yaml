@@ -17,8 +17,8 @@ semantics:
     has a required decision citation.
   cutover_complete: >-
     Every covered row has passing evidence, every dropped row has a decision,
-    the cutover-parent source digest is current, and every cutover oracle
-    condition is satisfied on the same PR head SHA.
+    the current-target integration source digest is current, and every cutover
+    oracle condition is satisfied on the same recorded integration result.
 
 source_inventory:
   base_commit: f206f0f0503a0b4e841e9919b6c221793430dfe8
@@ -569,6 +569,47 @@ cutover:
     and the guards preventing their return all change atomically on one manually
     approved PR head.
 
+  integration_proof:
+    target_ref_source: pull_request.baseRefName
+    target_head_definition: >-
+      The freshly fetched current head SHA of the PR target ref, never a merge
+      base, cached checkout, or the target SHA from when the cutover branch forked.
+    cutover_head_definition: the exact tested PR head SHA
+    synthetic_merge:
+      command_contract: git merge-tree --write-tree "$TARGET_HEAD" "$CUTOVER_HEAD"
+      clean_merge_required: true
+      output: integration_result_tree
+    coupled_revisions:
+      source_inventory_digest: target_head
+      removals_and_path_absence: integration_result_tree
+      required_rewrites: integration_result_tree
+      auth_regression: integration_result_tree
+      permanent_lints: integration_result_tree
+      acceptance_gates: integration_result_tree
+    coupling_rule: >-
+      All evaluations belong to this one (target_head, cutover_head,
+      integration_result_tree) tuple. Freshness reads the pre-deletion target
+      input because the result must contain no inventoried sources; all deletion,
+      absence, rewrite, auth, and lint evaluations read the tuple's result tree.
+      No evaluation may substitute a merge base, branch-only tree, or separately
+      resolved target revision.
+    target_head_guard:
+      before_gate: target_head equals the freshly fetched target ref head
+      immediately_before_merge: target_head still equals the target ref head
+      merge_precondition: >-
+        The provider merge or merge-queue operation is conditional on the
+        recorded target_head SHA; it must reject rather than integrate onto a
+        different target head.
+      on_mismatch: >-
+        Invalidate all evidence, fetch the new target head, rebuild the synthetic
+        integration result, and rerun source freshness plus every cutover gate.
+    evidence_file_keys:
+      - target_ref
+      - target_head_sha
+      - cutover_head_sha
+      - integration_result_tree
+      - clean_merge
+
   parity:
     disposition_rule: "all(capabilities, status in semantics.allowed_statuses)"
     covered_rule: "all(capabilities[status=covered], evidence.length > 0)"
@@ -577,32 +618,31 @@ cutover:
     evidence_file: documentation/tui/cutover-evidence.yaml
     evidence_must_match_head_sha: true
     source_freshness:
-      comparison_revision: cutover_parent
-      cutover_parent_definition: >-
-        The exact target-branch merge base of the cutover PR head; the cutover
-        PR may only delete paths in the digest scope, never add or modify them
-        before deletion.
+      integration_proof_ref: cutover.integration_proof
+      comparison_revision: integration_proof.target_head
       digest_contract_ref: source_inventory.digest
       rule: >-
-        digest(cutover_parent, source_inventory.digest.scope) ==
+        digest(integration_proof.target_head, source_inventory.digest.scope) ==
         source_inventory.digest.value
       fail_closed: true
       evidence_file_keys:
-        - cutover_head_sha
-        - cutover_parent_sha
         - source_inventory_base_commit
         - source_inventory_expected_digest
-        - cutover_parent_actual_digest
+        - target_head_source_actual_digest
         - inventory_review_url
       equality_requirements:
-        - cutover_head_sha equals the exact tested PR head SHA
+        - integration_proof.cutover_head_sha equals the exact tested PR head SHA
+        - integration_proof.target_head_sha equals the current PR target head SHA
+        - integration_proof.integration_result_tree is the clean synthetic merge output
         - source_inventory_base_commit equals source_inventory.base_commit
         - source_inventory_expected_digest equals source_inventory.digest.value
-        - cutover_parent_actual_digest equals source_inventory.digest.value
+        - target_head_source_actual_digest equals source_inventory.digest.value
+        - every removal and path-absence assertion passes on integration_result_tree
       mismatch_remediation: >-
         Stop deletion, regenerate and re-review every capability and route shape
         against the changed source scope, update base_commit and digest.value in
-        a separate reviewed inventory revision, then rerun the cutover oracle.
+        a separate reviewed inventory revision, then rebuild the integration
+        proof and rerun the entire cutover oracle.
 
   acceptance_gates:
     required:
@@ -668,6 +708,17 @@ cutover:
           - {heading: "### 160×50 — wide topology", fence: text, columns: 160, rows: 50}
         row_assertion: each source row has exactly the declared columns cells
         height_assertion: each source fence contains exactly its declared number of rows
+        pane_junctions:
+          - {frame: 120x30, pane: Jobs/Detail, source_rows: 5..14, column: 70}
+          - {frame: 160x50, pane: Live-org/Context, source_rows: 3..13, column: 105}
+          - {frame: 160x50, pane: Pipelines/Budgets, source_rows: 14..19, column: 73}
+          - {frame: 160x50, pane: Schedules/Teams, source_rows: 20..24, column: 73}
+          - {frame: 160x50, pane: Deployments/Deadlines, source_rows: 25..47, column: 73}
+        pane_junction_assertion: >-
+          For every inclusive source-row span, each row has ASCII | or + at the
+          declared one-based column and has no junction for that pane at either
+          adjacent column. Header/opening, content, separator, and closing rows
+          are all checked; correct outer dimensions alone are insufficient.
     zero_environment_discovery:
       required_gate: live-daemon
       fixture: tui-small-v1 in a fresh temporary repository
@@ -730,6 +781,13 @@ cutover:
       forbidden_byte_sequence_prefixes:
         - 1b5b  # ESC [, all CSI including cursor addressing and SGR/color
         - 1b5d  # ESC ], all OSC
+      forbidden_bytes:
+        - 1b  # ESC: rejects every 7-bit escape form, including ESC 7 / ESC 8
+        - 9b  # 8-bit C1 CSI
+        - 9d  # 8-bit C1 OSC
+      raw_byte_assertion: >-
+        Scan the complete render and PTY capture before decoding text and fail if
+        any forbidden byte occurs anywhere; prefix-only matching is insufficient.
       no_color_dependency_assertion: >-
         Normalized textual status, focus, and control labels equal the NO_COLOR
         frame; color or glyph shape is never the only signal.
@@ -753,12 +811,14 @@ cutover:
         - help opens, lists bindings, and closes
         - quit exits cleanly
         - captured output contains neither forbidden byte-sequence prefix
+        - captured output contains none of the forbidden bytes
     large_fixture:
       instances: 100
       jobs: 500
     max_first_paint_after_api_response_ms: 150
     soak_duration: 1h
 
+  removal_evaluation_revision: integration_proof.integration_result_tree
   removals:
     - id: embedded-ui-directory
       kind: path_absent
