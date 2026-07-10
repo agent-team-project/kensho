@@ -603,6 +603,120 @@ func TestTickReconcilesJobEvents(t *testing.T) {
 	}
 }
 
+func TestTickManagerWakeWakesStoppedManagerForCompletedDeliverableWithEmptyQueue(t *testing.T) {
+	target, err := os.MkdirTemp("/tmp", "agent-team-manager-wake-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(target)
+	teamDir := filepath.Join(target, ".agent_team")
+	if err := os.MkdirAll(filepath.Join(teamDir, "agents", "manager"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.manager]
+agent = "manager"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "agents", "manager", "agent.md"), []byte("---\ndescription: test manager\n---\n\nYou are a test manager.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Add(-30 * time.Minute)
+	j := &job.Job{
+		ID:        "gh-328",
+		Ticket:    "GH-328",
+		Target:    "worker",
+		Instance:  "worker-gh-328",
+		Status:    job.StatusDone,
+		Branch:    "worker-gh-328",
+		PR:        "https://github.com/agent-team-project/kensho/pull/328",
+		LastEvent: "instance_exited",
+		CreatedAt: now.Add(-30 * time.Minute),
+		UpdatedAt: now,
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatalf("write completed deliverable job: %v", err)
+	}
+	if items, err := daemon.ListQueueItems(daemon.DaemonRoot(teamDir)); err != nil {
+		t.Fatalf("list queue: %v", err)
+	} else if len(items) != 0 {
+		t.Fatalf("queue precondition = %+v, want empty", items)
+	}
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	dry := NewRootCmd()
+	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dry.SetOut(dryOut)
+	dry.SetErr(dryErr)
+	dry.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	if err := dry.Execute(); err != nil {
+		t.Fatalf("tick dry-run manager wake: %v\nstderr=%s", err, dryErr.String())
+	}
+	var preview tickResult
+	if err := json.Unmarshal(dryOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode dry-run manager wake: %v\nbody=%s", err, dryOut.String())
+	}
+	if preview.ManagerWake == nil || !preview.ManagerWake.DryRun || len(preview.ManagerWake.IdleWakeups) != 1 || preview.ManagerWake.IdleWakeups[0].Action != "would_dispatch" {
+		t.Fatalf("manager wake preview = %+v", preview.ManagerWake)
+	}
+	if _, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "manager"); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not start manager, metadata err=%v", err)
+	}
+	if messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager"); err == nil && len(messages) != 0 {
+		t.Fatalf("dry-run wrote manager messages = %+v", messages)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"tick", "--target", target, "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("tick manager wake: %v\nstderr=%s", err, stderr.String())
+	}
+	var result tickResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("decode manager wake: %v\nbody=%s", err, out.String())
+	}
+	if result.ManagerWake == nil || len(result.ManagerWake.IdleWakeups) != 1 || result.ManagerWake.IdleWakeups[0].Action != "dispatched" || result.ManagerWake.IdleWakeups[0].JobID != "gh-328" {
+		t.Fatalf("manager wake result = %+v", result.ManagerWake)
+	}
+	managerMeta, err := daemon.ReadMetadata(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read manager metadata: %v", err)
+	}
+	if managerMeta.Status != daemon.StatusRunning {
+		t.Fatalf("manager metadata = %+v, want running", managerMeta)
+	}
+	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
+	if err != nil {
+		t.Fatalf("read manager messages: %v", err)
+	}
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, "completed job has PR or branch awaiting manager action") {
+		t.Fatalf("manager messages = %+v, want completed deliverable wake", messages)
+	}
+
+	second := NewRootCmd()
+	secondOut, secondErr := &bytes.Buffer{}, &bytes.Buffer{}
+	second.SetOut(secondOut)
+	second.SetErr(secondErr)
+	second.SetArgs([]string{"tick", "--target", target, "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	if err := second.Execute(); err != nil {
+		t.Fatalf("second tick manager wake: %v\nstderr=%s", err, secondErr.String())
+	}
+	var repeated tickResult
+	if err := json.Unmarshal(secondOut.Bytes(), &repeated); err != nil {
+		t.Fatalf("decode second manager wake: %v\nbody=%s", err, secondOut.String())
+	}
+	if repeated.ManagerWake == nil || len(repeated.ManagerWake.IdleWakeups) != 0 {
+		t.Fatalf("second manager wake = %+v, want no duplicate while manager running", repeated.ManagerWake)
+	}
+	stopAndWaitForTest(t, mgr, "manager")
+}
+
 func TestTickDryRunIncludesDueSchedules(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-tick-")
 	if err != nil {

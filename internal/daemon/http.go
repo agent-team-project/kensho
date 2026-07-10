@@ -1080,6 +1080,35 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		writeJSON(w, http.StatusOK, result)
 	})
 
+	mux.HandleFunc("/v1/manager-wake/sweep", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if events == nil {
+			writeError(w, http.StatusServiceUnavailable, "topology not configured")
+			return
+		}
+		if !authorize(w, r, "manager_wake.sweep", "manager-wake", origin.Envelope{}) {
+			return
+		}
+		var (
+			result *ManagerWakeSweepResult
+			err    error
+		)
+		now := time.Now().UTC()
+		if r.URL.Query().Get("dry_run") == "true" {
+			result, err = events.PreviewManagerWakeupsWithResult(now)
+		} else {
+			result, err = events.SweepManagerWakeupsWithResult(now)
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})
+
 	// `GET /v1/topology` — declared instances, pipelines, teams, budgets,
 	// schedules, triggers, and per-ephemeral-instance running/queued counts.
 	// Always 200 with empty arrays when nothing is declared, so clients can

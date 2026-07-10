@@ -32,6 +32,7 @@ const (
 type ManagerWakeSweepResult struct {
 	IdleWakeups []ManagerWakeupResult `json:"idle_wakeups,omitempty"`
 	Overdue     []ManagerWakeupResult `json:"overdue,omitempty"`
+	DryRun      bool                  `json:"dry_run,omitempty"`
 }
 
 // ManagerWakeupResult describes one manager wake attempt or suppression.
@@ -94,7 +95,17 @@ func (r *EventResolver) runManagerWakeSweep(now time.Time) {
 // SweepManagerWakeupsWithResult runs one policy sweep. A zero now uses current
 // UTC time. It is exported inside the package for deterministic tests.
 func (r *EventResolver) SweepManagerWakeupsWithResult(now time.Time) (*ManagerWakeSweepResult, error) {
-	result := &ManagerWakeSweepResult{}
+	return r.managerWakeupsWithResult(now, false)
+}
+
+// PreviewManagerWakeupsWithResult evaluates one policy sweep without writing
+// mailbox, lifecycle, job, or wake-backoff state and without starting managers.
+func (r *EventResolver) PreviewManagerWakeupsWithResult(now time.Time) (*ManagerWakeSweepResult, error) {
+	return r.managerWakeupsWithResult(now, true)
+}
+
+func (r *EventResolver) managerWakeupsWithResult(now time.Time, dryRun bool) (*ManagerWakeSweepResult, error) {
+	result := &ManagerWakeSweepResult{DryRun: dryRun}
 	if r == nil || r.mgr == nil || strings.TrimSpace(r.teamDir) == "" {
 		return result, nil
 	}
@@ -116,8 +127,8 @@ func (r *EventResolver) SweepManagerWakeupsWithResult(now time.Time) (*ManagerWa
 	if err != nil {
 		return result, err
 	}
-	result.IdleWakeups = r.sweepIdleManagers(now, topo, jobs, metas)
-	overdue, err := r.sweepOverdueExpectations(now, topo, jobs)
+	result.IdleWakeups = r.sweepIdleManagers(now, topo, jobs, metas, dryRun)
+	overdue, err := r.sweepOverdueExpectations(now, topo, jobs, dryRun)
 	if err != nil {
 		return result, err
 	}
@@ -125,7 +136,7 @@ func (r *EventResolver) SweepManagerWakeupsWithResult(now time.Time) (*ManagerWa
 	return result, nil
 }
 
-func (r *EventResolver) sweepIdleManagers(now time.Time, topo *topology.Topology, jobs []*jobstore.Job, metas []*Metadata) []ManagerWakeupResult {
+func (r *EventResolver) sweepIdleManagers(now time.Time, topo *topology.Topology, jobs []*jobstore.Job, metas []*Metadata, dryRun bool) []ManagerWakeupResult {
 	var out []ManagerWakeupResult
 	managers := managerWakeInstances(topo)
 	managerNames := managerWakeInstanceNames(managers)
@@ -137,13 +148,13 @@ func (r *EventResolver) sweepIdleManagers(now time.Time, topo *topology.Topology
 		if job == nil {
 			continue
 		}
-		wakeup := r.wakeIdleManager(now, inst, job)
+		wakeup := r.wakeIdleManagerOrPreview(now, inst, job, dryRun)
 		out = append(out, wakeup)
 	}
 	return out
 }
 
-func (r *EventResolver) sweepOverdueExpectations(now time.Time, topo *topology.Topology, jobs []*jobstore.Job) ([]ManagerWakeupResult, error) {
+func (r *EventResolver) sweepOverdueExpectations(now time.Time, topo *topology.Topology, jobs []*jobstore.Job, dryRun bool) ([]ManagerWakeupResult, error) {
 	var out []ManagerWakeupResult
 	for _, j := range jobs {
 		if j == nil || jobTerminal(j.Status) {
@@ -163,7 +174,7 @@ func (r *EventResolver) sweepOverdueExpectations(now time.Time, topo *topology.T
 			if state != nil && state.StartedAt.Equal(startedAt) && state.Timeout == timeout.String() {
 				continue
 			}
-			wakeup, err := r.wakeManagerForOverdueStep(now, manager, j, step, startedAt, timeout)
+			wakeup, err := r.wakeManagerForOverdueStepOrPreview(now, manager, j, step, startedAt, timeout, dryRun)
 			if err != nil {
 				return out, err
 			}
@@ -371,10 +382,17 @@ func jobTerminal(status jobstore.Status) bool {
 }
 
 func (r *EventResolver) wakeIdleManager(now time.Time, inst *topology.Instance, j *jobstore.Job) ManagerWakeupResult {
+	return r.wakeIdleManagerOrPreview(now, inst, j, false)
+}
+
+func (r *EventResolver) wakeIdleManagerOrPreview(now time.Time, inst *topology.Instance, j *jobstore.Job, dryRun bool) ManagerWakeupResult {
 	state, _ := readManagerIdleWakeState(r.mgr.daemonRoot, inst.Name)
 	due, nextBackoff, reason := managerIdleWakeDue(now, state, j)
 	if !due {
 		return ManagerWakeupResult{Manager: inst.Name, JobID: j.ID, Action: "skipped", Reason: reason}
+	}
+	if dryRun {
+		return ManagerWakeupResult{Manager: inst.Name, JobID: j.ID, Action: "would_dispatch", Reason: reason}
 	}
 	payload := managerIdleWakePayload(inst, j, reason)
 	meta, err := r.deliverManagerPolicyWake(now, inst, managerIdleWakeEventType, payload)
@@ -520,8 +538,15 @@ func managerForJob(topo *topology.Topology, j *jobstore.Job) *topology.Instance 
 }
 
 func (r *EventResolver) wakeManagerForOverdueStep(now time.Time, inst *topology.Instance, j *jobstore.Job, step *jobstore.Step, startedAt time.Time, timeout time.Duration) (ManagerWakeupResult, error) {
+	return r.wakeManagerForOverdueStepOrPreview(now, inst, j, step, startedAt, timeout, false)
+}
+
+func (r *EventResolver) wakeManagerForOverdueStepOrPreview(now time.Time, inst *topology.Instance, j *jobstore.Job, step *jobstore.Step, startedAt time.Time, timeout time.Duration, dryRun bool) (ManagerWakeupResult, error) {
 	age := now.Sub(startedAt)
 	message := fmt.Sprintf("pipeline step %s exceeded time budget after %s (threshold %s)", step.ID, roundedManagerWakeDuration(age), roundedManagerWakeDuration(timeout))
+	if dryRun {
+		return ManagerWakeupResult{Manager: inst.Name, JobID: j.ID, StepID: step.ID, Action: "would_dispatch", Reason: message}, nil
+	}
 	payload := map[string]any{
 		"source":        "daemon:expectation_timeout",
 		"target":        inst.Name,

@@ -52,7 +52,7 @@ func newTickCmd() *cobra.Command {
 		Use:   "tick",
 		Short: "Run one orchestration maintenance cycle.",
 		Long: "Run one orchestration maintenance cycle against the running daemon: " +
-			"reconcile process metadata and job status files, fire due schedules, drain agent outbox and ready queue items, then advance ready pipeline jobs.",
+			"reconcile process metadata and job status files, fire due schedules, drain agent outbox and ready queue items, sweep manager wake policy, then advance ready pipeline jobs.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && !dryRun {
@@ -234,7 +234,7 @@ func newTickCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipReconcile, "skip-reconcile", false, "Skip daemon metadata and job status reconciliation.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip firing due schedules.")
-	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip outbox and queue draining.")
+	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip outbox, queue, and manager wake dispatch maintenance.")
 	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement.")
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in this tick.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview job status reconciliation, schedule firing, outbox/queue drains, and pipeline advancement without mutating state.")
@@ -286,7 +286,7 @@ func newDrainCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "drain",
 		Short: "Run maintenance cycles until idle.",
-		Long: "Run orchestration maintenance cycles until no immediate job-status, schedule, outbox, queue, or pipeline work remains. " +
+		Long: "Run orchestration maintenance cycles until no immediate job-status, schedule, outbox, queue, manager wake, or pipeline work remains. " +
 			"This is the script-friendly shortcut for `agent-team tick --until-idle`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -380,7 +380,7 @@ func newDrainCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 0, "Advance at most this many ready pipeline jobs per cycle, or ready steps with --all-ready-steps; 0 means no limit.")
 	cmd.Flags().BoolVar(&skipReconcile, "skip-reconcile", false, "Skip daemon metadata and job status reconciliation.")
 	cmd.Flags().BoolVar(&skipSchedules, "skip-schedules", false, "Skip firing due schedules.")
-	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip outbox and queue draining.")
+	cmd.Flags().BoolVar(&skipDrain, "skip-drain", false, "Skip outbox, queue, and manager wake dispatch maintenance.")
 	cmd.Flags().BoolVar(&skipAdvance, "skip-advance", false, "Skip pipeline advancement.")
 	cmd.Flags().BoolVar(&allReadySteps, "all-ready-steps", false, "Advance every currently ready independent pipeline step in each drain cycle.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "After drain reaches idle, wait for jobs advanced during drain cycles to reach a lifecycle status, event, or next-step state.")
@@ -410,15 +410,16 @@ type tickOptions struct {
 }
 
 type tickResult struct {
-	Reconcile  *daemonReconcileResponse   `json:"reconcile,omitempty"`
-	JobEvents  []jobEventReconcileResult  `json:"job_events,omitempty"`
-	JobStatus  []jobStatusReconcileResult `json:"job_status,omitempty"`
-	Schedule   *daemon.ScheduleFireResult `json:"schedule,omitempty"`
-	Outbox     *daemon.OutboxDrainResult  `json:"outbox,omitempty"`
-	Queue      *daemon.QueueDrainResult   `json:"queue,omitempty"`
-	Advance    []pipelineAdvanceResult    `json:"advance,omitempty"`
-	Compaction *terminalCompactionResult  `json:"compaction,omitempty"`
-	DryRun     bool                       `json:"dry_run,omitempty"`
+	Reconcile   *daemonReconcileResponse       `json:"reconcile,omitempty"`
+	JobEvents   []jobEventReconcileResult      `json:"job_events,omitempty"`
+	JobStatus   []jobStatusReconcileResult     `json:"job_status,omitempty"`
+	Schedule    *daemon.ScheduleFireResult     `json:"schedule,omitempty"`
+	Outbox      *daemon.OutboxDrainResult      `json:"outbox,omitempty"`
+	Queue       *daemon.QueueDrainResult       `json:"queue,omitempty"`
+	ManagerWake *daemon.ManagerWakeSweepResult `json:"manager_wake,omitempty"`
+	Advance     []pipelineAdvanceResult        `json:"advance,omitempty"`
+	Compaction  *terminalCompactionResult      `json:"compaction,omitempty"`
+	DryRun      bool                           `json:"dry_run,omitempty"`
 }
 
 type tickUntilIdleResult struct {
@@ -530,6 +531,11 @@ func runTick(cmd *cobra.Command, teamDir, workspace string, limit int, opts tick
 			return nil, err
 		}
 		result.Queue = drain
+		managerWake, err := dc.ManagerWakeSweep(opts.DryRun)
+		if err != nil {
+			return nil, err
+		}
+		result.ManagerWake = managerWake
 	}
 	if !opts.SkipAdvance {
 		advanced, err := advanceReadyPipelineJobs(cmd, teamDir, "", workspace, opts.Runtime, limit, opts.DryRun, opts.PreviewRoutes, opts.AllReadySteps)
@@ -654,6 +660,9 @@ func tickResultIsIdle(result *tickResult) bool {
 	if result.Outbox != nil && (result.Outbox.Attempted > 0 || result.Outbox.WouldPublish > 0 || result.Outbox.Published > 0 || result.Outbox.Rejected > 0) {
 		return false
 	}
+	if managerWakeHasAction(result.ManagerWake) {
+		return false
+	}
 	for _, advanced := range result.Advance {
 		if advanced.Action == "advanced" || advanced.Action == "would_advance" {
 			return false
@@ -663,6 +672,32 @@ func tickResultIsIdle(result *tickResult) bool {
 		return false
 	}
 	return true
+}
+
+func managerWakeHasAction(result *daemon.ManagerWakeSweepResult) bool {
+	if result == nil {
+		return false
+	}
+	for _, wakeup := range result.IdleWakeups {
+		if managerWakeActionIsWork(wakeup.Action) {
+			return true
+		}
+	}
+	for _, wakeup := range result.Overdue {
+		if managerWakeActionIsWork(wakeup.Action) {
+			return true
+		}
+	}
+	return false
+}
+
+func managerWakeActionIsWork(action string) bool {
+	switch strings.TrimSpace(action) {
+	case "dispatched", "would_dispatch", "failed":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseTickFormat(format string) (*template.Template, error) {
@@ -784,6 +819,15 @@ func renderTickResult(w fmtWriter, result *tickResult, jsonOut bool, tmpl *templ
 		fmt.Fprintln(w, "Queue: skipped")
 	}
 	fmt.Fprintln(w)
+	if result.ManagerWake != nil {
+		fmt.Fprintln(w, "Manager wake:")
+		if err := renderManagerWakeSweepResult(w, result.ManagerWake); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintln(w, "Manager wake: skipped")
+	}
+	fmt.Fprintln(w)
 	if result.Advance != nil {
 		fmt.Fprintln(w, "Pipeline advance:")
 		if err := renderPipelineAdvanceResults(w, result.Advance, false, nil); err != nil {
@@ -797,6 +841,31 @@ func renderTickResult(w fmtWriter, result *tickResult, jsonOut bool, tmpl *templ
 		renderTerminalCompactionResult(w, result.Compaction)
 	}
 	return nil
+}
+
+func renderManagerWakeSweepResult(w fmtWriter, result *daemon.ManagerWakeSweepResult) error {
+	if result == nil {
+		result = &daemon.ManagerWakeSweepResult{}
+	}
+	prefix := "manager wake sweep"
+	if result.DryRun {
+		prefix += " dry-run"
+	}
+	fmt.Fprintf(w, "%s: idle=%d overdue=%d\n", prefix, len(result.IdleWakeups), len(result.Overdue))
+	if len(result.IdleWakeups) == 0 && len(result.Overdue) == 0 {
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "TYPE\tMANAGER\tJOB\tSTEP\tACTION\tINSTANCE\tREASON")
+	for _, item := range result.IdleWakeups {
+		fmt.Fprintf(tw, "idle\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			item.Manager, emptyDash(item.JobID), emptyDash(item.StepID), item.Action, emptyDash(item.Instance), emptyDash(item.Reason))
+	}
+	for _, item := range result.Overdue {
+		fmt.Fprintf(tw, "overdue\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			item.Manager, emptyDash(item.JobID), emptyDash(item.StepID), item.Action, emptyDash(item.Instance), emptyDash(item.Reason))
+	}
+	return tw.Flush()
 }
 
 func renderOutboxDrainResult(w fmtWriter, result *daemon.OutboxDrainResult) error {

@@ -855,6 +855,23 @@ func (c *daemonClient) ScheduleFireScoped(dryRun bool, names []string) (*daemon.
 	return c.scheduleFire(dryRun, names, true)
 }
 
+func (c *daemonClient) ManagerWakeSweep(dryRun bool) (*daemon.ManagerWakeSweepResult, error) {
+	u := daemonQueryURL(c.baseURL+"/v1/manager-wake/sweep", dryRun, "", nil, false)
+	resp, err := c.hc.Post(u, "application/json", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("daemon: manager wake sweep: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daemon: manager wake sweep: %s", readErrorBody(resp))
+	}
+	var out daemon.ManagerWakeSweepResult
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("daemon: manager wake sweep decode: %w", err)
+	}
+	return &out, nil
+}
+
 func (c *daemonClient) scheduleFire(dryRun bool, names []string, scoped bool) (*daemon.ScheduleFireResult, error) {
 	u := daemonQueryURL(c.baseURL+"/v1/schedules/fire", dryRun, "name", names, scoped)
 	resp, err := c.hc.Post(u, "application/json", bytes.NewReader([]byte("{}")))

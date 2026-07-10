@@ -1191,7 +1191,7 @@ Inherited Flags:
 
 Run maintenance cycles until idle.
 
-Run orchestration maintenance cycles until no immediate job-status, schedule, outbox, queue, or pipeline work remains. This is the script-friendly shortcut for `agent-team tick --until-idle`.
+Run orchestration maintenance cycles until no immediate job-status, schedule, outbox, queue, manager wake, or pipeline work remains. This is the script-friendly shortcut for `agent-team tick --until-idle`.
 
 ```text
 agent-team drain [flags]
@@ -1210,7 +1210,7 @@ Flags:
       --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --skip-advance              Skip pipeline advancement.
-      --skip-drain                Skip outbox and queue draining.
+      --skip-drain                Skip outbox, queue, and manager wake dispatch maintenance.
       --skip-reconcile            Skip daemon metadata and job status reconciliation.
       --skip-schedules            Skip firing due schedules.
       --target string             Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
@@ -10832,7 +10832,7 @@ Inherited Flags:
 
 Run one orchestration maintenance cycle.
 
-Run one orchestration maintenance cycle against the running daemon: reconcile process metadata and job status files, fire due schedules, drain agent outbox and ready queue items, then advance ready pipeline jobs.
+Run one orchestration maintenance cycle against the running daemon: reconcile process metadata and job status files, fire due schedules, drain agent outbox and ready queue items, sweep manager wake policy, then advance ready pipeline jobs.
 
 ```text
 agent-team tick [flags]
@@ -10854,7 +10854,7 @@ Flags:
       --runtime string            Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.
       --runtime-bin string        Runtime binary for advanced step dispatches. Overrides env and repo config.
       --skip-advance              Skip pipeline advancement.
-      --skip-drain                Skip outbox and queue draining.
+      --skip-drain                Skip outbox, queue, and manager wake dispatch maintenance.
       --skip-reconcile            Skip daemon metadata and job status reconciliation.
       --skip-schedules            Skip firing due schedules.
       --target string             Repo root containing .agent_team (legacy; prefer global --repo). (default "<repo>")
