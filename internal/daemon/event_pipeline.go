@@ -359,6 +359,9 @@ func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topolog
 		delete(dispatchPayload, "previous_step_id")
 	}
 	dispatchPayload["kickoff"] = kickoff
+	if payloadString(payload, "source") == "schedule" {
+		delete(dispatchPayload, "name")
+	}
 	if payloadString(dispatchPayload, "name") == "" {
 		dispatchPayload["name"] = step.Target + "-" + j.ID
 	}

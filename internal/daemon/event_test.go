@@ -4210,6 +4210,157 @@ pipelines = ["ticket_to_pr"]
 	}
 }
 
+func TestEvent_DocsFreshnessScheduleDispatchesDurableWorktreeJob(t *testing.T) {
+	root := t.TempDir()
+	repoRoot := t.TempDir()
+	runGit(t, repoRoot, "init")
+	runGit(t, repoRoot, "config", "user.email", "test@example.com")
+	runGit(t, repoRoot, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repoRoot, "README.md"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repoRoot, "add", "README.md")
+	runGit(t, repoRoot, "commit", "-m", "init")
+
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	writeFixtureAgent(t, teamDir, "worker")
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
+[pm]
+provider = "github"
+
+[github]
+owner = "agent-team-project"
+repo = "kensho"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	top := mustParseCustomTopo(t, `
+[instances.docs-writer]
+agent = "worker"
+ephemeral = true
+
+[[instances.docs-writer.triggers]]
+event = "agent.dispatch"
+match.target = "docs-writer"
+
+[schedules.docs-freshness]
+every = "6h"
+
+[schedules.docs-freshness.payload]
+kind = "docs_freshness"
+ticket = "GH-228"
+ticket_url = "https://github.com/agent-team-project/kensho/issues/228"
+deliverable = "none"
+kickoff = "Scheduled docs-freshness audit for GitHub issue #228."
+
+[pipelines.docs_freshness]
+trigger.event = "schedule"
+trigger.match.name = "docs-freshness"
+trigger.match.kind = "docs_freshness"
+redispatch_on_reentry = true
+reap_worktree = "on_close"
+
+[[pipelines.docs_freshness.steps]]
+id = "audit"
+target = "docs-writer"
+workspace = "worktree"
+timeout = "45m"
+token_budget = "40M"
+time_budget = "45m"
+max_attempts = 1
+
+[teams.docs]
+instances = ["docs-writer"]
+pipelines = ["docs_freshness"]
+schedules = ["docs-freshness"]
+`)
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(m, teamDir, top)
+
+	payload := top.Schedules["docs-freshness"].EventPayload()
+	result, err := resolver.EventWithResult(topology.EventSchedule, payload)
+	if err != nil {
+		t.Fatalf("EventWithResult: %v", err)
+	}
+	if got := result.Trace.MatchedInstanceNames(); len(got) != 0 {
+		t.Fatalf("matched direct instances = %+v, want none", got)
+	}
+	if got := result.Trace.MatchedPipelineNames(); !reflect.DeepEqual(got, []string{"docs_freshness"}) {
+		t.Fatalf("matched pipelines = %+v, want docs_freshness", got)
+	}
+	if len(result.Outcomes) != 1 || result.Outcomes[0].Action != "dispatched" || result.Outcomes[0].Instance != "docs-writer" || result.Outcomes[0].InstanceID != "docs-writer-gh-228" {
+		t.Fatalf("outcomes = %+v, want dispatched docs-writer-gh-228", result.Outcomes)
+	}
+	if result.Outcomes[0].JobID != "gh-228" || result.Outcomes[0].Pipeline != "docs_freshness" || result.Outcomes[0].Step != "audit" {
+		t.Fatalf("outcome context = %+v, want job/pipeline/step context", result.Outcomes[0])
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("docs-writer-gh-228")
+		_ = m.WaitForReaper("docs-writer-gh-228", 5*time.Second)
+	})
+
+	meta, err := ReadMetadata(root, "docs-writer-gh-228")
+	if err != nil {
+		t.Fatalf("ReadMetadata: %v", err)
+	}
+	if meta.Workspace == repoRoot || !strings.Contains(meta.Workspace, filepath.Join(".claude", "worktrees")) {
+		t.Fatalf("workspace = %q, want isolated worktree under .claude/worktrees", meta.Workspace)
+	}
+	if meta.Branch == "" || meta.Branch == "main" || !strings.HasPrefix(meta.Branch, "gh-228-") {
+		t.Fatalf("branch = %q, want gh-228-* worktree branch", meta.Branch)
+	}
+	if meta.Job != "gh-228" || meta.Ticket != "GH-228" {
+		t.Fatalf("metadata job/ticket = %q/%q, want gh-228/GH-228", meta.Job, meta.Ticket)
+	}
+	if meta.Origin.Team != "docs" || meta.Origin.Trigger != "pipeline:docs_freshness:audit" {
+		t.Fatalf("metadata origin = %+v", meta.Origin)
+	}
+
+	env := fake.lastEnv()
+	if got := lastEnvValue(env, "AGENT_TEAM_JOB_ID"); got != "gh-228" {
+		t.Fatalf("AGENT_TEAM_JOB_ID = %q, want gh-228; env=%v", got, env)
+	}
+	if got := lastEnvValue(env, "AGENT_TEAM_TICKET"); got != "GH-228" {
+		t.Fatalf("AGENT_TEAM_TICKET = %q, want GH-228; env=%v", got, env)
+	}
+	if got := lastEnvValue(env, "AGENT_TEAM_TICKET_URL"); got != "https://github.com/agent-team-project/kensho/issues/228" {
+		t.Fatalf("AGENT_TEAM_TICKET_URL = %q, want stale-docs issue URL; env=%v", got, env)
+	}
+	if got := lastEnvValue(env, "AGENT_TEAM_PIPELINE"); got != "docs_freshness" {
+		t.Fatalf("AGENT_TEAM_PIPELINE = %q, want docs_freshness; env=%v", got, env)
+	}
+	if got := lastEnvValue(env, "AGENT_TEAM_PIPELINE_STEP"); got != "audit" {
+		t.Fatalf("AGENT_TEAM_PIPELINE_STEP = %q, want audit; env=%v", got, env)
+	}
+	if got := lastEnvValue(env, "AGENT_TEAM_BRANCH"); got != meta.Branch {
+		t.Fatalf("AGENT_TEAM_BRANCH = %q, want metadata branch %q; env=%v", got, meta.Branch, env)
+	}
+	if got := lastEnvValue(env, "AGENT_TEAM_WORKTREE"); got != meta.Workspace {
+		t.Fatalf("AGENT_TEAM_WORKTREE = %q, want metadata workspace %q; env=%v", got, meta.Workspace, env)
+	}
+
+	j, err := jobstore.Read(teamDir, "gh-228")
+	if err != nil {
+		t.Fatalf("read job: %v", err)
+	}
+	if j.Ticket != "GH-228" || j.TicketURL != "https://github.com/agent-team-project/kensho/issues/228" {
+		t.Fatalf("job PM context = %q/%q, want GH-228/#228", j.Ticket, j.TicketURL)
+	}
+	if j.Pipeline != "docs_freshness" || j.DeliveryContract != "none" || j.ReapWorktree != worktreepolicy.OnClose {
+		t.Fatalf("job pipeline/contract/reap = %q/%q/%q, want docs_freshness/none/on_close", j.Pipeline, j.DeliveryContract, j.ReapWorktree)
+	}
+	if len(j.Steps) != 1 || j.Steps[0].ID != "audit" || j.Steps[0].Target != "docs-writer" || j.Steps[0].Workspace != "worktree" || j.Steps[0].Status != jobstore.StatusRunning {
+		t.Fatalf("job steps = %+v, want running docs-writer worktree audit step", j.Steps)
+	}
+	if j.Worktree != meta.Workspace || j.Branch != meta.Branch {
+		t.Fatalf("job worktree/branch = %q/%q, want metadata %q/%q", j.Worktree, j.Branch, meta.Workspace, meta.Branch)
+	}
+	if j.Contract == nil || j.Contract.WorkItem != "https://github.com/agent-team-project/kensho/issues/228" || j.Contract.Deliverable != "none" {
+		t.Fatalf("job contract = %+v, want issue #228 with no PR deliverable", j.Contract)
+	}
+}
+
 func TestEvent_PipelineInitialDispatchRejectionWritesLinearFailureAttention(t *testing.T) {
 	t.Setenv("LINEAR_API_KEY", "")
 	t.Setenv("LINEAR_USER_API_KEY", "")

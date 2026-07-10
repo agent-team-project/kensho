@@ -11,6 +11,7 @@ pipelines   = ["release"]
 [teams.docs]
 description = "Documentation: README/guide/narrative authoring on the claude runtime, plus a weekly freshness audit against the shipped binary and latest release."
 instances   = ["docs-writer"]
+pipelines   = ["docs_freshness"]
 schedules   = ["docs-freshness"]
 
 [teams.quality]
@@ -19,4 +20,3 @@ instances   = ["debt-auditor", "harness-reviewer", "org-review", "sentinel", "pr
 schedules   = ["debt-sweep", "harness-review", "org-review", "sentinel", "product-verify"]
 
 {{ end }}
-

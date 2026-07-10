@@ -605,13 +605,6 @@ description  = "Documentation writer (codex subscription runtime). Dispatched fo
 event        = "agent.dispatch"
 match.target = "docs-writer"
 
-[[instances.docs-writer.triggers]]
-event      = "schedule"
-match.name = "docs-freshness"
-match.kind = "docs_freshness"
-
-
-
 # The docs team's freshness loop: weekly, the docs-writer audits docs against
 # the shipped binary + latest release and files a stale-docs ticket (or is
 # dispatched to fix directly). See the docs-freshness skill.
@@ -620,6 +613,40 @@ every = "6h"
 
 [schedules.docs-freshness.payload]
 kind = "docs_freshness"
+ticket = "GH-228"
+ticket_url = "https://github.com/agent-team-project/kensho/issues/228"
+deliverable = "none"
+kickoff = """
+Scheduled docs-freshness audit for GitHub issue #228.
+
+Use the docs-freshness skill in scheduled sweep/audit mode. Audit the docs
+against code, generated CLI output, and release ground truth, then fold findings
+into the existing stale-docs issue #228 with a top-level issue comment. Do not
+open duplicate stale-docs issues. This is an audit/fold job with no PR
+deliverable; only open a PR if a human later redispatches implementation work
+explicitly.
+"""
+
+[pipelines.docs_freshness]
+trigger.event = "schedule"
+trigger.match.name = "docs-freshness"
+trigger.match.kind = "docs_freshness"
+redispatch_on_reentry = true
+reap_worktree = "on_close"
+
+[[pipelines.docs_freshness.steps]]
+id = "audit"
+target = "docs-writer"
+workspace = "worktree"
+timeout = "45m"
+token_budget = "40M"
+time_budget = "45m"
+max_attempts = 1
+instructions = """
+Run the docs-freshness skill in scheduled audit mode. Keep findings folded into
+GitHub issue #228 and do not create duplicate docs tickets. When the issue
+comment/report is posted, let the job finish without opening a PR.
+"""
 
 [teams.pr]
 description = "Public relations: community digests, announcements, discussions, outward feedback intake."
@@ -634,6 +661,7 @@ pipelines   = ["release"]
 [teams.docs]
 description = "Documentation: README/guide/narrative authoring on the claude runtime, plus a weekly freshness audit against the shipped binary and latest release."
 instances   = ["docs-writer"]
+pipelines   = ["docs_freshness"]
 schedules   = ["docs-freshness"]
 
 [teams.quality]
