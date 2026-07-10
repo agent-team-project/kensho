@@ -200,6 +200,7 @@ type dispatchPayload struct {
 	StateURI            string   `json:"state_uri,omitempty"`
 	Runtime             string   `json:"runtime,omitempty"`
 	RuntimeBinary       string   `json:"runtime_binary,omitempty"`
+	Model               string   `json:"model,omitempty"`
 	Args                []string `json:"args,omitempty"`
 	Env                 []string `json:"env,omitempty"`
 	Stdin               string   `json:"stdin,omitempty"`

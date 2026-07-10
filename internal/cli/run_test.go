@@ -1146,6 +1146,13 @@ func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
 	defer os.RemoveAll(tmp)
 	initInto(t, tmp)
 	teamDir := filepath.Join(tmp, ".agent_team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[instances.manager]
+agent       = "manager"
+runtime     = "codex"
+model       = "claude-fable-5"
+description = "Persistent Codex manager."
+`)
 	wantWorkspace, err := filepath.EvalSymlinks(tmp)
 	if err != nil {
 		wantWorkspace = tmp
@@ -1209,6 +1216,9 @@ func TestRun_CodexRuntimeCanDetachWithPrompt(t *testing.T) {
 	}
 	if containsString(args, "--session-id") || containsString(args, "--agents") || containsString(args, "--append-system-prompt-file") {
 		t.Fatalf("codex daemon args include Claude-only flags: %v", args)
+	}
+	if _, ok := argValue(args, "--model"); ok {
+		t.Fatalf("codex daemon args include Claude-only --model: %v", args)
 	}
 	if !containsString(args, "--add-dir") || args[len(args)-1] != "-" {
 		t.Fatalf("codex daemon args missing add-dir or stdin marker: %v", args)
@@ -1631,6 +1641,71 @@ func TestRunAttachDispatchesThroughDaemonAndFollowsLog(t *testing.T) {
 	}
 }
 
+func TestRunDetachForwardsDeclaredClaudeModel(t *testing.T) {
+	t.Setenv(runtimebin.EnvRuntime, "")
+	t.Setenv(runtimebin.EnvBinary, "")
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-run-model-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	writeInstanceTestFile(t, filepath.Join(teamDir, "instances.toml"), `
+[instances.manager]
+agent       = "manager"
+runtime     = "claude"
+model       = "claude-fable-5"
+description = "Persistent Claude manager."
+`)
+
+	base := fakeSpawnerForTest(t, 2*time.Second)
+	var (
+		mu      sync.Mutex
+		gotArgs []string
+	)
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), func(args []string, env []string, workspace, stdoutPath, stderrPath, stdinContent string) (*os.Process, error) {
+		mu.Lock()
+		gotArgs = append([]string(nil), args...)
+		mu.Unlock()
+		return base(args, env, workspace, stdoutPath, stderrPath, stdinContent)
+	})
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+	defer func() {
+		for _, meta := range mgr.List() {
+			if meta.Instance == "manager" && meta.Status == daemon.StatusRunning {
+				stopAndWaitForTest(t, mgr, "manager")
+				return
+			}
+		}
+	}()
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--detach", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run --detach --json: %v\nstderr: %s", err, stderr.String())
+	}
+
+	var body runDispatchJSON
+	if err := json.Unmarshal(out.Bytes(), &body); err != nil {
+		t.Fatalf("json body: %v\nstdout: %s", err, out.String())
+	}
+	if body.Instance != "manager" || body.Agent != "manager" || body.Runtime != "claude" || body.PID == 0 {
+		t.Fatalf("dispatch body = %+v", body)
+	}
+
+	mu.Lock()
+	args := append([]string(nil), gotArgs...)
+	mu.Unlock()
+	if got, ok := argValue(args, "--model"); !ok || got != "claude-fable-5" {
+		t.Fatalf("daemon args --model = %q, %v; want claude-fable-5 in %v", got, ok, args)
+	}
+}
+
 func TestRunDetachDispatchesThroughDaemonWithoutPrompt(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-run-detach-")
 	if err != nil {
@@ -1699,6 +1774,9 @@ func TestRunDetachDispatchesThroughDaemonWithoutPrompt(t *testing.T) {
 		if args[i] == "-p" {
 			t.Fatalf("detached no-prompt dispatch should not add -p, args=%v", args)
 		}
+	}
+	if _, ok := argValue(args, "--model"); ok {
+		t.Fatalf("detached no-model dispatch should not add --model, args=%v", args)
 	}
 	for _, want := range []string{"--agents", "--add-dir", "--append-system-prompt-file"} {
 		if !containsString(args, want) {
