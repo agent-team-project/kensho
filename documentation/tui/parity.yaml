@@ -17,11 +17,30 @@ semantics:
     has a required decision citation.
   cutover_complete: >-
     Every covered row has passing evidence, every dropped row has a decision,
-    and every cutover oracle condition is satisfied on the same PR head SHA.
+    the cutover-parent source digest is current, and every cutover oracle
+    condition is satisfied on the same PR head SHA.
 
 source_inventory:
   base_commit: f206f0f0503a0b4e841e9919b6c221793430dfe8
   revision_basis: gh-383 working tree at 2026-07-10
+  digest:
+    algorithm: sha256
+    serialization: git-ls-tree-r-z-full-tree
+    command_contract: >-
+      git ls-tree -r -z --full-tree "$REV" -- internal/daemon/ui
+      internal/daemon/ui.go internal/daemon/http.go
+      internal/daemon/http_auth.go | shasum -a 256
+    scope:
+      - internal/daemon/ui
+      - internal/daemon/ui.go
+      - internal/daemon/http.go
+      - internal/daemon/http_auth.go
+    scope_semantics: >-
+      Directory entries are recursive, so a newly added file below
+      internal/daemon/ui changes the digest even when it is not yet named in
+      files below. Entries are Git's NUL-delimited full-tree records, including
+      mode, object type, blob object ID, and path in Git's deterministic order.
+    value: 8c844f7a6d93bc762c7d1ce0a755916376586f8a981330ede928e707b9714496
   files:
     - path: internal/daemon/ui/index.html
       role: controls, summary tiles, org view, and table declarations
@@ -557,12 +576,40 @@ cutover:
     required_coverage_percent: 100
     evidence_file: documentation/tui/cutover-evidence.yaml
     evidence_must_match_head_sha: true
+    source_freshness:
+      comparison_revision: cutover_parent
+      cutover_parent_definition: >-
+        The exact target-branch merge base of the cutover PR head; the cutover
+        PR may only delete paths in the digest scope, never add or modify them
+        before deletion.
+      digest_contract_ref: source_inventory.digest
+      rule: >-
+        digest(cutover_parent, source_inventory.digest.scope) ==
+        source_inventory.digest.value
+      fail_closed: true
+      evidence_file_keys:
+        - cutover_head_sha
+        - cutover_parent_sha
+        - source_inventory_base_commit
+        - source_inventory_expected_digest
+        - cutover_parent_actual_digest
+        - inventory_review_url
+      equality_requirements:
+        - cutover_head_sha equals the exact tested PR head SHA
+        - source_inventory_base_commit equals source_inventory.base_commit
+        - source_inventory_expected_digest equals source_inventory.digest.value
+        - cutover_parent_actual_digest equals source_inventory.digest.value
+      mismatch_remediation: >-
+        Stop deletion, regenerate and re-review every capability and route shape
+        against the changed source scope, update base_commit and digest.value in
+        a separate reviewed inventory revision, then rerun the cutover oracle.
 
   acceptance_gates:
     required:
       - unit
       - golden
       - pty
+      - term-dumb
       - live-daemon
       - non-tty
       - cutover-lints
@@ -575,7 +622,137 @@ cutover:
     render_modes:
       - color
       - NO_COLOR
+      - TERM=dumb
     consecutive_identical_golden_runs: 2
+    layout_contract:
+      classification_precedence:
+        - class: too-small
+          predicate: width < 60 or height < 16
+        - class: compact
+          predicate: width < 100 or height < 27
+        - class: standard
+          predicate: width < 145 or height < 40
+        - class: wide
+          predicate: otherwise
+      evaluation: first matching predicate wins
+      totality_property: >-
+        For every non-negative integer width and height exactly one class is
+        returned; after too-small exactly one of compact, standard, or wide is
+        returned.
+      exhaustive_test_domain:
+        width: 0..320
+        height: 0..120
+      boundary_cases:
+        - {geometry: 59x50, class: too-small}
+        - {geometry: 60x15, class: too-small}
+        - {geometry: 60x16, class: compact}
+        - {geometry: 99x50, class: compact}
+        - {geometry: 100x26, class: compact}
+        - {geometry: 100x27, class: standard}
+        - {geometry: 100x40, class: standard}
+        - {geometry: 120x50, class: standard}
+        - {geometry: 144x40, class: standard}
+        - {geometry: 145x27, class: standard}
+        - {geometry: 145x30, class: standard}
+        - {geometry: 160x30, class: standard}
+        - {geometry: 145x39, class: standard}
+        - {geometry: 145x40, class: wide}
+        - {geometry: 160x50, class: wide}
+      canonical_source_frames:
+        file: documentation/tui/SPEC.md
+        encoding: ASCII
+        implicit_margins: false
+        frames:
+          - {heading: "### 80×24 — compact overview", fence: text, columns: 80, rows: 24}
+          - {heading: "### 120×30 — standard jobs", fence: text, columns: 120, rows: 30}
+          - {heading: "### 160×50 — wide topology", fence: text, columns: 160, rows: 50}
+        row_assertion: each source row has exactly the declared columns cells
+        height_assertion: each source fence contains exactly its declared number of rows
+    zero_environment_discovery:
+      required_gate: live-daemon
+      fixture: tui-small-v1 in a fresh temporary repository
+      unset_environment:
+        - AGENT_TEAM_DAEMON_URL
+        - AGENT_TEAM_DAEMON_TOKEN_FILE
+        - AGENT_TEAM_DAEMON_SOCKET
+      precedence_contract:
+        - AGENT_TEAM_DAEMON_URL when explicitly set
+        - persisted daemon HTTP address
+        - live pidfile plus derived Unix socket
+      http_token_file_precedence:
+        - AGENT_TEAM_DAEMON_TOKEN_FILE when explicitly set
+        - repository operator-token path
+      required_live_scenarios:
+        - id: persisted-http-wins-without-environment
+          arrange:
+            - persisted HTTP address exists and accepts authenticated requests
+            - live pidfile and Unix socket also exist
+            - default operator-token file contains the seeded daemon token
+          assert:
+            - selected transport is the persisted HTTP address
+            - selected token file is the default operator-token path
+            - the first snapshot request is authenticated and succeeds
+            - no token or endpoint prompt is rendered
+        - id: unix-socket-fallback-without-environment
+          arrange:
+            - persisted HTTP address is absent
+            - live pidfile and derived Unix socket exist
+          assert:
+            - selected transport is the derived Unix socket
+            - the first snapshot request succeeds
+            - no token or endpoint prompt is rendered
+        - id: stale-local-transport-fails-closed
+          arrange:
+            - persisted HTTP address is absent
+            - pidfile is dead or the derived socket is absent
+          assert:
+            - discovery reports daemon not running
+            - no guessed URL or socket is attempted
+      evidence_must_record:
+        - selected transport kind and address or socket path
+        - selected token-file path without token contents
+        - authenticated daemon response identity
+    term_dumb:
+      required_gate: term-dumb
+      environment:
+        TERM: dumb
+        NO_COLOR: unset
+      render_geometries:
+        - 80x24
+        - 120x30
+        - 160x50
+      border_glyph_bytes_allowed:
+        - 2b  # +
+        - 2d  # -
+        - 7c  # |
+      forbidden_unicode_ranges:
+        - U+2500..U+257F  # box drawing
+      forbidden_byte_sequence_prefixes:
+        - 1b5b  # ESC [, all CSI including cursor addressing and SGR/color
+        - 1b5d  # ESC ], all OSC
+      no_color_dependency_assertion: >-
+        Normalized textual status, focus, and control labels equal the NO_COLOR
+        frame; color or glyph shape is never the only signal.
+      pty_geometry: 80x24
+      pty_input_sequence:
+        - Tab
+        - ArrowDown
+        - Enter
+        - /
+        - text: status:active
+        - Enter
+        - r
+        - "?"
+        - "?"
+        - q
+      pty_assertions:
+        - focus traversal remains visible with the ASCII > marker
+        - inspect opens readable detail
+        - filtering changes the visible result set
+        - refresh dispatches and reports completion
+        - help opens, lists bindings, and closes
+        - quit exits cleanly
+        - captured output contains neither forbidden byte-sequence prefix
     large_fixture:
       instances: 100
       jobs: 500

@@ -146,51 +146,78 @@ tab; controls MUST NOT become unreachable.
 
 ## Layout and canonical wireframes
 
-Layout is a pure function of terminal dimensions and model state. The canonical
-size classes are:
+Layout is a pure function of terminal dimensions and model state. Size-class
+predicates are evaluated in the following order; the first match wins:
 
-| Class | Rule | Canonical geometry | Behavior |
-| --- | --- | --- | --- |
-| compact | width `< 100` or height `< 27` | 80×24 | One content pane. Top-level routes use a one-line tab strip; topology subsections and detail panes are reached by tab cycling. Dense tables become priority columns plus a focused-row detail block. |
-| standard | width `100..144` and height `27..39` | 120×30 | Main pane plus optional right detail pane. Full parity table columns render when they fit; overflow becomes a detail block, never horizontal scrolling. |
-| wide | width `>= 145` and height `>= 40` | 160×50 | Navigation rail, main pane, and contextual right pane. Topology may show two simultaneous sections. |
+| Order | Class | Predicate | Canonical geometry | Behavior |
+| --- | --- | --- | --- | --- |
+| 1 | too-small | width `< 60` or height `< 16` | none | Stable diagnostic with current/required dimensions plus Help and Quit. No content layout is attempted. |
+| 2 | compact | width `< 100` or height `< 27` | 80×24 | One content pane. Top-level routes use a one-line tab strip; topology subsections and detail panes are reached by tab cycling. Dense tables become priority columns plus a focused-row detail block. |
+| 3 | standard | width `< 145` or height `< 40` | 120×30 | Main pane plus optional right detail pane. Full parity table columns render when they fit; overflow becomes a detail block, never horizontal scrolling. |
+| 4 | wide | otherwise | 160×50 | Navigation rail, main pane, and contextual right pane. Topology may show two simultaneous sections. |
 
-At less than 60×16 the program renders only a stable “terminal too small” frame
-with current/required dimensions plus Help and Quit. It MUST NOT panic, emit
-partial escape sequences, or silently drop input. Resize reflows immediately;
-focus remains on the same semantic item when it still exists, otherwise it moves
-to the nearest surviving item in stable sort order.
+This ordered classifier is total and mutually exclusive: every non-negative
+`(width, height)` has exactly one class, and every supported geometry (anything
+not `too-small`) has exactly one content layout. The mixed-aspect boundary
+vectors are normative regression cases:
 
-The following are structural wireframes, not snapshot test outputs. Canonical
-goldens use the same regions and the exact fixture defined under Acceptance.
+| Geometry | Required class | Boundary exercised |
+| --- | --- | --- |
+| 59×50 | too-small | minimum width |
+| 60×15 | too-small | minimum height |
+| 60×16 | compact | smallest supported geometry |
+| 99×50 | compact | narrow and tall |
+| 100×26 | compact | wide enough, short |
+| 100×27 | standard | compact-to-standard corner |
+| 100×40 | standard | standard width, tall |
+| 120×50 | standard | canonical width, tall |
+| 144×40 | standard | last standard width |
+| 145×27 | standard | wide width, minimum standard height |
+| 145×30 | standard | wide width, medium height |
+| 160×30 | standard | very wide, medium height |
+| 145×39 | standard | last standard height |
+| 145×40 | wide | standard-to-wide corner |
+| 160×50 | wide | canonical wide geometry |
+
+The too-small frame MUST NOT panic, emit partial escape sequences, or silently
+drop input. Resize reflows immediately; focus remains on the same semantic item
+when it still exists, otherwise it moves to the nearest surviving item in
+stable sort order.
+
+The following are structural wireframes, not snapshot test outputs. Every row
+inside each `text` fence is normative terminal-cell data: one ASCII character is
+one cell, there are no tabs or implicit margins, and the row count and width
+MUST equal the geometry in its heading. A documentation check counts those
+source rows and cells directly. Canonical goldens use the same regions and the
+exact fixture defined under Acceptance.
 
 ### 80×24 — compact overview
 
 ```text
-+ agent-team | OVERVIEW ------------------------ DISCONNECTED 12:04:05 ------+
-| [Overview] Work  Fleet  Activity  Logs  More...                 ? Help     |
-+----------------------------------------------------------------------------+
-| Fleet      8 instances   5 running   3 teams   1 crashed                   |
-| Work      12 jobs        4 active    2 blocked 1 failed                    |
-| Capacity   4 pipelines   2 budgets   5 schedules                           |
-+ Attention -----------------------------------------------------------------+
-| > job gh383-tui-spec      implementing     frontend-worker                 |
-|   job release-2026-07     blocked          ask: release-manager            |
-|   instance verifier-2     crashed          exit 1                          |
-+ Live org ------------------------------------------------------------------+
-| worker    2 working  1 idle   [3/4 running, 1 queued]                      |
-| reviewer  1 working  0 idle   [review GH-382]                              |
-| manager   0 working  1 idle   [persistent]                                 |
-|                                                                            |
-|                                                                            |
-|                                                                            |
-|                                                                            |
-|                                                                            |
-|                                                                            |
-+----------------------------------------------------------------------------+
-| Filter: none | Snapshot 12:04:05 | 3/3 collections, 8/8 resources          |
-| Tab focus  Enter inspect  / filter  ^K commands  r refresh  ? help  q quit |
-+----------------------------------------------------------------------------+
++ agent-team | OVERVIEW ------------------------ DISCONNECTED 12:04:05 --------+
+| [Overview] Work  Fleet  Activity  Logs  More...                 ? Help       |
++------------------------------------------------------------------------------+
+| Fleet      8 instances   5 running   3 teams   1 crashed                     |
+| Work      12 jobs        4 active    2 blocked 1 failed                      |
+| Capacity   4 pipelines   2 budgets   5 schedules                             |
++ Attention -------------------------------------------------------------------+
+| > job gh383-tui-spec      implementing     frontend-worker                   |
+|   job release-2026-07     blocked          ask: release-manager              |
+|   instance verifier-2     crashed          exit 1                            |
++ Live org --------------------------------------------------------------------+
+| worker    2 working  1 idle   [3/4 running, 1 queued]                        |
+| reviewer  1 working  0 idle   [review GH-382]                                |
+| manager   0 working  1 idle   [persistent]                                   |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+| Filter: none | Snapshot 12:04:05 | 3/3 collections, 8/8 resources            |
+| Tab focus  Enter inspect  / filter  ^K commands  r refresh  ? help  q quit   |
++------------------------------------------------------------------------------+
 ```
 
 At compact width, moving focus onto a summary group replaces the lower content
@@ -200,36 +227,36 @@ opens the complete row as a full-width detail pane.
 ### 120×30 — standard jobs
 
 ```text
-+ agent-team | WORK / JOBS -------------------------------- CONNECTED 12:04:05 --------------------------+
-| Overview  [Work]  Fleet  Activity  Logs  Research  Requirements  Release               ? Help       |
-+------------------------------------------------------------------------------------------------------+
-| Query: status:active bounce:capability                                             4 matching / 12   |
-+ Jobs --------------------------------------------------------------+ Detail --------------------------+
-| ID                 Ticket   Status       Pipeline       Model/Tier  | gh383-tui-spec                   |
-| > gh383-tui-spec   GH-383   implementing frontend...   gpt-5.6/T2  | instance frontend-worker         |
-|   gh382-discord    GH-382   review       frontend...   gpt-5.6/T2  | pipeline frontend_ticket_to_pr   |
-|   gh381-research   GH-381   running      platform...   gpt-5.6/T2  | runtime codex                    |
-|   release-july     -        blocked      release...    unknown     | bounces capability=1             |
-|                                                                    | updated 12:03:51                 |
-|                                                                    |                                  |
-|                                                                    | [Enter] work detail (later)      |
-+ Model / tier -------------------------------------------------------+----------------------------------+
-| gpt-5.6 / T2       jobs 3    active 3    bounces 1                                                     |
-| not reported       jobs 1    active 1    bounces -                                                     |
-+ Bounce classes --------------------------------------------------------------------------------------+
-| capability 1 job   scope 0 jobs   infra 0 jobs   spec-ambiguity 0 jobs                                |
-|                                                                                                       |
-|                                                                                                       |
-|                                                                                                       |
-|                                                                                                       |
-|                                                                                                       |
-|                                                                                                       |
-|                                                                                                       |
-|                                                                                                       |
-+------------------------------------------------------------------------------------------------------+
-| Snapshot 12:04:05 | /v1/jobs ok | resources 15/15 | sort updated desc                                 |
-| Tab focus  Enter inspect  / query  Esc clear/back  g+key screen  ^K commands  ? help  q quit          |
-+------------------------------------------------------------------------------------------------------+
++ agent-team | WORK / JOBS -------------------------------- CONNECTED 12:04:05 ----------------------------------------+
+| Overview  [Work]  Fleet  Activity  Logs  Research  Requirements  Release               ? Help                        |
++----------------------------------------------------------------------------------------------------------------------+
+| Query: status:active bounce:capability                                             4 matching / 12                   |
++ Jobs --------------------------------------------------------------+ Detail -----------------------------------------+
+| ID                 Ticket   Status       Pipeline       Model/Tier  | gh383-tui-spec                                 |
+| > gh383-tui-spec   GH-383   implementing frontend...   gpt-5.6/T2  | instance frontend-worker                        |
+|   gh382-discord    GH-382   review       frontend...   gpt-5.6/T2  | pipeline frontend_ticket_to_pr                  |
+|   gh381-research   GH-381   running      platform...   gpt-5.6/T2  | runtime codex                                   |
+|   release-july     -        blocked      release...    unknown     | bounces capability=1                            |
+|                                                                    | updated 12:03:51                                |
+|                                                                    |                                                 |
+|                                                                    | [Enter] work detail (later)                     |
++ Model / tier -------------------------------------------------------+------------------------------------------------+
+| gpt-5.6 / T2       jobs 3    active 3    bounces 1                                                                   |
+| not reported       jobs 1    active 1    bounces -                                                                   |
++ Bounce classes ------------------------------------------------------------------------------------------------------+
+| capability 1 job   scope 0 jobs   infra 0 jobs   spec-ambiguity 0 jobs                                               |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
++----------------------------------------------------------------------------------------------------------------------+
+| Snapshot 12:04:05 | /v1/jobs ok | resources 15/15 | sort updated desc                                                |
+| Tab focus  Enter inspect  / query  Esc clear/back  g+key screen  ^K commands  ? help  q quit                         |
++----------------------------------------------------------------------------------------------------------------------+
 ```
 
 Standard layout keeps the selected row visible while presenting its complete
@@ -239,56 +266,56 @@ becomes a full-width pane below the list.
 ### 160×50 — wide topology
 
 ```text
-+ agent-team | FLEET / TOPOLOGY --------------------------------------------------------------- CONNECTED 12:04:05 ----------------+
-| OVERVIEW | WORK | FLEET | ACTIVITY | LOGS | RESEARCH | REQUIREMENTS | RELEASE                                  ? Help   |
-+----------------------+--------------------------------------------------------------------------------+--------------------------+
-| Fleet                | Live org                                                                      | Context                  |
-|   Org                | Worker                                            2 working  1 idle            | platform-worker          |
-|   Instances          | > platform-worker       2/2 running / 1 queued    [working]                    | ephemeral                |
-| > Topology           |     frontend-worker-1   GH-383 / writing spec     [implementing] [running]     | replica cap 2            |
-|                      |     platform-worker-2   GH-381 / research         [implementing] [running]     | running 2                |
-| Work                 |   reviewer              1/2 running               [working]                    | queued 1                 |
-|   Jobs               |     reviewer-gh382      GH-382 / review           [awaiting_review] [running]  | schedule: none           |
-|   Telemetry          |   manager               persistent                [idle]                       |                          |
-|                      |                                                                                | Enter: lane detail       |
-| Activity             +--------------------------------------------------------------------------------+                          |
-| Logs                 | Pipelines                                      | Budgets                                              |
-| Research             | frontend_ticket_to_pr  agent.dispatch           | frontend  40M/day  cap 2  active 1  open 1          |
-| Requirements         | implement -> worker (60M / 1h)                  | platform  80M/day  cap 2  active 2  open 0          |
-| Release              | verify -> verifier (10M / 20m)                  |                                                      |
-|                      | review -> reviewer (20M / 30m)                  |                                                      |
-|                      +------------------------------------------------+------------------------------------------------------+
-|                      | Schedules                                      | Teams                                                |
-|                      | product-verify  24h   09:00  quality           | frontend  4 instances  1 pipeline  1 channel        |
-|                      | debt-sweep      24h   08:00  platform          | platform  6 instances  2 pipelines 2 channels       |
-|                      | docs-freshness  24h   pending quality          | quality   4 instances  1 pipeline  3 channels        |
-|                      +------------------------------------------------+------------------------------------------------------+
-|                      | Deployments / charters                         | Deadlines                                            |
-|                      | project/a129... root  8 inst / 12 jobs active  | gh383-tui-spec  13:04  runtime  job resource        |
-|                      | child/test      root  2 inst / 2 jobs observed | verifier-gh382  12:20  set      instance resource   |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-|                      |                                                |                                                      |
-+----------------------+--------------------------------------------------------------------------------+--------------------------+
-| Query: none | Snapshot 12:04:05 | collections 3/3 | resources 24/24 | topology section: org                                      |
-| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  ^K commands  ? help  q quit                                |
-+--------------------------------------------------------------------------------------------------------------------------------+
++ agent-team | FLEET / TOPOLOGY --------------------------------------------------------------- CONNECTED 12:04:05 --------------------------------------------+
+| OVERVIEW | WORK | FLEET | ACTIVITY | LOGS | RESEARCH | REQUIREMENTS | RELEASE                                  ? Help                                        |
++----------------------+--------------------------------------------------------------------------------+------------------------------------------------------+
+| Fleet                | Live org                                                                      | Context                                               |
+|   Org                | Worker                                            2 working  1 idle            | platform-worker                                      |
+|   Instances          | > platform-worker       2/2 running / 1 queued    [working]                    | ephemeral                                            |
+| > Topology           |     frontend-worker-1   GH-383 / writing spec     [implementing] [running]     | replica cap 2                                        |
+|                      |     platform-worker-2   GH-381 / research         [implementing] [running]     | running 2                                            |
+| Work                 |   reviewer              1/2 running               [working]                    | queued 1                                             |
+|   Jobs               |     reviewer-gh382      GH-382 / review           [awaiting_review] [running]  | schedule: none                                       |
+|   Telemetry          |   manager               persistent                [idle]                       |                                                      |
+|                      |                                                                                | Enter: lane detail                                   |
+| Activity             +--------------------------------------------------------------------------------+                                                      |
+| Logs                 | Pipelines                                      | Budgets                                                                              |
+| Research             | frontend_ticket_to_pr  agent.dispatch           | frontend  40M/day  cap 2  active 1  open 1                                          |
+| Requirements         | implement -> worker (60M / 1h)                  | platform  80M/day  cap 2  active 2  open 0                                          |
+| Release              | verify -> verifier (10M / 20m)                  |                                                                                     |
+|                      | review -> reviewer (20M / 30m)                  |                                                                                     |
+|                      +------------------------------------------------+------------------------------------------------------                                +
+|                      | Schedules                                      | Teams                                                                                |
+|                      | product-verify  24h   09:00  quality           | frontend  4 instances  1 pipeline  1 channel                                         |
+|                      | debt-sweep      24h   08:00  platform          | platform  6 instances  2 pipelines 2 channels                                        |
+|                      | docs-freshness  24h   pending quality          | quality   4 instances  1 pipeline  3 channels                                        |
+|                      +------------------------------------------------+------------------------------------------------------                                +
+|                      | Deployments / charters                         | Deadlines                                                                            |
+|                      | project/a129... root  8 inst / 12 jobs active  | gh383-tui-spec  13:04  runtime  job resource                                         |
+|                      | child/test      root  2 inst / 2 jobs observed | verifier-gh382  12:20  set      instance resource                                    |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
+|                      |                                                |                                                                                      |
++----------------------+--------------------------------------------------------------------------------+------------------------------------------------------+
+| Query: none | Snapshot 12:04:05 | collections 3/3 | resources 24/24 | topology section: org                                                                  |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  ^K commands  ? help  q quit                                                               |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------+
 ```
 
 Wide layout does not create new capabilities. It exposes more parity sections
@@ -368,6 +395,16 @@ cross-resource search requires its own platform API and is not a cutover gate.
 - Capability detection is injected into the model at startup. Pure views do not
   query environment variables or the terminal.
 
+`TERM=dumb` is an executable profile, not an alias for `NO_COLOR`. At all three
+canonical geometries its golden capture MUST use only `+`, `-`, and `|` for
+borders; contain no Unicode box-drawing characters, CSI (`ESC [`), OSC
+(`ESC ]`), or SGR/color sequences; and preserve the same textual status and
+focus labels as the plain profile. A PTY flow at 80×24 sends `Tab`, arrows,
+`Enter`, `/`, `r`, `?`, and `q`, and proves that navigation, filtering, inspect,
+refresh, help, and quit remain readable and functional without cursor
+addressing. The machine form and forbidden-byte assertions are in
+`parity.yaml`.
+
 ### Non-TTY and `--once`
 
 - Interactive `agent-team ui` requires TTY stdin and stdout. If either is not a
@@ -430,10 +467,12 @@ agent-teamd HTTP/JSON API (canonical data and authority plane)
 
 Normative rules:
 
-- `internal/daemonclient` owns configured HTTP URL → persisted HTTP URL/token →
-  live pidfile/unix-socket discovery, build/origin headers, bearer-token loading,
-  typed request/response DTOs, timeouts, long-lived keep-alive mode, and
-  last-good snapshot metadata.
+- `internal/daemonclient` owns the current ordered transport discovery chain:
+  `AGENT_TEAM_DAEMON_URL`, then the persisted daemon HTTP address, then a live
+  pidfile plus the derived Unix socket. For HTTP, bearer-token-file discovery is
+  `AGENT_TEAM_DAEMON_TOKEN_FILE`, then the repository's operator-token path.
+  It also owns build/origin headers, typed request/response DTOs, timeouts,
+  long-lived keep-alive mode, and last-good snapshot metadata.
 - The extraction MUST preserve existing CLI behavior and tests. CLI verbs and
   the TUI consume the same exported client.
 - `model`, `update`, and view-model projection have no filesystem, network,
@@ -447,6 +486,19 @@ Normative rules:
   human CLI output or reach into daemon packages for storage structs.
 - Missing data for a post-cutover screen becomes a platform-owned API issue. It
   never becomes a TUI filesystem workaround.
+
+The walking-skeleton `live-daemon` gate MUST prove replacement of the removed
+browser token prompt in a fresh `tui-small-v1` repository with
+`AGENT_TEAM_DAEMON_URL`, `AGENT_TEAM_DAEMON_TOKEN_FILE`, and
+`AGENT_TEAM_DAEMON_SOCKET` unset. With both transports present, the TUI must
+select the persisted HTTP address and automatically load the default operator
+token; the daemon observes an authenticated request. With no persisted HTTP
+address, the same zero-daemon-environment invocation must require a live
+pidfile, select the derived Unix socket, and load the same snapshot without a
+prompt. A stale/dead pidfile or missing socket must fail closed as “daemon not
+running”; it may not fall through to guessed endpoints. The harness records the
+selected transport and token-file path as typed test evidence without recording
+the token value.
 
 One model owns route, focus, size class, connection/freshness, immutable
 snapshots, query, overlay stack, and attach state. Screens do not keep shadow
@@ -568,7 +620,7 @@ states. At minimum:
 | `Tick(at)` / `ReconnectTick(at)` | Coalesce refreshes; deterministic backoff in tests; no I/O in update. |
 | `Key(binding)` | Every advertised binding dispatches in every applicable focus state; unavailable bindings return explicit feedback, never a silent dead key. |
 | `QueryChanged` / `QueryCommit` | Stable filtering, unknown-field error, semantic focus preservation. |
-| `Resize(w,h)` | Correct size class, no invalid dimensions, preserved semantic focus or documented nearest fallback. |
+| `Resize(w,h)` | Apply the ordered total classifier; cover every mixed-aspect boundary vector above plus an exhaustive bounded grid; produce exactly one class, no invalid dimensions, and preserve semantic focus or the documented nearest fallback. |
 | `OpenOverlay` / `CloseOverlay` | LIFO overlay behavior and invoker focus restoration. |
 | `AttachRequested` / `AttachStarted` | Freeze polling and emit exactly one process command. |
 | `AttachReturned` / `AttachFailed` | Restore terminal/focus/polling and show result without losing snapshot. |
@@ -583,9 +635,10 @@ a PTY.
 | Tier | Gate | Required evidence |
 | --- | --- | --- |
 | `unit` | Pure update and projection tables | Every message × applicable canonical states; sort/filter/aggregate tests match the current dashboard formulas captured in `parity.yaml`. |
-| `golden` | Canonical renders | Every implemented screen at 80×24, 120×30, and 160×50 in color and `NO_COLOR`; two consecutive clean renders are byte-identical. Golden diffs are review artifacts. |
-| `pty` | `teatest` keyboard/process integration | Binding registry sweep, focus traversal, help/palette/search, resize storm, disconnect→stale→reconnect, and attach suspend/restore. |
-| `live-daemon` | Seeded local daemon parity | TUI projections for every `covered` parity row equal canonical API/CLI ground truth from the same `tui-small-v1` state. No TUI test parses human CLI output; the harness compares typed normalized values. |
+| `golden` | Canonical renders | Every implemented screen at 80×24, 120×30, and 160×50 in color, `NO_COLOR`, and `TERM=dumb`; two consecutive clean renders are byte-identical. Golden diffs are review artifacts. |
+| `pty` | `teatest` keyboard/process integration | Binding registry sweep, focus traversal, help/palette/search, mixed-aspect resize boundary vectors plus a resize storm, disconnect→stale→reconnect, and attach suspend/restore. |
+| `term-dumb` | Plain render plus PTY byte/keyboard assertions | At all canonical geometries use ASCII borders and emit no Unicode box drawing, CSI/cursor-addressing, OSC, SGR, or color dependency; at 80×24 retain readable keyboard navigation, filter, inspect, refresh, help, and quit. |
+| `live-daemon` | Seeded local daemon parity and discovery | TUI projections for every `covered` parity row equal canonical API/CLI ground truth from the same `tui-small-v1` state. A fresh repository with all daemon endpoint/token environment variables unset proves persisted-HTTP-before-socket precedence, default operator-token acquisition, Unix-socket fallback, and fail-closed stale pidfile behavior. No TUI test parses human CLI output; the harness compares typed normalized values. |
 | `non-tty` | Pipe/exit/control-sequence assertions | Interactive pipe refuses with exit `2`; `--once` exact plain 120×30 frame and exit codes `0/1`; stdout contains no cursor-control sequence. |
 | `cutover-lints` | Permanent surface-removal checks | All deletion and anti-regression rules in `parity.yaml`, including the dedicated auth regression, are green. Enabled only by the cutover PR and permanent thereafter. |
 | `performance` | First paint and refresh | With `tui-large-v1`, overview render completes within 150 ms after the first complete API response; tick refresh is flicker-free and does not grow goroutines. |
@@ -607,22 +660,26 @@ The authoritative machine form is `cutover` in
 
 1. provide evidence for every `covered` parity row and a cited decision for every
    `dropped-by-decision` row;
-2. pass all acceptance tiers, the 100-instance/500-job performance fixture, and
-   the one-hour soak;
-3. delete `internal/daemon/ui/` and `internal/daemon/ui.go`;
-4. remove both `/ui` route registrations and the static-shell authentication
+2. prove that the cutover parent's complete embedded-UI/route/auth source digest
+   exactly matches the inventoried digest; any mismatch fails closed and
+   requires a reviewed inventory refresh before deletion;
+3. pass all acceptance tiers—including zero-environment discovery and the
+   distinct `TERM=dumb` render/PTY gate—the 100-instance/500-job performance
+   fixture, and the one-hour soak;
+4. delete `internal/daemon/ui/` and `internal/daemon/ui.go`;
+5. remove both `/ui` route registrations and the static-shell authentication
    exception, with a dedicated TCP auth regression proving all remaining routes
    require the normal bearer policy;
-5. delete browser-only product verification and its Playwright tests/dependency
+6. delete browser-only product verification and its Playwright tests/dependency
    instructions, and convert the surviving product-verify loop to PTY,
    `--once`, and API/CLI checks;
-6. remove or rewrite all user-facing embedded-dashboard documentation;
-7. enable permanent lints that prevent embedded daemon HTML/JS/CSS, `/ui` route
+7. remove or rewrite all user-facing embedded-dashboard documentation;
+8. enable permanent lints that prevent embedded daemon HTML/JS/CSS, `/ui` route
    registration, static UI auth bypass, daemon `text/html` handlers, Playwright
    browser verification, and stale `/ui` instructions from returning;
-8. add a changelog note that names `agent-team ui` and explicitly promises no
+9. add a changelog note that names `agent-team ui` and explicitly promises no
    redirect or compatibility shim; and
-9. record James's GitHub approval against the exact head SHA after all changes
+10. record James's GitHub approval against the exact head SHA after all changes
    and CI results are present.
 
 The cutover PR is the only irreversible slice. Deletion and lints land together;
