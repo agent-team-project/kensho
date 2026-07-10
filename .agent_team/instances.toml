@@ -345,9 +345,12 @@ kind = "harness_review"
 [instances.harness-reviewer]
 agent       = "manager"
 token_budget = "10M"
+runtime     = "claude"
+model       = "claude-fable-5"
+effort      = "max"
 ephemeral   = true
 env_allow   = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
-description = "Scheduled harness review: bounce/feedback/failure trends -> prompt and instruction improvement tickets."
+description = "Scheduled harness review on Fable max effort: bounce/feedback/failure trends -> prompt and instruction improvement tickets."
 
 [[instances.harness-reviewer.triggers]]
 event      = "schedule"
@@ -371,11 +374,12 @@ task = "Run the org-review skill: analyze outcomes, spend, capacity, feedback, a
 agent        = "manager"
 runtime      = "claude"
 model        = "claude-fable-5"
+effort       = "max"
 token_budget = "15M"
 time_budget  = "45m"
 ephemeral    = true
 env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
-description  = "Scheduled org review on Fable 5: outcomes/spend/capacity/feedback -> strategic improvement tickets."
+description  = "Scheduled org review on Fable max effort: outcomes/spend/capacity/feedback -> strategic improvement tickets."
 
 [[instances.org-review.triggers]]
 event      = "schedule"
@@ -396,9 +400,10 @@ match.kind = "org_review"
 agent        = "advisor"
 runtime      = "claude"
 model        = "claude-fable-5"
+effort       = "max"
 ephemeral    = false
 env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
-description  = "Persistent Fable-5 reasoning consultant — the council of one Kai escalates hard calls to."
+description  = "Persistent Fable max effort reasoning consultant — the council of one Kai escalates hard calls to."
 
 [[instances.advisor.triggers]]
 event = "user_invocation"

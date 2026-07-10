@@ -4,8 +4,9 @@
 constitution §VI.1 (#239). Ratification per the amendment process; open questions flagged §9.
 
 The mechanism already exists: any `[instances.<name>]` block in `instances.toml` may declare
-`runtime` and `model` (e.g. `runtime = "claude"`, `model = "claude-fable-5"` — today live on
-`org-review` and `advisor`; `model` is passed as `--model` on Claude-runtime launches). This
+`runtime`, `model`, and `effort` (e.g. `runtime = "claude"`, `model = "claude-fable-5"`,
+`effort = "max"` — today live on `org-review` and `advisor`; `model` is passed as `--model`
+on Claude-runtime launches, and `effort` maps to each runtime's reasoning-effort setting). This
 document is the **policy**: which capability tier each unit of Kensho runs on, how the tier is
 chosen per task, and how the allocation corrects itself from observed outcomes once the
 unlimited-token period ends and capability is spent, not assumed.
@@ -182,11 +183,11 @@ into the worker's or reviewer's prompt as a quality signal ("this is an easy tic
 an agent told its work is scored easy sandbags, and a reviewer told the ticket is easy
 under-reviews. The kickoff carries the ticket, not the score.
 
-**Mechanism:** today, tier-per-job = target-per-job. Declare tiered instances of the same
-agent — `worker-lite` (T3), `worker` (T2 default), `worker-heavy` (T1) — and route by
-dispatch target, exactly as `platform-worker` already demonstrates instance specialization.
-A step-level `model` override in pipeline TOML would be cleaner (steps already take
-`runtime`/`runtime_bin` but not `model`) — proposed as mechanism work, §9.
+**Mechanism:** tier-per-job can be target-per-job or step metadata. Declare tiered
+instances of the same agent — `worker-lite` (T3), `worker` (T2 default),
+`worker-heavy` (T1) — and route by dispatch target when budget/replica pools differ.
+Use step-level `model` and `effort` when one pipeline stage needs a runtime tier without
+inventing another instance.
 
 ## 6. Dynamic escalation: the bounce-driven control loop
 
@@ -390,11 +391,9 @@ honest form).
 
 ## 9. Open questions
 
-- **Step-level `model` override.** Pipeline steps take `runtime`/`runtime_bin` but not
-  `model`; tiering currently means declaring `worker-lite`/`worker-heavy` instances and
-  routing by dispatch target. Add `model` to step schema, or keep tiered instances as the
-  idiom? (Tiered instances also give per-tier budgets/replicas for free — may be the better
-  shape, not just the available one.)
+- **Step-level model routing policy.** Pipeline steps can now declare `model` and `effort`,
+  but tiered instances still give per-tier budgets/replicas for free. Decide when the policy
+  should prefer step metadata versus explicit `worker-lite`/`worker-heavy` targets.
 - **Escalation mechanism.** `job bounce --advance` re-runs the same instance; tier
   escalation needs `job bounce --target <instance>` or a manager-driven fresh dispatch
   carrying findings. Small delta; needed before §6.3 is fully executable.

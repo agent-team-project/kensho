@@ -131,6 +131,7 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		Runtime:             string(rt.Kind),
 		RuntimeBinary:       rt.Binary,
 		Model:               dispatchModelForPayload(inst, payload),
+		Effort:              dispatchEffortForPayload(inst, payload),
 		Args:                args,
 		Env:                 env,
 		EnvAllow:            inst.EnvAllow,
@@ -386,6 +387,16 @@ func dispatchModelForPayload(inst *topology.Instance, payload map[string]any) st
 		return ""
 	}
 	return strings.TrimSpace(inst.Model)
+}
+
+func dispatchEffortForPayload(inst *topology.Instance, payload map[string]any) string {
+	if effort := strings.TrimSpace(payloadString(payload, "effort")); effort != "" {
+		return effort
+	}
+	if inst == nil {
+		return ""
+	}
+	return strings.TrimSpace(inst.Effort)
 }
 
 type ephemeralRuntime struct {

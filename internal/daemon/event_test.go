@@ -1826,6 +1826,7 @@ agent = "worker"
 ephemeral = true
 runtime = "codex"
 model = "claude-fable-5"
+effort = "max"
 
 [[instances.worker.triggers]]
 event = "agent.dispatch"
@@ -1848,6 +1849,16 @@ match.target = "worker"
 	}
 	if containsString(call, "--model") || containsString(call, "claude-fable-5") {
 		t.Fatalf("codex spawn call should ignore model: %#v", call)
+	}
+	if !containsArgSubstring(call, `model_reasoning_effort="max"`) {
+		t.Fatalf("codex spawn call missing effort config: %#v", call)
+	}
+	meta, err := ReadMetadata(root, "worker-squ-44")
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	if meta.Effort != "max" {
+		t.Fatalf("metadata effort = %q, want max", meta.Effort)
 	}
 	_, _ = m.Stop("worker-squ-44")
 	_ = waitForEventReaper(t, m, "worker-squ-44")
@@ -1902,6 +1913,7 @@ ephemeral = true
 runtime = "claude"
 runtime_bin = "claude-docs"
 model = "claude-fable-5"
+effort = "max"
 
 [[instances.docs-writer.triggers]]
 event = "agent.dispatch"
@@ -1925,12 +1937,18 @@ match.target = "docs-writer"
 	if got, ok := argValue(call, "--model"); !ok || got != "claude-fable-5" {
 		t.Fatalf("spawn call model = %q, %v; want claude-fable-5 in %#v", got, ok, call)
 	}
+	if got, ok := argValue(call, "--effort"); !ok || got != "max" {
+		t.Fatalf("spawn call effort = %q, %v; want max in %#v", got, ok, call)
+	}
 	meta, err := ReadMetadata(root, "docs-writer-squ-134")
 	if err != nil {
 		t.Fatalf("read metadata: %v", err)
 	}
 	if meta.Runtime != string(runtimebin.KindClaude) || meta.RuntimeBinary != "claude-docs" || meta.SessionID == "" {
 		t.Fatalf("metadata = %+v, want declared instance claude runtime", meta)
+	}
+	if meta.Effort != "max" {
+		t.Fatalf("metadata effort = %q, want max", meta.Effort)
 	}
 	_, _ = m.Stop("docs-writer-squ-134")
 	_ = waitForEventReaper(t, m, "docs-writer-squ-134")
@@ -3951,6 +3969,7 @@ id = "implement"
 instructions = "Implement the ticket with regression coverage."
 target = "worker"
 model = "claude-sonnet-5"
+effort = "high"
 token_budget = 80
 time_budget = "45m"
 reminder_levels = [50, 80, 100]
@@ -4034,7 +4053,7 @@ tokens_per_day = 100
 	if j.Origin.Project != "project-1" || j.Origin.Team != "platform" || j.Origin.Job != "squ-92" || j.Origin.Trigger != "ticket.created" {
 		t.Fatalf("job origin = %+v", j.Origin)
 	}
-	if j.Steps[0].ID != "implement" || j.Steps[0].Instructions != "Implement the ticket with regression coverage." || j.Steps[0].Status != jobstore.StatusRunning || j.Steps[0].Instance != "worker-squ-92" || j.Steps[0].Model != "claude-sonnet-5" || j.Steps[0].TokenBudget != 30 || j.Steps[0].TimeBudget != "45m0s" || !reflect.DeepEqual(j.Steps[0].ReminderLevels, []int{50, 80, 100}) {
+	if j.Steps[0].ID != "implement" || j.Steps[0].Instructions != "Implement the ticket with regression coverage." || j.Steps[0].Status != jobstore.StatusRunning || j.Steps[0].Instance != "worker-squ-92" || j.Steps[0].Model != "claude-sonnet-5" || j.Steps[0].Effort != "high" || j.Steps[0].TokenBudget != 30 || j.Steps[0].TimeBudget != "45m0s" || !reflect.DeepEqual(j.Steps[0].ReminderLevels, []int{50, 80, 100}) {
 		t.Fatalf("first step = %+v", j.Steps[0])
 	}
 	if j.Steps[1].ID != "review" || j.Steps[1].Label != "Manager review" || j.Steps[1].Description != "Review the worker output." || j.Steps[1].Instructions != "Prepare review notes for the implementation branch." || !j.Steps[1].Optional || j.Steps[1].Timeout != "2h0m0s" {
@@ -4051,6 +4070,9 @@ tokens_per_day = 100
 	if meta.SpecURI != stepSpecURI || meta.JobURI != "agt://project-1/job/squ-92" {
 		t.Fatalf("metadata URIs = %+v", meta)
 	}
+	if meta.Effort != "high" {
+		t.Fatalf("metadata effort = %q, want high", meta.Effort)
+	}
 	env := fake.lastEnv()
 	if !containsString(env, "AGENT_TEAM_BUDGET_TOKENS=30") || !containsString(env, "AGENT_TEAM_BUDGET_TIME=45m0s") {
 		t.Fatalf("env missing clamped budget values: %#v", env)
@@ -4061,6 +4083,9 @@ tokens_per_day = 100
 	call := fake.lastCall()
 	if got, ok := argValue(call, "--model"); !ok || got != "claude-sonnet-5" {
 		t.Fatalf("spawn call model = %q, %v; want claude-sonnet-5 in %#v", got, ok, call)
+	}
+	if got, ok := argValue(call, "--effort"); !ok || got != "high" {
+		t.Fatalf("spawn call effort = %q, %v; want high in %#v", got, ok, call)
 	}
 	prompt, ok := argValue(call, "-p")
 	if !ok {

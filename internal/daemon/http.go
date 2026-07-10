@@ -94,6 +94,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			Runtime             string   `json:"runtime"`
 			RuntimeBinary       string   `json:"runtime_binary"`
 			Model               string   `json:"model"`
+			Effort              string   `json:"effort"`
 			Args                []string `json:"args"`
 			Env                 []string `json:"env"`
 			Stdin               string   `json:"stdin"`
@@ -130,6 +131,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			Runtime:             body.Runtime,
 			RuntimeBinary:       body.RuntimeBinary,
 			Model:               body.Model,
+			Effort:              body.Effort,
 			Args:                body.Args,
 			Env:                 body.Env,
 			Stdin:               body.Stdin,
@@ -139,7 +141,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		resp := map[string]any{
 			"instance_id":           meta.Instance,
 			"uri":                   meta.URI,
 			"spec_uri":              meta.SpecURI,
@@ -153,7 +155,11 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			"pid":                   meta.PID,
 			"runtime":               meta.Runtime,
 			"session_id":            meta.SessionID,
-		})
+		}
+		if strings.TrimSpace(meta.Effort) != "" {
+			resp["effort"] = meta.Effort
+		}
+		writeJSON(w, http.StatusOK, resp)
 	})
 
 	mux.HandleFunc("/v1/stop", func(w http.ResponseWriter, r *http.Request) {

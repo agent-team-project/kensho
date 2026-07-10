@@ -332,6 +332,7 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *top
 		Runtime:       string(rt.Kind),
 		RuntimeBinary: rt.Binary,
 		Model:         inst.Model,
+		Effort:        inst.Effort,
 		Args:          args,
 		Env:           env,
 		EnvAllow:      inst.EnvAllow,

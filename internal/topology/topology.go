@@ -109,6 +109,7 @@ type Instance struct {
 	Runtime     string
 	RuntimeBin  string
 	Model       string
+	Effort      string
 	Description string
 	// Locks names dispatch locks held while this instance's ephemeral child runs.
 	Locks []string
@@ -222,6 +223,7 @@ type PipelineStep struct {
 	Runtime          string
 	RuntimeBin       string
 	Model            string
+	Effort           string
 	After            []string
 	Gate             string
 	ApprovalRequired bool
@@ -842,6 +844,7 @@ type rawInstance struct {
 	Runtime        any              `toml:"runtime"`
 	RuntimeBin     any              `toml:"runtime_bin"`
 	Model          any              `toml:"model"`
+	Effort         any              `toml:"effort"`
 	Description    string           `toml:"description"`
 	Locks          []string         `toml:"locks"`
 	Replicas       *int             `toml:"replicas"`
@@ -1107,6 +1110,10 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 	if err != nil {
 		return nil, fmt.Errorf("instance %q: %w", name, err)
 	}
+	effort, err := parseOptionalText(ri.Effort, "effort")
+	if err != nil {
+		return nil, fmt.Errorf("instance %q: %w", name, err)
+	}
 	reapWorktree, err := worktreepolicy.Normalize(ri.ReapWorktree)
 	if err != nil {
 		return nil, fmt.Errorf("instance %q: %w", name, err)
@@ -1153,6 +1160,7 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		Runtime:        runtime,
 		RuntimeBin:     runtimeBin,
 		Model:          model,
+		Effort:         effort,
 		Description:    ri.Description,
 		Locks:          locks,
 		Replicas:       replicas,
@@ -1991,6 +1999,10 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
+		effort, err := parseOptionalText(body["effort"], "effort")
+		if err != nil {
+			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
+		}
 		label, err := parseStepText(body["label"], "label")
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
@@ -2058,7 +2070,7 @@ func parsePipelineSteps(name string, raw []map[string]any) ([]*PipelineStep, err
 		if err != nil {
 			return nil, fmt.Errorf("pipeline %q step[%d]: %w", name, i, err)
 		}
-		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Locks: locks, Workspace: workspace, Runtime: runtime, RuntimeBin: runtimeBin, Model: model, After: after, Gate: gate, ApprovalRequired: approvalRequired, Optional: optional, Timeout: timeout, TokenBudget: tokenBudget, TimeBudget: timeBudget, HardBudget: hardBudget, HardMultiplier: hardMultiplier, ReminderLevels: reminderLevels, MaxAttempts: maxAttempts, RetryOnCrash: retryOnCrash})
+		steps = append(steps, &PipelineStep{ID: id, Label: label, Description: description, Instructions: instructions, Target: target, Locks: locks, Workspace: workspace, Runtime: runtime, RuntimeBin: runtimeBin, Model: model, Effort: effort, After: after, Gate: gate, ApprovalRequired: approvalRequired, Optional: optional, Timeout: timeout, TokenBudget: tokenBudget, TimeBudget: timeBudget, HardBudget: hardBudget, HardMultiplier: hardMultiplier, ReminderLevels: reminderLevels, MaxAttempts: maxAttempts, RetryOnCrash: retryOnCrash})
 	}
 	for _, step := range steps {
 		for _, dep := range step.After {

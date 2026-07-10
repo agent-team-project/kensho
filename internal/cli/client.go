@@ -201,6 +201,7 @@ type dispatchPayload struct {
 	Runtime             string   `json:"runtime,omitempty"`
 	RuntimeBinary       string   `json:"runtime_binary,omitempty"`
 	Model               string   `json:"model,omitempty"`
+	Effort              string   `json:"effort,omitempty"`
 	Args                []string `json:"args,omitempty"`
 	Env                 []string `json:"env,omitempty"`
 	Stdin               string   `json:"stdin,omitempty"`
@@ -220,6 +221,7 @@ type dispatchResponse struct {
 	StartedAt           time.Time `json:"started_at"`
 	PID                 int       `json:"pid"`
 	Runtime             string    `json:"runtime,omitempty"`
+	Effort              string    `json:"effort,omitempty"`
 	SessionID           string    `json:"session_id,omitempty"`
 }
 

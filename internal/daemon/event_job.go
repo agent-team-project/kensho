@@ -212,7 +212,7 @@ func (r *EventResolver) upsertDispatchJobWithContract(payload map[string]any, in
 
 func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
 	data := map[string]string{}
-	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "model", "deployment_uri", "deployment_parent_uri", "charter_uri", "child_deployment_uri", "capability_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
+	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "model", "effort", "deployment_uri", "deployment_parent_uri", "charter_uri", "child_deployment_uri", "capability_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
 		if value := payloadString(payload, key); value != "" {
 			data[key] = value
 		}

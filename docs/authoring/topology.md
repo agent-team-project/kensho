@@ -54,6 +54,7 @@ Fields:
 | `runtime` | Optional runtime kind override: `claude`, `codex`, or `docker` |
 | `runtime_bin` | Optional runtime binary override |
 | `model` | Optional Claude Code model id; only used when the effective runtime is `claude` |
+| `effort` | Optional reasoning effort; passed as `--effort` for Claude and `model_reasoning_effort` for Codex |
 | `locks` | Named dispatch locks held by spawned ephemeral children |
 | `replicas` | Max concurrent ephemeral runs |
 | `env_allow` | Glob allowlist for inherited environment keys; unset is a no-op, and `AGENT_TEAM_*` is always kept |
@@ -180,7 +181,7 @@ Use `agent-team job step <job-id> <step-id> --skip` when a stage is intentionall
 
 Use `optional = true` when a stage is useful but should not block the workflow if it fails. Optional failures still appear in `job explain`, `pipeline explain`, and retry views, but downstream `after` dependencies are treated as satisfied.
 
-Pipeline steps may set `runtime`, `runtime_bin`, and `model` to override the spawned runtime for that step. `model` is passed only to Claude-runtime launches; leave it empty to keep the target instance's existing default model behavior.
+Pipeline steps may set `runtime`, `runtime_bin`, `model`, and `effort` to override the spawned runtime for that step. `model` is passed only to Claude-runtime launches. `effort` becomes `--effort <level>` for Claude and `-c model_reasoning_effort="<level>"` for Codex. Leave either empty to keep the target instance's existing default behavior.
 
 Use `[pipelines.<name>.infra_signatures]` to classify failed gate signatures
 reported with `agent-team job gate set`. These regexes only classify explicit

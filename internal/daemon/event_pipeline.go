@@ -335,6 +335,9 @@ func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topolog
 	if model := strings.TrimSpace(step.Model); model != "" {
 		dispatchPayload["model"] = model
 	}
+	if effort := strings.TrimSpace(step.Effort); effort != "" {
+		dispatchPayload["effort"] = effort
+	}
 	if payloadString(dispatchPayload, "reap_worktree") == "" && pipeline.ReapWorktree != worktreepolicy.Never {
 		dispatchPayload["reap_worktree"] = pipeline.ReapWorktree
 	}
@@ -464,6 +467,7 @@ func pipelineJobSteps(pipeline *topology.Pipeline) []jobstore.Step {
 			Runtime:          step.Runtime,
 			RuntimeBin:       step.RuntimeBin,
 			Model:            step.Model,
+			Effort:           step.Effort,
 			After:            append([]string(nil), step.After...),
 			Gate:             step.Gate,
 			ApprovalRequired: step.ApprovalRequired,

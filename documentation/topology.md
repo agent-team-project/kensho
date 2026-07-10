@@ -163,10 +163,12 @@ Important layering rules:
 - At runtime, `.agent_team/instances.toml` is the single source of truth.
 - `[instances.<name>.config]` becomes declared per-instance config and is
   layered above repo config when ephemeral runtime state is prepared.
-- `[instances.<name>]` fields `runtime`, `runtime_bin`, and `model` customize the
-  launched runtime. `model` is passed as `--model <value>` only for Claude
-  runtime launches; omitted or empty model values leave existing default model
-  behavior unchanged, and Codex/Docker launches ignore it.
+- `[instances.<name>]` fields `runtime`, `runtime_bin`, `model`, and `effort`
+  customize the launched runtime. `model` is passed as `--model <value>` only
+  for Claude runtime launches. `effort` is passed as `--effort <value>` for
+  Claude and `-c model_reasoning_effort="<value>"` for Codex. Omitted or empty
+  values leave existing runtime defaults unchanged, and Docker launches ignore
+  model/effort.
 - Teams own instances, pipelines, schedules, and channels for operator
   commands, origin envelopes, usage accounting, and scoped resources.
 - Budgets are keyed by team; locks and channels may be scoped by machine, team,

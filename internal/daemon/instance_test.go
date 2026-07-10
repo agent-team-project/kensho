@@ -401,6 +401,46 @@ func TestInstance_DispatchPersistsMetadata(t *testing.T) {
 	waitForStatusNot(t, m, "worker-squ-1", StatusRunning)
 }
 
+func TestInstance_DispatchClaudeEffortPersistsMetadataAndArgs(t *testing.T) {
+	root := t.TempDir()
+	fake := newFakeSpawner(2 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	meta, err := m.Dispatch(DispatchInput{
+		Agent:     "worker",
+		Name:      "worker-effort",
+		Model:     "claude-fable-5",
+		Effort:    "max",
+		Prompt:    "hello",
+		Workspace: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	if meta.Effort != "max" {
+		t.Fatalf("metadata effort = %q, want max", meta.Effort)
+	}
+	disk, err := ReadMetadata(root, "worker-effort")
+	if err != nil {
+		t.Fatalf("read disk: %v", err)
+	}
+	if disk.Effort != "max" {
+		t.Fatalf("disk effort = %q, want max", disk.Effort)
+	}
+	args := fake.lastCall()
+	if got, ok := argValue(args, "--model"); !ok || got != "claude-fable-5" {
+		t.Fatalf("spawn args model = %q, %v; args=%v", got, ok, args)
+	}
+	if got, ok := argValue(args, "--effort"); !ok || got != "max" {
+		t.Fatalf("spawn args effort = %q, %v; args=%v", got, ok, args)
+	}
+
+	if _, err := m.Stop("worker-effort"); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	waitForStatusNot(t, m, "worker-effort", StatusRunning)
+}
+
 func TestInstance_DispatchCleansLaunchPathsAfterReap(t *testing.T) {
 	teamDir := filepath.Join(t.TempDir(), ".agent_team")
 	root := DaemonRoot(teamDir)
@@ -602,6 +642,7 @@ func TestInstance_DispatchCodexRuntimeExecArgs(t *testing.T) {
 	meta, err := m.Dispatch(DispatchInput{
 		Agent:     "worker",
 		Name:      "worker-runtime",
+		Effort:    "high",
 		Workspace: t.TempDir(),
 		Args:      []string{"exec", "-C", t.TempDir(), "hello"},
 	})
@@ -611,12 +652,18 @@ func TestInstance_DispatchCodexRuntimeExecArgs(t *testing.T) {
 	if meta.Runtime != string(runtimebin.KindCodex) || meta.SessionID != "" {
 		t.Fatalf("metadata = %+v, want codex without captured session", meta)
 	}
+	if meta.Effort != "high" {
+		t.Fatalf("metadata effort = %q, want high", meta.Effort)
+	}
 	args := fake.lastCall()
 	if len(args) < 2 || args[0] != "codex" || args[1] != "exec" {
 		t.Fatalf("spawn args = %v, want codex exec", args)
 	}
 	if !containsString(args, "--json") {
 		t.Fatalf("codex args = %v, want --json for session capture", args)
+	}
+	if !containsArgSubstring(args, `model_reasoning_effort="high"`) {
+		t.Fatalf("codex args = %v, want model_reasoning_effort high", args)
 	}
 	if containsString(args, "--session-id") {
 		t.Fatalf("codex args should not include Claude session id: %v", args)
@@ -901,6 +948,7 @@ func TestInstance_StartCodexResumeCarriesCurrentOTelArgs(t *testing.T) {
 		Agent:         "manager",
 		Runtime:       string(runtimebin.KindCodex),
 		RuntimeBinary: "codex",
+		Effort:        "max",
 		Workspace:     workspace,
 		PID:           123,
 		SessionID:     sessionID,
@@ -930,6 +978,9 @@ func TestInstance_StartCodexResumeCarriesCurrentOTelArgs(t *testing.T) {
 		if !containsArgSubstring(args, "otel.trace_exporter") {
 			t.Fatalf("resumed codex argv missing current otel trace exporter config: %#v", args)
 		}
+	}
+	if !containsArgSubstring(args, `model_reasoning_effort="max"`) {
+		t.Fatalf("resumed codex argv missing effort config: %#v", args)
 	}
 	if args[1] != "exec" || args[len(args)-1] != "-" {
 		t.Fatalf("resume argv shape broken: %#v", args)
@@ -1924,7 +1975,7 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	m := NewInstanceManager(root, fake.spawn)
 
 	workspace := t.TempDir()
-	disp, err := m.Dispatch(DispatchInput{Agent: "manager", Name: "mgr", Workspace: workspace})
+	disp, err := m.Dispatch(DispatchInput{Agent: "manager", Name: "mgr", Workspace: workspace, Effort: "max"})
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
@@ -1949,12 +2000,18 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	if resumed.ResumeCount != 1 || resumed.FreshFallback || resumed.FreshFallbacks != 0 {
 		t.Fatalf("resume metadata = %+v, want resume_count=1 without fresh fallback", resumed)
 	}
+	if resumed.Effort != "max" {
+		t.Fatalf("resume effort = %q, want max", resumed.Effort)
+	}
 	disk, err := ReadMetadata(root, "mgr")
 	if err != nil {
 		t.Fatalf("read metadata: %v", err)
 	}
 	if disk.ResumeCount != 1 || disk.FreshFallback || disk.FreshFallbacks != 0 {
 		t.Fatalf("disk resume metadata = %+v, want resume_count=1 without fresh fallback", disk)
+	}
+	if disk.Effort != "max" {
+		t.Fatalf("disk effort = %q, want max", disk.Effort)
 	}
 	args := fake.lastCall()
 	foundResume := false
@@ -1965,6 +2022,9 @@ func TestInstance_StartResumesWithSessionID(t *testing.T) {
 	}
 	if !foundResume {
 		t.Errorf("expected --resume %s in args, got: %v", sessionID, args)
+	}
+	if got, ok := argValue(args, "--effort"); !ok || got != "max" {
+		t.Errorf("expected --effort max in args, got %q/%v from %v", got, ok, args)
 	}
 
 	// Cleanup.

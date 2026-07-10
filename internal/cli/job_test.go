@@ -215,6 +215,7 @@ var expectedJobShowJSONStepLegacyKeys = map[string]string{
 	"Runtime":          "runtime",
 	"RuntimeBin":       "runtime_bin",
 	"Model":            "model",
+	"Effort":           "effort",
 	"Status":           "status",
 	"Instance":         "instance",
 	"After":            "after",

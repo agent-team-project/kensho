@@ -456,6 +456,7 @@ reap_worktree = "on_close"
 runtime = "codex"
 runtime_bin = "codex-dev"
 model = "claude-fable-5"
+effort = "max"
 token_budget = "40M"
 time_budget = "45m"
 
@@ -491,6 +492,7 @@ workspace = "repo"
 runtime = "codex"
 runtime_bin = "codex-dev"
 model = "claude-sonnet-5"
+effort = "high"
 after = ["implement"]
 gate = "pr"
 optional = true
@@ -526,10 +528,10 @@ retry_on_crash = true
 	if p.InfraSignatures["disk_exhaustion"] != "No space left on device" || p.InfraSignatures["missing_binary"] != "error: test binary .* not found" {
 		t.Fatalf("pipeline infra signatures = %+v", p.InfraSignatures)
 	}
-	if len(p.Steps) != 2 || p.Steps[0].Model != "" || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].Model != "claude-sonnet-5" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].TokenBudget != 10000000 || p.Steps[1].TimeBudget != 20*time.Minute || !reflect.DeepEqual(p.Steps[1].ReminderLevels, []int{50, 75, 100}) || p.Steps[1].MaxAttempts != 2 || !p.Steps[1].RetryOnCrash {
+	if len(p.Steps) != 2 || p.Steps[0].Model != "" || p.Steps[0].Effort != "" || p.Steps[1].Label != "Manager review" || p.Steps[1].Description != "Review implementation and prepare PR handoff." || p.Steps[1].Instructions != "Review the worker branch and decide whether PR follow-up is ready." || p.Steps[1].Workspace != "repo" || p.Steps[1].Runtime != "codex" || p.Steps[1].RuntimeBin != "codex-dev" || p.Steps[1].Model != "claude-sonnet-5" || p.Steps[1].Effort != "high" || p.Steps[1].After[0] != "implement" || p.Steps[1].Gate != "pr" || !p.Steps[1].Optional || p.Steps[1].Timeout != 30*time.Minute || p.Steps[1].TokenBudget != 10000000 || p.Steps[1].TimeBudget != 20*time.Minute || !reflect.DeepEqual(p.Steps[1].ReminderLevels, []int{50, 75, 100}) || p.Steps[1].MaxAttempts != 2 || !p.Steps[1].RetryOnCrash {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
-	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" || worker.Runtime != "codex" || worker.RuntimeBin != "codex-dev" || worker.Model != "claude-fable-5" || worker.TokenBudget != 40000000 || worker.TimeBudget != 45*time.Minute {
+	if worker := top.Instances["worker"]; worker == nil || worker.ReapWorktree != "on_close" || worker.Runtime != "codex" || worker.RuntimeBin != "codex-dev" || worker.Model != "claude-fable-5" || worker.Effort != "max" || worker.TokenBudget != 40000000 || worker.TimeBudget != 45*time.Minute {
 		t.Fatalf("worker = %+v, want reap policy plus budgets", worker)
 	}
 	matched := top.ResolvePipelines("ticket.created", map[string]any{"project": "Core"})
@@ -588,6 +590,78 @@ model = 42
 `))
 	if err == nil || !strings.Contains(err.Error(), "pipeline \"ticket_to_pr\" step[0]: model must be a string") {
 		t.Fatalf("Parse error = %v, want model type error", err)
+	}
+}
+
+func TestParse_PipelineStepEffortRequiresString(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "agent.dispatch"
+match.target = "worker"
+
+[pipelines.ticket_to_pr]
+trigger.event = "ticket.created"
+
+[[pipelines.ticket_to_pr.steps]]
+id = "implement"
+target = "worker"
+effort = 42
+`))
+	if err == nil || !strings.Contains(err.Error(), "pipeline \"ticket_to_pr\" step[0]: effort must be a string") {
+		t.Fatalf("Parse error = %v, want effort type error", err)
+	}
+}
+
+func TestParse_InstanceEffortRequiresString(t *testing.T) {
+	_, err := Parse([]byte(`
+[instances.worker]
+agent = "worker"
+effort = 42
+`))
+	if err == nil || !strings.Contains(err.Error(), "instance \"worker\": effort must be a string") {
+		t.Fatalf("Parse error = %v, want effort type error", err)
+	}
+}
+
+func TestParse_FableMaxEffortExamples(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", ".agent_team", "instances.toml"))
+	if err != nil {
+		t.Fatalf("read self-dogfood topology: %v", err)
+	}
+	top, err := Parse(body)
+	if err != nil {
+		t.Fatalf("parse self-dogfood topology: %v", err)
+	}
+	for _, name := range []string{"advisor", "harness-reviewer", "org-review"} {
+		inst := top.Instances[name]
+		if inst == nil {
+			t.Fatalf("self-dogfood instance %q missing", name)
+		}
+		if inst.Runtime != "claude" || inst.Model != "claude-fable-5" || inst.Effort != "max" {
+			t.Fatalf("self-dogfood %s runtime/model/effort = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
+		}
+	}
+
+	body, err = os.ReadFile(filepath.Join("..", "..", "template", "topology", "instances.toml.tmpl.d", "50_full_quality_loops.toml.tmpl"))
+	if err != nil {
+		t.Fatalf("read template quality loops: %v", err)
+	}
+	top, err = Parse(body)
+	if err != nil {
+		t.Fatalf("parse template quality loops: %v", err)
+	}
+	for _, name := range []string{"harness-reviewer", "org-review"} {
+		inst := top.Instances[name]
+		if inst == nil {
+			t.Fatalf("template instance %q missing", name)
+		}
+		if inst.Runtime != "claude" || inst.Model != "claude-fable-5" || inst.Effort != "max" {
+			t.Fatalf("template %s runtime/model/effort = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
+		}
 	}
 }
 

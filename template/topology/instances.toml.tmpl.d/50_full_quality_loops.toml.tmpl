@@ -11,9 +11,12 @@ kind = "harness_review"
 
 [instances.harness-reviewer]
 agent       = "manager"
+runtime     = "claude"
+model       = "claude-fable-5"
+effort      = "max"
 ephemeral   = true
 env_allow   = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
-description = "Scheduled harness review: bounce/feedback/failure trends -> prompt and instruction improvement tickets."
+description = "Scheduled harness review on Fable max effort: bounce/feedback/failure trends -> prompt and instruction improvement tickets."
 
 [[instances.harness-reviewer.triggers]]
 event      = "schedule"
@@ -35,11 +38,14 @@ task = "Run the org-review skill: analyze outcomes, spend, capacity, feedback, a
 
 [instances.org-review]
 agent        = "manager"
+runtime      = "claude"
+model        = "claude-fable-5"
+effort       = "max"
 ephemeral    = true
 token_budget = "15M"
 time_budget  = "45m"
 env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
-description  = "Scheduled org review: outcomes/spend/capacity/feedback -> strategic improvement tickets."
+description  = "Scheduled org review on Fable max effort: outcomes/spend/capacity/feedback -> strategic improvement tickets."
 
 [[instances.org-review.triggers]]
 event      = "schedule"
@@ -94,5 +100,4 @@ description  = "Scheduled product verifier: headless UI-vs-CLI correctness plus 
 event      = "schedule"
 match.name = "product-verify"
 match.kind = "product_verify"
-
 

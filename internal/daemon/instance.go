@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -148,6 +149,7 @@ type DispatchInput struct {
 	Runtime             string
 	RuntimeBinary       string
 	Model               string
+	Effort              string
 	// EffectiveRuntime identifies the delegated runtime whose log format should
 	// be used for usage and budget accounting. Empty defaults to Runtime.
 	EffectiveRuntime string
@@ -354,6 +356,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		Origin:              in.Origin,
 		Runtime:             string(rt.Kind),
 		RuntimeBinary:       rt.Binary,
+		Effort:              strings.TrimSpace(in.Effort),
 		EffectiveRuntime:    dispatchEffectiveRuntime(rt.Kind, in.EffectiveRuntime),
 		Workspace:           in.Workspace,
 		WorkspaceURI:        in.WorkspaceURI,
@@ -522,6 +525,9 @@ func dispatchArgs(rt runtimebin.Runtime, sessionID string, in DispatchInput) ([]
 		if model := strings.TrimSpace(in.Model); model != "" {
 			args = append(args, "--model", model)
 		}
+		if effort := strings.TrimSpace(in.Effort); effort != "" {
+			args = append(args, "--effort", effort)
+		}
 		if len(in.Args) > 0 {
 			args = append(args, in.Args...)
 		} else if in.Prompt != "" {
@@ -533,12 +539,13 @@ func dispatchArgs(rt runtimebin.Runtime, sessionID string, in DispatchInput) ([]
 			if in.Args[0] != "exec" {
 				return nil, errors.New("codex daemon dispatch requires args beginning with exec; use agent-team run --prompt for managed Codex runs")
 			}
-			return append([]string{rt.Binary}, codexExecArgsWithJSON(in.Args)...), nil
+			return append([]string{rt.Binary}, codexExecArgsWithEffort(in.Args, in.Effort)...), nil
 		}
 		if strings.TrimSpace(in.Prompt) == "" {
 			return nil, errors.New("codex daemon dispatch requires exec args or a prompt")
 		}
 		codexArgs := []string{rt.Binary, "exec", "--json"}
+		codexArgs = append(codexArgs, codexEffortConfigArgs(in.Effort)...)
 		codexArgs = append(codexArgs, runtimebin.CodexAutonomousExecArgs()...)
 		codexArgs = append(codexArgs, "-")
 		return codexArgs, nil
@@ -581,6 +588,27 @@ func codexExecArgsWithJSON(args []string) []string {
 		return out
 	}
 	return append([]string{"exec", "--json"}, out[1:]...)
+}
+
+func codexExecArgsWithEffort(args []string, effort string) []string {
+	out := codexExecArgsWithJSON(args)
+	effortArgs := codexEffortConfigArgs(effort)
+	if len(effortArgs) == 0 || len(out) == 0 || out[0] != "exec" {
+		return out
+	}
+	next := make([]string, 0, len(out)+len(effortArgs))
+	next = append(next, out[0])
+	next = append(next, effortArgs...)
+	next = append(next, out[1:]...)
+	return next
+}
+
+func codexEffortConfigArgs(effort string) []string {
+	effort = strings.TrimSpace(effort)
+	if effort == "" {
+		return nil
+	}
+	return []string{"-c", "model_reasoning_effort=" + strconv.Quote(effort)}
 }
 
 func hasArg(args []string, want string) bool {
@@ -1256,7 +1284,7 @@ func (m *InstanceManager) start(instance string, expected *Metadata, opts StartO
 	if bin == "" {
 		bin = runtimebin.DefaultBinaryForKind(baseRuntime)
 	}
-	args := managedResumeArgs(baseRuntime, bin, base.SessionID, opts.ResumePrompt)
+	args := managedResumeArgs(baseRuntime, bin, base.SessionID, base.Effort, opts.ResumePrompt)
 	if baseRuntime == runtimebin.KindCodex && len(otelCodexArgs) > 0 {
 		// Codex exporter selection/config live in argv, not env — a resumed
 		// child needs the CURRENT config's -c otel.* args like a dispatch does.
@@ -1307,14 +1335,18 @@ func runtimeKindSupportsManagedResume(kind runtimebin.Kind) bool {
 	return kind == runtimebin.KindClaude || kind == runtimebin.KindCodex
 }
 
-func managedResumeArgs(kind runtimebin.Kind, bin, sessionID, resumePrompt string) []string {
+func managedResumeArgs(kind runtimebin.Kind, bin, sessionID, effort, resumePrompt string) []string {
 	if kind == runtimebin.KindCodex {
 		args := []string{bin, "exec"}
+		args = append(args, codexEffortConfigArgs(effort)...)
 		args = append(args, runtimebin.CodexAutonomousExecArgs()...)
 		args = append(args, "resume", sessionID, "-")
 		return args
 	}
 	args := []string{bin, "--resume", sessionID}
+	if effort := strings.TrimSpace(effort); effort != "" {
+		args = append(args, "--effort", effort)
+	}
 	if strings.TrimSpace(resumePrompt) != "" {
 		args = append(args, "-p", resumePrompt)
 	}
@@ -1798,6 +1830,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 		Origin:              in.Origin,
 		Runtime:             string(rt.Kind),
 		RuntimeBinary:       rt.Binary,
+		Effort:              strings.TrimSpace(in.Effort),
 		EffectiveRuntime:    dispatchEffectiveRuntime(rt.Kind, in.EffectiveRuntime),
 		Workspace:           in.Workspace,
 		WorkspaceURI:        in.WorkspaceURI,

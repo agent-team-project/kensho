@@ -6165,6 +6165,7 @@ type pipelineStepInfo struct {
 	Runtime          string   `json:"runtime,omitempty"`
 	RuntimeBin       string   `json:"runtime_bin,omitempty"`
 	Model            string   `json:"model,omitempty"`
+	Effort           string   `json:"effort,omitempty"`
 	After            []string `json:"after,omitempty"`
 	Gate             string   `json:"gate,omitempty"`
 	ApprovalRequired bool     `json:"approval_required,omitempty"`
@@ -6197,6 +6198,7 @@ type pipelineGraphNode struct {
 	Runtime          string             `json:"runtime,omitempty"`
 	RuntimeBin       string             `json:"runtime_bin,omitempty"`
 	Model            string             `json:"model,omitempty"`
+	Effort           string             `json:"effort,omitempty"`
 	After            []string           `json:"after,omitempty"`
 	Gate             string             `json:"gate,omitempty"`
 	ApprovalRequired bool               `json:"approval_required,omitempty"`
@@ -6627,6 +6629,7 @@ func pipelineGraphFromTopology(top *topology.Topology, pipeline *topology.Pipeli
 			Runtime:          strings.TrimSpace(step.Runtime),
 			RuntimeBin:       strings.TrimSpace(step.RuntimeBin),
 			Model:            strings.TrimSpace(step.Model),
+			Effort:           strings.TrimSpace(step.Effort),
 			After:            trimStringSlice(step.After),
 			Gate:             strings.TrimSpace(step.Gate),
 			ApprovalRequired: step.ApprovalRequired,
@@ -7087,6 +7090,7 @@ func pipelineInfoFromTopology(p *topology.Pipeline) pipelineInfo {
 			Runtime:          step.Runtime,
 			RuntimeBin:       step.RuntimeBin,
 			Model:            step.Model,
+			Effort:           step.Effort,
 			After:            append([]string(nil), step.After...),
 			Gate:             step.Gate,
 			ApprovalRequired: step.ApprovalRequired,

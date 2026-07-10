@@ -47,6 +47,7 @@ type Metadata struct {
 	Origin              origin.Envelope `json:"origin,omitempty"`
 	Runtime             string          `json:"runtime,omitempty"`
 	RuntimeBinary       string          `json:"runtime_binary,omitempty"`
+	Effort              string          `json:"effort,omitempty"`
 	// EffectiveRuntime is the delegated runtime whose logs expose usage data.
 	// Empty means Runtime is also the effective runtime.
 	EffectiveRuntime string        `json:"effective_runtime,omitempty"`
