@@ -1641,7 +1641,7 @@ func TestRunAttachDispatchesThroughDaemonAndFollowsLog(t *testing.T) {
 	}
 }
 
-func TestRunDetachForwardsDeclaredClaudeModel(t *testing.T) {
+func TestRunDetachForwardsDeclaredClaudeModelAndEffort(t *testing.T) {
 	t.Setenv(runtimebin.EnvRuntime, "")
 	t.Setenv(runtimebin.EnvBinary, "")
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-run-model-")
@@ -1656,6 +1656,7 @@ func TestRunDetachForwardsDeclaredClaudeModel(t *testing.T) {
 agent       = "manager"
 runtime     = "claude"
 model       = "claude-fable-5"
+effort      = "max"
 description = "Persistent Claude manager."
 `)
 
@@ -1703,6 +1704,9 @@ description = "Persistent Claude manager."
 	mu.Unlock()
 	if got, ok := argValue(args, "--model"); !ok || got != "claude-fable-5" {
 		t.Fatalf("daemon args --model = %q, %v; want claude-fable-5 in %v", got, ok, args)
+	}
+	if got, ok := argValue(args, "--effort"); !ok || got != "max" {
+		t.Fatalf("daemon args --effort = %q, %v; want max in %v", got, ok, args)
 	}
 }
 
