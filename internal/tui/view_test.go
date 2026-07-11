@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -397,7 +398,7 @@ func TestOneHourSoak(t *testing.T) {
 	if duration < time.Hour {
 		finalWindow = duration / 2
 	}
-	var baseline uint64
+	baselineReady := false
 	var samples []soakHeapSample
 	refreshes, filterChanges, navigations := 0, 0, 0
 	disconnected, reconnected := false, false
@@ -469,11 +470,8 @@ func TestOneHourSoak(t *testing.T) {
 			t.Fatal("soak observed a corrupt/control-bearing TERM=dumb frame")
 		}
 		remaining := deadline.Sub(now)
-		if baseline == 0 && soakBaselineReady(remaining, finalWindow, disconnected, reconnected) {
-			runtime.GC()
-			var memory runtime.MemStats
-			runtime.ReadMemStats(&memory)
-			baseline = memory.HeapAlloc
+		if !baselineReady && soakBaselineReady(remaining, finalWindow, disconnected, reconnected) {
+			baselineReady = true
 		}
 		if !now.Before(nextHeapSample) {
 			runtime.GC()
@@ -495,12 +493,13 @@ func TestOneHourSoak(t *testing.T) {
 	if refreshes < minimumRefreshes || filterChanges == 0 || navigations != refreshes {
 		t.Fatalf("soak coverage refreshes=%d want>=%d filter_changes=%d navigations=%d", refreshes, minimumRefreshes, filterChanges, navigations)
 	}
-	if baseline == 0 {
+	if !baselineReady {
 		t.Fatal("soak never captured a post-warm-up heap baseline")
 	}
 	runtime.GC()
 	var finalMemory runtime.MemStats
 	runtime.ReadMemStats(&finalMemory)
+	samples = append(samples, soakHeapSample{elapsed: duration, bytes: finalMemory.HeapAlloc})
 	if runtime.NumGoroutine() > startGoroutines+2 {
 		t.Fatalf("goroutines grew from %d to %d", startGoroutines, runtime.NumGoroutine())
 	}
@@ -511,15 +510,19 @@ func TestOneHourSoak(t *testing.T) {
 	if finalFDs > startFDs {
 		t.Fatalf("file descriptors grew from %d to %d", startFDs, finalFDs)
 	}
-	limit := baseline + baseline/10
-	if finalMemory.HeapAlloc > limit {
-		t.Fatalf("retained heap grew from %d to %d (limit %d, exact 10%%)", baseline, finalMemory.HeapAlloc, limit)
+	window := min(5, len(samples)/2)
+	if window == 0 {
+		t.Fatal("soak did not collect enough final-window heap samples")
+	}
+	baseline, retainedFinal, limit, retained := heapRetentionWithinTenPercent(samples, window)
+	if !retained {
+		t.Fatalf("retained heap median grew from %d to %d (limit %d, exact 10%%; window=%d)", baseline, retainedFinal, limit, window)
 	}
 	slope := heapSlopeBytesPerHour(samples)
 	if slope > 1024*1024 {
 		t.Fatalf("final-window retained-heap slope = %.0f bytes/hour, limit 1048576", slope)
 	}
-	t.Logf("SOAK EVIDENCE duration=%s cadence=%s refreshes=%d filters=%d navigations=%d routes=%d real_disconnect=true real_reconnect=true final_window=%s heap_slope_bytes_per_hour=%.0f retained_baseline=%d retained_final=%d retained_limit=%d goroutines=%d->%d fds=%d->%d", duration, cadence, refreshes, filterChanges, navigations, len(routeOrder), finalWindow, slope, baseline, finalMemory.HeapAlloc, limit, startGoroutines, runtime.NumGoroutine(), startFDs, finalFDs)
+	t.Logf("SOAK EVIDENCE duration=%s cadence=%s refreshes=%d filters=%d navigations=%d routes=%d real_disconnect=true real_reconnect=true final_window=%s heap_slope_bytes_per_hour=%.0f retained_window_samples=%d retained_baseline_median=%d retained_final_median=%d retained_limit=%d goroutines=%d->%d fds=%d->%d", duration, cadence, refreshes, filterChanges, navigations, len(routeOrder), finalWindow, slope, window, baseline, retainedFinal, limit, startGoroutines, runtime.NumGoroutine(), startFDs, finalFDs)
 }
 
 func soakBaselineReady(remaining, finalWindow time.Duration, disconnected, reconnected bool) bool {
@@ -604,6 +607,54 @@ func heapSlopeBytesPerHour(samples []soakHeapSample) float64 {
 		return 0
 	}
 	return numerator / denominator
+}
+
+func heapWindowMedian(samples []soakHeapSample) uint64 {
+	values := make([]uint64, len(samples))
+	for index, sample := range samples {
+		values[index] = sample.bytes
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	if len(values) == 0 {
+		return 0
+	}
+	return values[len(values)/2]
+}
+
+func heapRetentionWithinTenPercent(samples []soakHeapSample, window int) (baseline, final, limit uint64, ok bool) {
+	if window <= 0 || len(samples) < 2*window {
+		return 0, 0, 0, false
+	}
+	baseline = heapWindowMedian(samples[:window])
+	final = heapWindowMedian(samples[len(samples)-window:])
+	limit = baseline + baseline/10
+	return baseline, final, limit, final <= limit
+}
+
+func TestHeapWindowMedianIsOrderIndependent(t *testing.T) {
+	samples := []soakHeapSample{{bytes: 9}, {bytes: 3}, {bytes: 7}, {bytes: 1}, {bytes: 5}}
+	if got := heapWindowMedian(samples); got != 5 {
+		t.Fatalf("heapWindowMedian() = %d, want 5", got)
+	}
+}
+
+func TestHeapRetentionUsesExactTenPercentMedianCeiling(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		final      uint64
+		wantWithin bool
+	}{
+		{name: "exact ceiling passes", final: 110, wantWithin: true},
+		{name: "one byte over fails", final: 111, wantWithin: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			samples := []soakHeapSample{{bytes: 100}, {bytes: 100}, {bytes: 100}, {bytes: test.final}, {bytes: test.final}, {bytes: test.final}}
+			baseline, final, limit, within := heapRetentionWithinTenPercent(samples, 3)
+			if baseline != 100 || final != test.final || limit != 110 || within != test.wantWithin {
+				t.Fatalf("retention = baseline %d final %d limit %d within %v", baseline, final, limit, within)
+			}
+		})
+	}
 }
 
 func assertFrameGeometry(t *testing.T, frame string, width, height int) {
