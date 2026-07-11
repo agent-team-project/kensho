@@ -80,10 +80,56 @@ func TestSnapshotTransitionsPreserveLastGoodAndReconnect(t *testing.T) {
 	if model.Connection != ConnectionReconnected || model.Feedback != "Reconnected" {
 		t.Fatalf("reconnect state=%s feedback=%q", model.Connection, model.Feedback)
 	}
-	model.Polling = false
-	model, _ = Update(model, Tick{At: refreshedAt.Add(time.Second)})
+	model, _ = Update(model, Tick{At: refreshedAt.Add(time.Second), Generation: model.PollGeneration})
 	if model.Connection != ConnectionConnected {
 		t.Fatalf("ordinary tick after reconnect = %s", model.Connection)
+	}
+}
+
+func TestPollingGenerationCoalescesManualRefreshAndRejectsStaleTicks(t *testing.T) {
+	model := smallFixtureModel(Capabilities{})
+	model.RefreshInFlight = true
+	model, commands := Update(model, RefreshFinished{At: fixtureTime, AnySuccess: true, Complete: true})
+	if len(commands) != 1 || commands[0].Kind != CommandTick || !model.PollScheduled {
+		t.Fatalf("initial poll schedule model=%+v commands=%+v", model, commands)
+	}
+	firstGeneration := model.PollGeneration
+	for index := range 10 {
+		model, commands = Update(model, Key{Name: "r", At: fixtureTime.Add(time.Duration(index+1) * time.Millisecond)})
+		if len(commands) != 1 || commands[0].Kind != CommandRefresh {
+			t.Fatalf("manual refresh %d commands=%+v", index, commands)
+		}
+		model, commands = Update(model, RefreshFinished{At: fixtureTime.Add(time.Duration(index+1) * time.Millisecond), AnySuccess: true, Complete: true})
+		if len(commands) != 0 || !model.PollScheduled || model.PollGeneration != firstGeneration {
+			t.Fatalf("manual finish %d multiplied schedule: model=%+v commands=%+v", index, model, commands)
+		}
+	}
+
+	model, commands = Update(model, Tick{At: fixtureTime.Add(5 * time.Second), Generation: firstGeneration})
+	if model.PollScheduled || !model.RefreshInFlight || len(commands) != 1 || commands[0].Kind != CommandRefresh {
+		t.Fatalf("current tick model=%+v commands=%+v", model, commands)
+	}
+	model, commands = Update(model, RefreshFinished{At: fixtureTime.Add(5 * time.Second), AnySuccess: true, Complete: true})
+	if !model.PollScheduled || model.PollGeneration == firstGeneration || len(commands) != 1 || commands[0].Kind != CommandTick {
+		t.Fatalf("next generation model=%+v commands=%+v", model, commands)
+	}
+	currentGeneration := model.PollGeneration
+	model, commands = Update(model, Tick{At: fixtureTime.Add(6 * time.Second), Generation: firstGeneration})
+	if !model.PollScheduled || model.PollGeneration != currentGeneration || len(commands) != 0 || model.RefreshInFlight {
+		t.Fatalf("stale tick changed schedule: model=%+v commands=%+v", model, commands)
+	}
+	model, commands = Update(model, Key{Name: "p", At: fixtureTime.Add(7 * time.Second)})
+	if model.Polling || model.PollScheduled || len(commands) != 0 {
+		t.Fatalf("pause did not invalidate scheduler: model=%+v commands=%+v", model, commands)
+	}
+	pausedGeneration := model.PollGeneration
+	model, commands = Update(model, Tick{At: fixtureTime.Add(8 * time.Second), Generation: currentGeneration})
+	if model.PollGeneration != pausedGeneration || len(commands) != 0 || model.RefreshInFlight {
+		t.Fatalf("paused stale tick changed scheduler: model=%+v commands=%+v", model, commands)
+	}
+	model, commands = Update(model, Key{Name: "p", At: fixtureTime.Add(9 * time.Second)})
+	if !model.Polling || !model.PollScheduled || model.PollGeneration == pausedGeneration || len(commands) != 1 || commands[0].Kind != CommandTick {
+		t.Fatalf("resume did not create one fresh scheduler: model=%+v commands=%+v", model, commands)
 	}
 }
 

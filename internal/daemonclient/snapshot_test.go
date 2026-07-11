@@ -106,6 +106,35 @@ func TestSnapshotAllCollectionFailuresDoNotClaimResourceSuccess(t *testing.T) {
 	}
 }
 
+func TestSnapshotCollectionFailureMarksResourceDiscoveryPartial(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/instances", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, []map[string]any{{"instance": "worker", "agent": "worker", "status": "running", "uri": "agt://dep/instance/worker"}})
+	})
+	mux.HandleFunc("/v1/jobs", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "jobs unavailable", http.StatusServiceUnavailable)
+	})
+	mux.HandleFunc("/v1/topology", func(w http.ResponseWriter, _ *http.Request) { writeJSON(t, w, map[string]any{}) })
+	mux.HandleFunc("/v1/resources", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, map[string]any{"uri": r.URL.Query().Get("uri"), "kind": "instance", "id": "worker", "data": map[string]any{}})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	client := NewHTTP(server.URL, "", Options{RoundTripper: server.Client().Transport})
+	at := time.Date(2026, 7, 10, 12, 4, 5, 0, time.UTC)
+
+	snapshot := client.Snapshot(context.Background(), at)
+	if snapshot.SourceErrors[SourceJobs] == "" || snapshot.SourceErrors[SourceResources] == "" {
+		t.Fatalf("partial discovery errors = %v", snapshot.SourceErrors)
+	}
+	if !strings.Contains(snapshot.SourceErrors[SourceResources], "jobs failed") || !snapshot.SourceTimes[SourceResources].IsZero() {
+		t.Fatalf("resource discovery state = time %v error %q", snapshot.SourceTimes[SourceResources], snapshot.SourceErrors[SourceResources])
+	}
+	if len(snapshot.Resources) != 1 || snapshot.ResourcesRequested != 1 {
+		t.Fatalf("successful resource subset = %d/%d", len(snapshot.Resources), snapshot.ResourcesRequested)
+	}
+}
+
 func TestSnapshotCacheIdentityPermissionsAndInvalidation(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, ".agent_team")

@@ -11,8 +11,14 @@ type Msg interface{ isMsg() }
 
 type Boot struct{}
 type Resize struct{ Width, Height int }
-type Tick struct{ At time.Time }
-type ReconnectTick struct{ At time.Time }
+type Tick struct {
+	At         time.Time
+	Generation uint64
+}
+type ReconnectTick struct {
+	At         time.Time
+	Generation uint64
+}
 type RefreshStarted struct{ At time.Time }
 type RefreshFinished struct {
 	At         time.Time
@@ -77,8 +83,9 @@ const (
 )
 
 type Command struct {
-	Kind  CommandKind
-	After time.Duration
+	Kind       CommandKind
+	After      time.Duration
+	Generation uint64
 }
 
 // Update is the framework-free transition function. It performs no I/O and
@@ -166,14 +173,21 @@ func Update(model Model, msg Msg) (Model, []Command) {
 			model.Feedback = noDaemonFeedback(value.Error)
 			model.ReconnectAttempts++
 		}
-		return model, []Command{{Kind: CommandTick, After: nextPollDelay(model)}}
+		return schedulePoll(model)
 	case Tick:
+		if !model.PollScheduled || value.Generation != model.PollGeneration {
+			return model, nil
+		}
+		model.PollScheduled = false
 		model.Now = normalizedTime(value.At, model.Now)
 		if model.Connection == ConnectionReconnected {
 			model.Connection = ConnectionConnected
 		}
-		if !model.Polling || model.RefreshInFlight {
-			return model, []Command{{Kind: CommandTick, After: nextPollDelay(model)}}
+		if !model.Polling {
+			return model, nil
+		}
+		if model.RefreshInFlight {
+			return schedulePoll(model)
 		}
 		model.RefreshInFlight = true
 		if model.Connection == ConnectionDisconnected || model.Connection == ConnectionStale {
@@ -181,8 +195,15 @@ func Update(model Model, msg Msg) (Model, []Command) {
 		}
 		return model, []Command{{Kind: CommandRefresh}}
 	case ReconnectTick:
+		if !model.PollScheduled || value.Generation != model.PollGeneration {
+			return model, nil
+		}
+		model.PollScheduled = false
 		model.Now = normalizedTime(value.At, model.Now)
 		if model.RefreshInFlight {
+			return schedulePoll(model)
+		}
+		if !model.Polling {
 			return model, nil
 		}
 		model.RefreshInFlight = true
@@ -208,10 +229,12 @@ func Update(model Model, msg Msg) (Model, []Command) {
 		return model, nil
 	case AttachRequested:
 		model.Polling = false
+		invalidatePoll(&model)
 		model.Feedback = "Preparing terminal handoff"
 		return model, []Command{{Kind: CommandAttach}}
 	case AttachStarted:
 		model.Polling = false
+		invalidatePoll(&model)
 		model.Feedback = "Attached process owns terminal"
 		return model, nil
 	case AttachReturned:
@@ -333,7 +356,9 @@ func updateKey(model Model, key Key) (Model, []Command) {
 		model.Polling = !model.Polling
 		if model.Polling {
 			model.Feedback = "Auto-refresh resumed"
+			return schedulePoll(model)
 		} else {
+			invalidatePoll(&model)
 			model.Feedback = "Auto-refresh paused"
 		}
 	case "g":
@@ -342,6 +367,20 @@ func updateKey(model Model, key Key) (Model, []Command) {
 		model.Feedback = "Go to: o overview, w work, f fleet, a activity, l logs, s research, r requirements, e release"
 	}
 	return model, nil
+}
+
+func schedulePoll(model Model) (Model, []Command) {
+	if !model.Polling || model.PollScheduled {
+		return model, nil
+	}
+	model.PollGeneration++
+	model.PollScheduled = true
+	return model, []Command{{Kind: CommandTick, After: nextPollDelay(model), Generation: model.PollGeneration}}
+}
+
+func invalidatePoll(model *Model) {
+	model.PollGeneration++
+	model.PollScheduled = false
 }
 
 func requestQuit(model Model) (Model, []Command) {
@@ -548,15 +587,17 @@ func mergeSnapshotSource(model Model, source daemonclient.SnapshotSource, snapsh
 	case daemonclient.SourceTopology:
 		copy.Topology = snapshot.Topology
 	case daemonclient.SourceResources:
-		if !at.IsZero() {
-			copy.Resources = make(map[string]*daemonclient.Resource, len(snapshot.Resources))
-		} else if copy.Resources == nil {
-			copy.Resources = make(map[string]*daemonclient.Resource, len(snapshot.Resources))
+		currentURIs := daemonclient.SnapshotResourceURIs(copy.Instances, copy.Jobs)
+		resources := make(map[string]*daemonclient.Resource, len(currentURIs))
+		for _, uri := range currentURIs {
+			if resource, ok := snapshot.Resources[uri]; ok {
+				resources[uri] = resource
+			} else if resource, ok := copy.Resources[uri]; ok {
+				resources[uri] = resource
+			}
 		}
-		for uri, resource := range snapshot.Resources {
-			copy.Resources[uri] = resource
-		}
-		copy.ResourcesRequested = snapshot.ResourcesRequested
+		copy.Resources = resources
+		copy.ResourcesRequested = len(currentURIs)
 	}
 	if at.IsZero() {
 		at = snapshot.SourceTimes[source]

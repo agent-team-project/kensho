@@ -135,11 +135,12 @@ func (c *Client) Snapshot(ctx context.Context, at time.Time) *Snapshot {
 		}
 	}
 
-	resourceURIs := snapshotResourceURIs(out.Instances, out.Jobs)
+	resourceURIs := SnapshotResourceURIs(out.Instances, out.Jobs)
 	out.ResourcesRequested = len(resourceURIs)
+	resourceErrors := resourceDiscoveryErrors(out.SourceErrors)
 	if len(resourceURIs) == 0 {
-		if out.SourceErrors[SourceInstances] != "" && out.SourceErrors[SourceJobs] != "" {
-			out.SourceErrors[SourceResources] = "resource discovery unavailable because instances and jobs failed"
+		if len(resourceErrors) > 0 {
+			out.SourceErrors[SourceResources] = strings.Join(resourceErrors, "; ")
 		} else {
 			out.SourceTimes[SourceResources] = at
 		}
@@ -181,7 +182,6 @@ func (c *Client) Snapshot(ctx context.Context, at time.Time) *Snapshot {
 		workers.Wait()
 		close(resources)
 	}()
-	var resourceErrors []string
 	for result := range resources {
 		if result.err != nil {
 			resourceErrors = append(resourceErrors, fmt.Sprintf("%s: %v", result.uri, result.err))
@@ -201,7 +201,20 @@ func (c *Client) Snapshot(ctx context.Context, at time.Time) *Snapshot {
 	return out
 }
 
-func snapshotResourceURIs(instances []*Instance, jobs []*Job) []string {
+func resourceDiscoveryErrors(sourceErrors map[SnapshotSource]string) []string {
+	var errors []string
+	for _, source := range []SnapshotSource{SourceInstances, SourceJobs} {
+		if message := strings.TrimSpace(sourceErrors[source]); message != "" {
+			errors = append(errors, fmt.Sprintf("resource discovery incomplete because %s failed: %s", source, message))
+		}
+	}
+	return errors
+}
+
+// SnapshotResourceURIs returns the stable resource set implied by the current
+// instance and job collections. Frontends use the same formula when merging a
+// partial refresh with retained failed collections.
+func SnapshotResourceURIs(instances []*Instance, jobs []*Job) []string {
 	seen := map[string]bool{}
 	add := func(values ...string) {
 		for _, value := range values {

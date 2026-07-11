@@ -27,6 +27,7 @@ type ProgramModel struct {
 	query       textinput.Model
 	initial     []Command
 	plainOutput io.Writer
+	tick        func(time.Duration, func(time.Time) tea.Msg) tea.Cmd
 }
 
 func newProgramModel(domain Model, runtime *commandRuntime) ProgramModel {
@@ -140,12 +141,20 @@ func (model ProgramModel) commands(commands []Command) []tea.Cmd {
 			if delay <= 0 {
 				delay = 5 * time.Second
 			}
-			out = append(out, tea.Tick(delay, func(at time.Time) tea.Msg { return Tick{At: at.UTC()} }))
+			generation := command.Generation
+			out = append(out, model.tickCommand(delay, func(at time.Time) tea.Msg { return Tick{At: at.UTC(), Generation: generation} }))
 		case CommandQuit:
 			out = append(out, tea.Quit)
 		}
 	}
 	return out
+}
+
+func (model ProgramModel) tickCommand(delay time.Duration, message func(time.Time) tea.Msg) tea.Cmd {
+	if model.tick != nil {
+		return model.tick(delay, message)
+	}
+	return tea.Tick(delay, message)
 }
 
 type plainFrame struct{ frame string }

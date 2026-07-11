@@ -175,9 +175,7 @@ func distinctModelTiers(snapshot *daemonclient.Snapshot) int {
 		if job == nil {
 			continue
 		}
-		data := resourceMap(snapshot.Resources[job.OutcomeURI])
-		model := recursiveString(data, "model")
-		tier := recursiveString(data, "tier")
+		model, tier := jobModelTier(snapshot, job)
 		if model == "" && tier == "" {
 			groups["not reported"] = true
 		} else {
@@ -185,6 +183,171 @@ func distinctModelTiers(snapshot *daemonclient.Snapshot) int {
 		}
 	}
 	return len(groups)
+}
+
+func jobModelTier(snapshot *daemonclient.Snapshot, job *daemonclient.Job) (string, string) {
+	if snapshot == nil || job == nil {
+		return "", ""
+	}
+	jobData := resourceMap(snapshot.Resources[job.URI])
+	outcomeData := resourceMap(snapshot.Resources[job.OutcomeURI])
+	step := primaryJobStep(job, jobData)
+	run := primaryStepRun(job, outcomeData, step)
+	return modelTierFromSources(run, outcomeData)
+}
+
+func primaryJobStep(job *daemonclient.Job, data map[string]any) map[string]any {
+	steps := objectSlice(firstMapValue([]map[string]any{data}, "steps", "Steps"))
+	if len(steps) == 0 {
+		return nil
+	}
+	primary := strings.ToLower(strings.TrimSpace(job.ImplementationAgent))
+	if primary == "" {
+		primary = strings.ToLower(strings.TrimSpace(job.Target))
+	}
+	for _, step := range steps {
+		if strings.EqualFold(mapString(step, "id", "ID"), "implement") {
+			return step
+		}
+	}
+	for _, step := range steps {
+		if primary != "" && strings.EqualFold(firstMapString([]map[string]any{step}, "target", "Target", "agent", "Agent"), primary) {
+			return step
+		}
+	}
+	for _, step := range steps {
+		if stepProgressed(step) {
+			return step
+		}
+	}
+	return steps[0]
+}
+
+func primaryStepRun(job *daemonclient.Job, outcomeData, step map[string]any) map[string]any {
+	runs := objectSlice(firstMapValue(telemetrySources(outcomeData), "step_runs", "StepRuns"))
+	if len(runs) == 0 {
+		return nil
+	}
+	stepID := strings.TrimSpace(mapString(step, "id", "ID"))
+	primary := strings.ToLower(strings.TrimSpace(job.ImplementationAgent))
+	if primary == "" {
+		primary = strings.ToLower(strings.TrimSpace(job.Target))
+	}
+	for _, run := range runs {
+		if stepID != "" && strings.EqualFold(mapString(run, "id", "ID"), stepID) {
+			return run
+		}
+	}
+	for _, run := range runs {
+		if primary != "" && strings.EqualFold(firstMapString([]map[string]any{run}, "target", "Target", "agent", "Agent"), primary) {
+			return run
+		}
+	}
+	for _, run := range runs {
+		if stepProgressed(run) {
+			return run
+		}
+	}
+	return runs[0]
+}
+
+func stepProgressed(value map[string]any) bool {
+	if value == nil {
+		return false
+	}
+	if numberPositive(firstMapValue([]map[string]any{value}, "attempts", "Attempts")) || mapString(value, "instance", "Instance") != "" {
+		return true
+	}
+	if firstMapString([]map[string]any{value}, "running_at", "RunningAt", "started_at", "StartedAt", "finished_at", "FinishedAt") != "" {
+		return true
+	}
+	switch strings.ToLower(mapString(value, "status", "Status")) {
+	case "running", "done", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func modelTierFromSources(sources ...map[string]any) (string, string) {
+	flattened := make([]map[string]any, 0, len(sources)*2)
+	for _, source := range sources {
+		flattened = append(flattened, telemetrySources(source)...)
+	}
+	model := firstMapString(flattened, "model", "Model")
+	tier := firstMapString(flattened, "tier", "Tier", "model_tier", "ModelTier")
+	if tier == "" {
+		tier = tierForModel(model)
+	}
+	return model, tier
+}
+
+func tierForModel(model string) string {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case "claude-fable-5":
+		return "T0"
+	case "claude-opus-4-8":
+		return "T1"
+	case "claude-sonnet-5":
+		return "T2"
+	case "claude-haiku-4-5":
+		return "T3"
+	default:
+		return ""
+	}
+}
+
+func telemetrySources(value map[string]any) []map[string]any {
+	if value == nil {
+		return nil
+	}
+	out := []map[string]any{value}
+	for _, name := range []string{"telemetry", "Telemetry", "outcome", "Outcome", "outcome_record", "OutcomeRecord"} {
+		if nested, ok := value[name].(map[string]any); ok {
+			out = append(out, nested)
+		}
+	}
+	return out
+}
+
+func firstMapValue(sources []map[string]any, names ...string) any {
+	for _, source := range sources {
+		for _, name := range names {
+			if value, ok := source[name]; ok && value != nil {
+				return value
+			}
+		}
+	}
+	return nil
+}
+
+func firstMapString(sources []map[string]any, names ...string) string {
+	for _, source := range sources {
+		if value := mapString(source, names...); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func mapString(source map[string]any, names ...string) string {
+	for _, name := range names {
+		if value, ok := source[name].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func objectSlice(value any) []map[string]any {
+	values, _ := value.([]any)
+	out := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		if object, ok := value.(map[string]any); ok {
+			out = append(out, object)
+		}
+	}
+	return out
 }
 
 func recentJobs(source []*daemonclient.Job, limit int) []*daemonclient.Job {
@@ -257,16 +420,7 @@ func collectKickoffBounceClasses(kickoff string, classes map[string]bool) {
 }
 
 func bounceTelemetrySources(value map[string]any) []map[string]any {
-	if value == nil {
-		return nil
-	}
-	out := []map[string]any{value}
-	for _, name := range []string{"telemetry", "Telemetry", "outcome", "Outcome", "outcome_record", "OutcomeRecord"} {
-		if nested, ok := value[name].(map[string]any); ok {
-			out = append(out, nested)
-		}
-	}
-	return out
+	return telemetrySources(value)
 }
 
 func firstBounceClasses(sources []map[string]any, names ...string) map[string]bool {

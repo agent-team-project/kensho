@@ -147,19 +147,116 @@ func TestPTYBindingRegistrySweepChangesIntendedState(t *testing.T) {
 				domain := bindingTestModel(binding.ID, key)
 				domain.Capabilities.Dumb = true
 				before := domain
-				testModel := teatest.NewTestModel(t, NewTestProgramModel(domain), teatest.WithInitialTermSize(80, 24))
-				for _, message := range teaMessages(key) {
+				messages := teaMessages(key)
+				acknowledged := make(chan struct{}, len(messages))
+				programModel := bindingAckModel{ProgramModel: NewTestProgramModel(domain), acknowledged: acknowledged}
+				testModel := teatest.NewTestModel(t, programModel, teatest.WithInitialTermSize(80, 24))
+				for _, message := range messages {
 					testModel.Send(message)
+				}
+				for range messages {
+					select {
+					case <-acknowledged:
+					case <-time.After(3 * time.Second):
+						t.Fatal("timed out waiting for exact key transition acknowledgement")
+					}
 				}
 				if binding.ID == "quit" || binding.ID == "cancel" {
 					testModel.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 				} else if err := testModel.Quit(); err != nil {
 					t.Fatal(err)
 				}
-				program := testModel.FinalModel(t, teatest.WithFinalTimeout(3*time.Second)).(ProgramModel)
+				program, ok := waitFinalProgramModel(t, testModel, 3*time.Second)
+				if !ok {
+					t.Fatal("final model unavailable or not tui.ProgramModel")
+				}
 				assertBindingEffect(t, binding.ID, key, before, program.Domain, nil, false)
 			})
 		}
+	}
+}
+
+type bindingAckModel struct {
+	ProgramModel
+	acknowledged chan struct{}
+}
+
+func (model bindingAckModel) Init() tea.Cmd { return model.ProgramModel.Init() }
+
+func (model bindingAckModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	updated, command := model.ProgramModel.Update(message)
+	program, ok := updated.(ProgramModel)
+	if !ok {
+		return updated, command
+	}
+	model.ProgramModel = program
+	if _, ok := message.(tea.KeyMsg); ok {
+		model.acknowledged <- struct{}{}
+	}
+	return model, command
+}
+
+func (model bindingAckModel) View() string { return model.ProgramModel.View() }
+
+func waitFinalProgramModel(t *testing.T, testModel *teatest.TestModel, timeout time.Duration) (ProgramModel, bool) {
+	t.Helper()
+	final := testModel.FinalModel(t, teatest.WithFinalTimeout(timeout))
+	deadline := time.Now().Add(timeout)
+	for final == nil && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+		final = testModel.FinalModel(t)
+	}
+	switch model := final.(type) {
+	case ProgramModel:
+		return model, true
+	case bindingAckModel:
+		return model.ProgramModel, true
+	default:
+		return ProgramModel{}, false
+	}
+}
+
+func TestProgramManualRefreshDoesNotMultiplyPollingSchedules(t *testing.T) {
+	domain := smallFixtureModel(Capabilities{})
+	domain.RefreshInFlight = true
+	program := NewTestProgramModel(domain)
+	type scheduledTick struct {
+		delay time.Duration
+	}
+	var schedules []scheduledTick
+	program.tick = func(delay time.Duration, _ func(time.Time) tea.Msg) tea.Cmd {
+		schedules = append(schedules, scheduledTick{delay: delay})
+		return func() tea.Msg { return nil }
+	}
+
+	updated, _ := program.Update(refreshBatch{messages: []Msg{RefreshFinished{At: fixtureTime, AnySuccess: true, Complete: true}}})
+	program = updated.(ProgramModel)
+	if len(schedules) != 1 || schedules[0].delay != 5*time.Second {
+		t.Fatalf("initial schedules = %+v", schedules)
+	}
+	firstGeneration := program.Domain.PollGeneration
+	for index := range 20 {
+		updated, _ = program.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+		program = updated.(ProgramModel)
+		updated, _ = program.Update(refreshBatch{messages: []Msg{RefreshFinished{At: fixtureTime.Add(time.Duration(index+1) * time.Millisecond), AnySuccess: true, Complete: true}}})
+		program = updated.(ProgramModel)
+	}
+	if len(schedules) != 1 || program.Domain.PollGeneration != firstGeneration || !program.Domain.PollScheduled {
+		t.Fatalf("manual refreshes multiplied schedules: count=%d domain=%+v", len(schedules), program.Domain)
+	}
+
+	updated, _ = program.Update(Tick{At: fixtureTime.Add(5 * time.Second), Generation: firstGeneration})
+	program = updated.(ProgramModel)
+	updated, _ = program.Update(refreshBatch{messages: []Msg{RefreshFinished{At: fixtureTime.Add(5 * time.Second), AnySuccess: true, Complete: true}}})
+	program = updated.(ProgramModel)
+	if len(schedules) != 2 || !program.Domain.PollScheduled || program.Domain.PollGeneration == firstGeneration {
+		t.Fatalf("next cadence schedule = count %d domain=%+v", len(schedules), program.Domain)
+	}
+	currentGeneration := program.Domain.PollGeneration
+	updated, _ = program.Update(Tick{At: fixtureTime.Add(6 * time.Second), Generation: firstGeneration})
+	program = updated.(ProgramModel)
+	if len(schedules) != 2 || program.Domain.PollGeneration != currentGeneration || !program.Domain.PollScheduled {
+		t.Fatalf("stale program tick changed scheduler: count=%d domain=%+v", len(schedules), program.Domain)
 	}
 }
 

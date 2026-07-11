@@ -208,9 +208,7 @@ func canonicalOverviewAPIOracle(t *testing.T, instances []*daemonclient.Instance
 		if job == nil {
 			continue
 		}
-		outcome := liveResourceData(t, resources[job.OutcomeURI])
-		model := liveRecursiveString(outcome, "model")
-		tier := liveRecursiveString(outcome, "tier")
+		model, tier := liveJobModelTier(t, job, resources)
 		if model == "" && tier == "" {
 			modelTiers["not reported"] = true
 		} else {
@@ -266,6 +264,134 @@ func canonicalOverviewAPIOracle(t *testing.T, instances []*daemonclient.Instance
 	}
 	oracle.Deadlines = len(deadlines)
 	return oracle
+}
+
+func liveJobModelTier(t *testing.T, job *daemonclient.Job, resources map[string]*daemonclient.Resource) (string, string) {
+	t.Helper()
+	jobData := liveResourceData(t, resources[job.URI])
+	outcomeData := liveResourceData(t, resources[job.OutcomeURI])
+	steps := liveObjectSlice(liveFirstValue([]map[string]any{jobData}, "steps", "Steps"))
+	primary := strings.ToLower(strings.TrimSpace(job.ImplementationAgent))
+	if primary == "" {
+		primary = strings.ToLower(strings.TrimSpace(job.Target))
+	}
+	step := livePrimaryRecord(steps, "implement", primary, "")
+	runs := liveObjectSlice(liveFirstValue(liveTelemetrySources(outcomeData), "step_runs", "StepRuns"))
+	stepID := liveMapString(step, "id", "ID")
+	run := livePrimaryRecord(runs, stepID, primary, "")
+	sources := append(liveTelemetrySources(run), liveTelemetrySources(outcomeData)...)
+	model := liveFirstString(sources, "model", "Model")
+	tier := liveFirstString(sources, "tier", "Tier", "model_tier", "ModelTier")
+	if tier == "" {
+		switch strings.ToLower(model) {
+		case "claude-fable-5":
+			tier = "T0"
+		case "claude-opus-4-8":
+			tier = "T1"
+		case "claude-sonnet-5":
+			tier = "T2"
+		case "claude-haiku-4-5":
+			tier = "T3"
+		}
+	}
+	return model, tier
+}
+
+func livePrimaryRecord(records []map[string]any, preferredID, primary, fallback string) map[string]any {
+	if len(records) == 0 {
+		return nil
+	}
+	for _, record := range records {
+		if preferredID != "" && strings.EqualFold(liveMapString(record, "id", "ID"), preferredID) {
+			return record
+		}
+	}
+	for _, record := range records {
+		if primary != "" && strings.EqualFold(liveFirstString([]map[string]any{record}, "target", "Target", "agent", "Agent"), primary) {
+			return record
+		}
+	}
+	for _, record := range records {
+		if liveRecordProgressed(record) {
+			return record
+		}
+	}
+	if fallback != "" {
+		for _, record := range records {
+			if strings.EqualFold(liveMapString(record, "id", "ID"), fallback) {
+				return record
+			}
+		}
+	}
+	return records[0]
+}
+
+func liveRecordProgressed(record map[string]any) bool {
+	if attempts, ok := liveFirstValue([]map[string]any{record}, "attempts", "Attempts").(float64); ok && attempts != 0 {
+		return true
+	}
+	if liveMapString(record, "instance", "Instance") != "" || liveFirstString([]map[string]any{record}, "running_at", "RunningAt", "started_at", "StartedAt", "finished_at", "FinishedAt") != "" {
+		return true
+	}
+	switch strings.ToLower(liveMapString(record, "status", "Status")) {
+	case "running", "done", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func liveTelemetrySources(value map[string]any) []map[string]any {
+	if value == nil {
+		return nil
+	}
+	out := []map[string]any{value}
+	for _, key := range []string{"telemetry", "Telemetry", "outcome", "Outcome", "outcome_record", "OutcomeRecord"} {
+		if nested, ok := value[key].(map[string]any); ok {
+			out = append(out, nested)
+		}
+	}
+	return out
+}
+
+func liveFirstValue(sources []map[string]any, names ...string) any {
+	for _, source := range sources {
+		for _, name := range names {
+			if value, ok := source[name]; ok && value != nil {
+				return value
+			}
+		}
+	}
+	return nil
+}
+
+func liveFirstString(sources []map[string]any, names ...string) string {
+	for _, source := range sources {
+		if value := liveMapString(source, names...); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func liveMapString(source map[string]any, names ...string) string {
+	for _, name := range names {
+		if value, ok := source[name].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func liveObjectSlice(value any) []map[string]any {
+	values, _ := value.([]any)
+	out := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		if object, ok := value.(map[string]any); ok {
+			out = append(out, object)
+		}
+	}
+	return out
 }
 
 func liveResourceData(t *testing.T, envelope *daemonclient.Resource) map[string]any {
@@ -543,6 +669,13 @@ every = "24h"
 		job.Status = status
 		job.Worktree = root
 		job.UpdatedAt = fixtureTime.Add(-time.Duration(i) * time.Minute)
+		if i == 0 {
+			job.Steps = []jobstore.Step{
+				{ID: "review", Target: "reviewer", Status: jobstore.StatusDone},
+				{ID: "implement", Target: "worker", Status: jobstore.StatusDone},
+			}
+			jobstore.SetImplementationAgentFromSteps(job)
+		}
 		if i == 3 {
 			job.Kickoff = "## Review findings (bounce 1)\nClass: spec-ambiguity\nThe contract needs clarification."
 		}
@@ -554,9 +687,15 @@ every = "24h"
 			t.Fatal(err)
 		}
 		record := &outcomes.Record{JobID: id, Status: string(status), RecordedAt: fixtureTime}
-		if i < 9 {
+		if i > 0 && i < 9 {
 			record.Model = []string{"gpt-5.6", "gpt-5.5", "gpt-5.6"}[i%3]
 			record.Tier = []string{"T2", "T1", "T3"}[i%3]
+		}
+		if i == 0 {
+			record.StepRuns = []outcomes.StepRunRecord{
+				{ID: "review", Target: "reviewer", Agent: "reviewer", Model: "claude-opus-4-8", Tier: "T1", Status: "done"},
+				{ID: "implement", Target: "worker", Agent: "worker", Model: "gpt-5.6", Tier: "T2", Status: "done"},
+			}
 		}
 		switch i {
 		case 0:

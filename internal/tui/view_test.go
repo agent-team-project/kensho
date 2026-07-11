@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/agent-team-project/agent-team/internal/daemonclient"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 var sgrPattern = regexp.MustCompile("\\x1b\\[[0-9;]*m")
@@ -117,6 +118,40 @@ func TestBounceClassesUseStableRecent24Window(t *testing.T) {
 	}
 	if got := distinctBounceClasses(snapshot); got != 0 {
 		t.Fatalf("bounce classes = %d, want 0 because the only class is outside recent 24", got)
+	}
+}
+
+func TestModelTierUsesCanonicalPrimaryStepRunAndTierFallback(t *testing.T) {
+	snapshot := &daemonclient.Snapshot{Resources: map[string]*daemonclient.Resource{}}
+	for index := range 2 {
+		id := fmt.Sprintf("job-%d", index+1)
+		jobURI := "agt://dep/job/" + id
+		outcomeURI := "agt://dep/outcome/" + id
+		job := &daemonclient.Job{
+			ID: id, URI: jobURI, OutcomeURI: outcomeURI, Target: "worker", ImplementationAgent: "worker",
+			UpdatedAt: fixtureTime.Add(-time.Duration(index) * time.Minute),
+		}
+		snapshot.Jobs = append(snapshot.Jobs, job)
+		snapshot.Resources[jobURI] = testResource(jobURI, "job", id, map[string]any{"steps": []any{
+			map[string]any{"id": "implement", "target": "worker", "status": "done"},
+			map[string]any{"id": "review", "target": "reviewer", "status": "done"},
+		}})
+		runs := []any{
+			map[string]any{"id": "review", "target": "reviewer", "model": "claude-opus-4-8", "tier": "T1", "status": "done"},
+			map[string]any{"id": "implement", "target": "worker", "model": "claude-sonnet-5", "status": "done"},
+		}
+		if index == 1 {
+			runs = []any{runs[1]}
+		}
+		snapshot.Resources[outcomeURI] = testResource(outcomeURI, "outcome", id, map[string]any{"step_runs": runs})
+	}
+
+	if got := distinctModelTiers(snapshot); got != 1 {
+		t.Fatalf("primary implement model/tier groups = %d, want 1", got)
+	}
+	model, tier := jobModelTier(snapshot, snapshot.Jobs[0])
+	if model != "claude-sonnet-5" || tier != "T2" {
+		t.Fatalf("primary implement telemetry = %q/%q, want claude-sonnet-5/T2", model, tier)
 	}
 }
 
@@ -368,16 +403,28 @@ func TestOneHourSoak(t *testing.T) {
 	harness.start(t)
 	clockAt := fixtureTime
 	commandRuntime := &commandRuntime{ctx: context.Background(), teamDir: harness.teamDir, clock: func() time.Time { return clockAt }}
-	batch := commandRuntime.load(true)
-	model := NewModel(clockAt, Capabilities{Dumb: true})
-	model.Booted = true
-	model.RefreshInFlight = true
-	for _, message := range batch.messages {
-		model, _ = Update(model, message)
+	program := newProgramModel(NewModel(clockAt, Capabilities{Dumb: true}), commandRuntime)
+	var scheduledAt time.Time
+	var scheduledDelay time.Duration
+	var schedulePending bool
+	schedules := 0
+	program.tick = func(delay time.Duration, message func(time.Time) tea.Msg) tea.Cmd {
+		if schedulePending {
+			t.Fatal("production polling scheduler created a second pending timer")
+		}
+		schedulePending = true
+		scheduledAt = time.Now()
+		scheduledDelay = delay
+		schedules++
+		return tea.Tick(delay, message)
 	}
-	model, _ = Update(model, Resize{Width: 160, Height: 50})
-	if !model.HasSnapshot() || model.Connection != ConnectionConnected {
-		t.Fatalf("soak initial connection = %s errors=%v", model.Connection, model.Snapshot.SourceErrors)
+	initial := runSoakCommand(t, program.Init())
+	updated, pending := program.Update(initial)
+	program = updated.(ProgramModel)
+	updated, _ = program.Update(tea.WindowSizeMsg{Width: 160, Height: 50})
+	program = updated.(ProgramModel)
+	if !program.Domain.HasSnapshot() || program.Domain.Connection != ConnectionConnected || !program.Domain.PollScheduled || pending == nil {
+		t.Fatalf("soak initial domain = connection %s scheduled %v errors=%v", program.Domain.Connection, program.Domain.PollScheduled, program.Domain.Snapshot.SourceErrors)
 	}
 	startGoroutines := runtime.NumGoroutine()
 	startFDs, err := openFDCount()
@@ -387,12 +434,10 @@ func TestOneHourSoak(t *testing.T) {
 	started := time.Now()
 	deadline := started.Add(duration)
 	cadence := 5 * time.Second
-	ticker := time.NewTicker(cadence)
-	defer ticker.Stop()
 	disconnectAt := started.Add(duration / 3)
 	reconnectAt := disconnectAt.Add(30 * time.Second)
 	if duration < 5*time.Minute {
-		reconnectAt = disconnectAt.Add(2 * cadence)
+		reconnectAt = disconnectAt.Add(min(2*cadence, duration/3))
 	}
 	finalWindow := 30 * time.Minute
 	if duration < time.Hour {
@@ -402,23 +447,13 @@ func TestOneHourSoak(t *testing.T) {
 	var samples []soakHeapSample
 	refreshes, filterChanges, navigations := 0, 0, 0
 	disconnected, reconnected := false, false
-	var previousTick time.Time
+	cadenceChecks := 0
 	nextHeapSample := started.Add(time.Minute)
 	if duration < 10*time.Minute {
 		nextHeapSample = started.Add(cadence)
 	}
-	for now := range ticker.C {
-		if now.After(deadline) {
-			break
-		}
-		if !previousTick.IsZero() {
-			interval := now.Sub(previousTick)
-			if interval < cadence-time.Second || interval > cadence+time.Second {
-				t.Fatalf("refresh cadence drifted: got %s, want %s±1s", interval, cadence)
-			}
-		}
-		previousTick = now
-		clockAt = fixtureTime.Add(now.Sub(started))
+	for time.Now().Before(deadline) {
+		now := time.Now()
 		if !disconnected && !now.Before(disconnectAt) {
 			harness.stop(t)
 			disconnected = true
@@ -427,17 +462,42 @@ func TestOneHourSoak(t *testing.T) {
 			harness.start(t)
 			reconnected = true
 		}
-		model, _ = Update(model, RefreshStarted{At: clockAt})
-		batch = commandRuntime.load(false)
-		for _, message := range batch.messages {
-			model, _ = Update(model, message)
+		if !schedulePending || pending == nil {
+			t.Fatal("production polling scheduler lost its sole pending timer")
 		}
+		wantDelay := nextPollDelay(program.Domain)
+		if scheduledDelay != wantDelay {
+			t.Fatalf("scheduled delay = %s, want model cadence %s in %s", scheduledDelay, wantDelay, program.Domain.Connection)
+		}
+		schedulePending = false
+		tickMessage := runSoakCommand(t, pending)
+		now = time.Now()
+		observedDelay := now.Sub(scheduledAt)
+		if observedDelay < scheduledDelay-time.Second || observedDelay > scheduledDelay+time.Second {
+			t.Fatalf("production polling cadence drifted: got %s, want %s±1s", observedDelay, scheduledDelay)
+		}
+		cadenceChecks++
+		if now.After(deadline) {
+			break
+		}
+		clockAt = fixtureTime.Add(now.Sub(started))
+		updated, refreshCommand := program.Update(tickMessage)
+		program = updated.(ProgramModel)
+		if refreshCommand == nil || !program.Domain.RefreshInFlight || program.Domain.PollScheduled {
+			t.Fatalf("tick did not consume one schedule and start one refresh: %+v", program.Domain)
+		}
+		refreshMessage := runSoakCommand(t, refreshCommand)
+		updated, pending = program.Update(refreshMessage)
+		program = updated.(ProgramModel)
 		refreshes++
-		if disconnected && !reconnected && model.Connection != ConnectionDisconnected {
-			t.Fatalf("real transport loss rendered %s, want disconnected", model.Connection)
+		if !schedulePending || !program.Domain.PollScheduled || pending == nil {
+			t.Fatal("refresh completion did not leave exactly one production timer")
 		}
-		if reconnected && model.Connection != ConnectionReconnected && model.Connection != ConnectionConnected {
-			t.Fatalf("real transport recovery rendered %s", model.Connection)
+		if disconnected && !reconnected && program.Domain.Connection != ConnectionDisconnected {
+			t.Fatalf("real transport loss rendered %s, want disconnected", program.Domain.Connection)
+		}
+		if reconnected && program.Domain.Connection != ConnectionReconnected && program.Domain.Connection != ConnectionConnected {
+			t.Fatalf("real transport recovery rendered %s", program.Domain.Connection)
 		}
 		navigation := []struct {
 			key   string
@@ -446,25 +506,25 @@ func TestOneHourSoak(t *testing.T) {
 			{"o", RouteOverview}, {"w", RouteWork}, {"f", RouteFleet}, {"a", RouteActivity},
 			{"l", RouteLogs}, {"s", RouteResearch}, {"r", RouteRequirements}, {"e", RouteRelease},
 		}[navigations%len(routeOrder)]
-		model, _ = Update(model, Key{Name: "g", At: clockAt})
-		model, _ = Update(model, Key{Name: navigation.key, At: clockAt.Add(100 * time.Millisecond)})
-		if model.Route != navigation.route {
-			t.Fatalf("soak navigation %d route = %s, want %s", navigations, model.Route, navigation.route)
+		program.Domain, _ = Update(program.Domain, Key{Name: "g", At: clockAt})
+		program.Domain, _ = Update(program.Domain, Key{Name: navigation.key, At: clockAt.Add(100 * time.Millisecond)})
+		if program.Domain.Route != navigation.route {
+			t.Fatalf("soak navigation %d route = %s, want %s", navigations, program.Domain.Route, navigation.route)
 		}
 		navigations++
 		if refreshes%3 == 0 {
-			before := len(projectOverview(model).Attention)
+			before := len(projectOverview(program.Domain).Attention)
 			query := "status:failed"
-			if model.Query != "" {
+			if program.Domain.Query != "" {
 				query = ""
 			}
-			model, _ = Update(model, QueryChanged{Value: query})
-			model, _ = Update(model, QueryCommit{})
-			if len(projectOverview(model).Attention) != before {
+			program.Domain, _ = Update(program.Domain, QueryChanged{Value: query})
+			program.Domain, _ = Update(program.Domain, QueryCommit{})
+			if len(projectOverview(program.Domain).Attention) != before {
 				filterChanges++
 			}
 		}
-		frame := Render(model)
+		frame := program.View()
 		assertFrameGeometry(t, frame, 160, 50)
 		if strings.ContainsRune(frame, '\x00') || strings.ContainsRune(frame, '\x1b') {
 			t.Fatal("soak observed a corrupt/control-bearing TERM=dumb frame")
@@ -489,9 +549,9 @@ func TestOneHourSoak(t *testing.T) {
 	if !disconnected || !reconnected {
 		t.Fatalf("soak did not execute real disconnect/reconnect: disconnected=%v reconnected=%v", disconnected, reconnected)
 	}
-	minimumRefreshes := int(duration/cadence) - 1
-	if refreshes < minimumRefreshes || filterChanges == 0 || navigations != refreshes {
-		t.Fatalf("soak coverage refreshes=%d want>=%d filter_changes=%d navigations=%d", refreshes, minimumRefreshes, filterChanges, navigations)
+	minimumRefreshes := max(1, int(duration/cadence)-6)
+	if refreshes < minimumRefreshes || filterChanges == 0 || navigations != refreshes || schedules != refreshes+1 || cadenceChecks < refreshes {
+		t.Fatalf("soak coverage refreshes=%d want>=%d schedules=%d cadence_checks=%d filter_changes=%d navigations=%d", refreshes, minimumRefreshes, schedules, cadenceChecks, filterChanges, navigations)
 	}
 	if !baselineReady {
 		t.Fatal("soak never captured a post-warm-up heap baseline")
@@ -522,7 +582,23 @@ func TestOneHourSoak(t *testing.T) {
 	if slope > 1024*1024 {
 		t.Fatalf("final-window retained-heap slope = %.0f bytes/hour, limit 1048576", slope)
 	}
-	t.Logf("SOAK EVIDENCE duration=%s cadence=%s refreshes=%d filters=%d navigations=%d routes=%d real_disconnect=true real_reconnect=true final_window=%s heap_slope_bytes_per_hour=%.0f retained_window_samples=%d retained_baseline_median=%d retained_final_median=%d retained_limit=%d goroutines=%d->%d fds=%d->%d", duration, cadence, refreshes, filterChanges, navigations, len(routeOrder), finalWindow, slope, window, baseline, retainedFinal, limit, startGoroutines, runtime.NumGoroutine(), startFDs, finalFDs)
+	t.Logf("SOAK EVIDENCE duration=%s scheduler=ProgramModel/tea.Tick cadence=%s schedules=%d cadence_checks=%d refreshes=%d filters=%d navigations=%d routes=%d real_disconnect=true real_reconnect=true final_window=%s heap_slope_bytes_per_hour=%.0f retained_window_samples=%d retained_baseline_median=%d retained_final_median=%d retained_limit=%d goroutines=%d->%d fds=%d->%d", duration, cadence, schedules, cadenceChecks, refreshes, filterChanges, navigations, len(routeOrder), finalWindow, slope, window, baseline, retainedFinal, limit, startGoroutines, runtime.NumGoroutine(), startFDs, finalFDs)
+}
+
+func runSoakCommand(t *testing.T, command tea.Cmd) tea.Msg {
+	t.Helper()
+	if command == nil {
+		t.Fatal("soak production command is nil")
+	}
+	message := command()
+	batch, ok := message.(tea.BatchMsg)
+	if !ok {
+		return message
+	}
+	if len(batch) != 1 {
+		t.Fatalf("soak expected one production command, got batch of %d", len(batch))
+	}
+	return runSoakCommand(t, batch[0])
 }
 
 func soakBaselineReady(remaining, finalWindow time.Duration, disconnected, reconnected bool) bool {

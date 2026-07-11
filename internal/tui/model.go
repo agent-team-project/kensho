@@ -101,6 +101,8 @@ type Model struct {
 	LastGoodAt        time.Time
 	RefreshInFlight   bool
 	Polling           bool
+	PollScheduled     bool
+	PollGeneration    uint64
 	ReconnectAttempts int
 	ReconnectJitter   bool
 	Query             string
