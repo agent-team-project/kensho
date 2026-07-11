@@ -236,13 +236,17 @@ func jobTeam(teamDir string, j *job.Job) string {
 	if err != nil || top == nil {
 		return ""
 	}
-	for _, team := range top.SortedTeams() {
-		if j.Pipeline != "" && stringInList(team.Pipelines, j.Pipeline) {
-			return team.Name
+	if j.Pipeline != "" {
+		if team := top.TeamForPipeline(j.Pipeline); team != "" {
+			return team
 		}
+	}
+	for _, team := range top.SortedTeams() {
 		if j.Instance != "" && instanceMatchesTeam(j.Instance, team.Instances) {
 			return team.Name
 		}
+	}
+	for _, team := range top.SortedTeams() {
 		if j.Target != "" && stringInList(team.Instances, j.Target) {
 			return team.Name
 		}

@@ -91,16 +91,19 @@ func (r *EventResolver) teamForOrigin(instance string, payload map[string]any) s
 	// provider team keys such as Linear's "SQU", but those are trigger context,
 	// not agent-team ownership.
 	instance = strings.TrimSpace(instance)
+	// Pipeline ownership is the durable job authority scope. Prefer it over
+	// instance membership because an allowed shared step instance can belong to
+	// multiple teams while the validated pipeline has one owning team.
+	if pipeline := payloadString(payload, "pipeline"); pipeline != "" {
+		if team := r.teamForPipeline(pipeline); team != "" {
+			return team
+		}
+	}
 	for _, team := range r.topo.SortedTeams() {
 		for _, name := range team.Instances {
 			if instance == name || strings.HasPrefix(instance, name+"-") {
 				return team.Name
 			}
-		}
-	}
-	if pipeline := payloadString(payload, "pipeline"); pipeline != "" {
-		if team := r.teamForPipeline(pipeline); team != "" {
-			return team
 		}
 	}
 	return ""

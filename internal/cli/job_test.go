@@ -5864,6 +5864,153 @@ func TestJobCreateDispatchesImmediately(t *testing.T) {
 	}
 }
 
+func TestGH403SharedWorkerDispatchPreservesPipelineOwningTeam(t *testing.T) {
+	for _, key := range []string{
+		"AGENT_TEAM_PROJECT",
+		"AGENT_TEAM_TEAM",
+		"AGENT_TEAM_INSTANCE",
+		"AGENT_TEAM_ORIGIN_INSTANCE",
+		"AGENT_TEAM_ORIGIN_AGENT",
+		"AGENT_TEAM_JOB_ID",
+		"AGENT_TEAM_ORIGIN_JOB",
+		"AGENT_TEAM_ORIGIN_TRIGGER",
+	} {
+		t.Setenv(key, "")
+	}
+
+	tmp, err := os.MkdirTemp("/tmp", "agent-team-gh403-shared-worker-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.alpha-manager]
+agent = "manager"
+
+[instances.beta-manager]
+agent = "manager"
+
+[[instances.beta-manager.triggers]]
+event = "job.step_completed"
+match.pipeline = "beta"
+match.target = "beta-manager"
+
+[instances.shared-worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.shared-worker.triggers]]
+event = "agent.dispatch"
+match.target = "shared-worker"
+
+[pipelines.beta]
+trigger.event = "ticket.created"
+
+[[pipelines.beta.steps]]
+id = "implement"
+target = "shared-worker"
+workspace = "repo"
+
+[[pipelines.beta.steps]]
+id = "approve"
+target = "beta-manager"
+after = ["implement"]
+gate = "manual"
+
+[teams.alpha]
+instances = ["alpha-manager", "shared-worker"]
+
+[teams.beta]
+instances = ["beta-manager", "shared-worker"]
+pipelines = ["beta"]
+
+[authority]
+enforcement = "enforce"
+
+[authority.instances.alpha-manager]
+allow = ["job.bounce:team"]
+
+[authority.instances.beta-manager]
+allow = ["event.publish", "job.bounce:team", "job.step:team", "job.gate.*:team"]
+`), 0o644); err != nil {
+		t.Fatalf("write instances.toml: %v", err)
+	}
+
+	top, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		t.Fatalf("load topology: %v", err)
+	}
+	root := daemon.DaemonRoot(teamDir)
+	mgr := daemon.NewInstanceManager(root, fakeSpawnerForTest(t, 2*time.Second))
+	cleanup := startRunTestDaemon(t, teamDir, mgr)
+	defer cleanup()
+
+	create := NewRootCmd()
+	createOut, createErr := &bytes.Buffer{}, &bytes.Buffer{}
+	create.SetOut(createOut)
+	create.SetErr(createErr)
+	create.SetArgs([]string{
+		"job", "create", "GH-403-SHARED",
+		"--repo", tmp,
+		"--pipeline", "beta",
+		"--dispatch",
+		"--workspace", "repo",
+		"--json",
+	})
+	if err := create.Execute(); err != nil {
+		t.Fatalf("job create --pipeline beta --dispatch: %v\nstderr=%s", err, createErr.String())
+	}
+
+	j, err := job.Read(teamDir, "gh-403-shared")
+	if err != nil {
+		t.Fatalf("read dispatched job: %v\nstdout=%s", err, createOut.String())
+	}
+	if j.Origin.Team != "beta" {
+		t.Fatalf("pipeline job origin team = %q, want beta; origin=%+v", j.Origin.Team, j.Origin)
+	}
+	meta, err := daemon.ReadMetadata(root, "shared-worker-gh-403-shared-implement")
+	if err != nil {
+		t.Fatalf("read dispatched step metadata: %v", err)
+	}
+	if meta.Origin.Team != "beta" {
+		t.Fatalf("pipeline step origin team = %q, want beta; origin=%+v", meta.Origin.Team, meta.Origin)
+	}
+
+	if err := daemon.AuditAuthority(daemon.AuthorityAuditOptions{
+		TeamDir:    teamDir,
+		DaemonRoot: root,
+		Topology:   top,
+		Actor: origin.Envelope{
+			Team:     "beta",
+			Instance: "beta-manager",
+			Agent:    "manager",
+		},
+		Verb:      "job.bounce",
+		TargetJob: j.ID,
+	}); err != nil {
+		t.Fatalf("validated beta manager denied its beta pipeline job: %v", err)
+	}
+
+	if err := daemon.AuditAuthority(daemon.AuthorityAuditOptions{
+		TeamDir:    teamDir,
+		DaemonRoot: root,
+		Topology:   top,
+		Actor: origin.Envelope{
+			Team:     "alpha",
+			Instance: "alpha-manager",
+			Agent:    "manager",
+		},
+		Verb:      "job.bounce",
+		TargetJob: j.ID,
+	}); err == nil {
+		t.Fatal("cross-team alpha manager authorized for beta pipeline job")
+	}
+
+	stopAndWaitForTest(t, mgr, "shared-worker-gh-403-shared-implement")
+}
+
 func TestJobCreateDispatchWaitsForRequestedStatus(t *testing.T) {
 	tmp, err := os.MkdirTemp("/tmp", "agent-team-job-create-dispatch-wait-")
 	if err != nil {
