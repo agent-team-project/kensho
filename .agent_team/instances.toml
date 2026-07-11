@@ -800,6 +800,9 @@ auto_advance = true
 redispatch_on_reentry = false
 reap_worktree = "on_close"
 
+[pipelines.research_study.infra_signatures]
+base_broken = "^base-broken$"
+
 [[pipelines.research_study.steps]]
 id           = "preregister"
 target       = "research-worker"
@@ -877,6 +880,9 @@ trigger.event = "research.slice.ready"
 auto_advance = true
 redispatch_on_reentry = false
 reap_worktree = "on_merge"
+
+[pipelines.research_slice.infra_signatures]
+base_broken = "^base-broken$"
 
 [[pipelines.research_slice.steps]]
 id           = "implement"

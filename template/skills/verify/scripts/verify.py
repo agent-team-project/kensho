@@ -456,27 +456,40 @@ def compare_failed_gate(
     print(f"verify: base comparison {base_status} {gate['name']} ({duration_ms}ms)", flush=True)
     head_failed_tests = failed_go_test_names(head_log) if is_simple_go_test_command(gate["command"]) else []
     base_failed_tests = failed_go_test_names(base_log) if head_failed_tests else []
-    reproduced = exit_code != 0 and (
-        not head_failed_tests or bool(set(head_failed_tests).intersection(base_failed_tests))
-    )
+    base_signature = "" if exit_code == 0 else failure_signature(exit_code, tail)
+    if head_failed_tests:
+        reproduced = exit_code != 0 and bool(set(head_failed_tests).intersection(base_failed_tests))
+        reproduction_basis = "failed-go-test-overlap"
+    else:
+        reproduced = (
+            exit_code != 0
+            and exit_code == result["exit_code"]
+            and base_signature == result["signature"]
+        )
+        reproduction_basis = "exit-code-and-signature"
     comparison = {
         "status": base_status,
         "reproduced": reproduced,
+        "reproduction_basis": reproduction_basis,
         "default_branch": base_state["default_branch"],
         "merge_base": base_state["merge_base"],
         "command": command,
+        "head_exit_code": result["exit_code"],
+        "head_signature": result["signature"],
         "exit_code": exit_code,
         "duration_ms": duration_ms,
         "log_path": relpath(base_log, repo),
-        "signature": "" if exit_code == 0 else failure_signature(exit_code, tail),
+        "signature": base_signature,
     }
     if head_failed_tests:
         comparison["head_failed_tests"] = head_failed_tests
         comparison["base_failed_tests"] = base_failed_tests
     if exit_code != 0 and not reproduced:
-        comparison["reason"] = "the failed Go tests from the worker commit did not fail at the merge-base"
+        if head_failed_tests:
+            comparison["reason"] = "the failed Go tests from the worker commit did not fail at the merge-base"
+        else:
+            comparison["reason"] = "the merge-base failure fingerprint differs from the worker commit"
     if reproduced:
-        comparison["head_signature"] = result["signature"]
         result["class"] = "infra"
         result["signature"] = "base-broken"
     result["base_comparison"] = comparison

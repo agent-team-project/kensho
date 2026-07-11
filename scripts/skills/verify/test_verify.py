@@ -57,9 +57,9 @@ class VerifyBaseComparisonTest(unittest.TestCase):
         )
         self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
-    def run_verify(self, commit: str) -> dict[str, object]:
+    def run_verify(self, commit: str, gate_command: str = "./gate.sh") -> dict[str, object]:
         gates = self.root / "gates.txt"
-        gates.write_text("tests :: ./gate.sh\n", encoding="utf-8")
+        gates.write_text(f"tests :: {gate_command}\n", encoding="utf-8")
         evidence_dir = self.root / "evidence"
         clean_env = {key: value for key, value in os.environ.items() if not key.startswith("AGENT_TEAM_")}
         with mock.patch.dict(os.environ, clean_env, clear=True):
@@ -106,6 +106,33 @@ class VerifyBaseComparisonTest(unittest.TestCase):
         self.assertNotIn("class", gate)
         self.assertNotEqual(gate["signature"], "base-broken")
         self.assertFalse(gate["base_comparison"]["reproduced"])
+
+    def test_distinct_base_failure_preserves_head_signature(self) -> None:
+        self.commit_gate(0, "base clean")
+        self.configure_origin_head()
+        feature_gate = self.repo / "feature_gate.py"
+        feature_gate.write_text(
+            "import sys\nprint('OK', file=sys.stderr)\n",
+            encoding="utf-8",
+        )
+        self.git("add", "feature_gate.py")
+        self.git("commit", "-m", "add feature gate")
+
+        evidence = self.run_verify(
+            self.git("rev-parse", "HEAD"),
+            "python3 feature_gate.py >/dev/null && false",
+        )
+
+        gate = evidence["gates"][0]
+        comparison = gate["base_comparison"]
+        self.assertNotIn("class", gate)
+        self.assertEqual(gate["signature"], "OK")
+        self.assertFalse(comparison["reproduced"])
+        self.assertEqual(comparison["reproduction_basis"], "exit-code-and-signature")
+        self.assertEqual(comparison["head_exit_code"], 1)
+        self.assertEqual(comparison["exit_code"], 2)
+        self.assertNotEqual(comparison["signature"], gate["signature"])
+        self.assertIn("fingerprint differs", comparison["reason"])
 
     def test_missing_default_branch_preserves_signature_with_warning(self) -> None:
         commit = self.commit_gate(1, "broken without origin")
