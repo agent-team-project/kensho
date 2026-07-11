@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
 	"github.com/agent-team-project/agent-team/internal/daemon"
+	"github.com/agent-team-project/agent-team/internal/origin"
 	"github.com/agent-team-project/agent-team/internal/runtimebin"
 )
 
@@ -366,6 +368,61 @@ repo = ""
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("doctor --commands should not write provider problems to stderr: %s", errOut.String())
+	}
+}
+
+func TestDoctorCommandsProjectIDFixUsesCanonicalRepoSelector(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+
+	teamDir := filepath.Join(tmp, ".agent_team")
+	projectID, err := origin.ProjectID(teamDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projectID == "" {
+		t.Fatal("init did not generate [project].id")
+	}
+	cfgPath := filepath.Join(teamDir, "config.toml")
+	cfg, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withEmptyProjectID := strings.Replace(string(cfg), `id = "`+projectID+`"`, `id = ""`, 1)
+	if withEmptyProjectID == string(cfg) {
+		t.Fatalf("config.toml missing generated project id %q:\n%s", projectID, cfg)
+	}
+	if err := os.WriteFile(cfgPath, []byte(withEmptyProjectID), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"doctor", "--repo", tmp, "--commands"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("doctor --commands with empty project id: %v\nstderr: %s", err, errOut.String())
+	}
+	want := scopedOperatorAction("agent-team doctor --fix", operatorCommandScope{Repo: tmp, Set: true})
+	commands := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if !slices.Contains(commands, want) {
+		t.Fatalf("doctor --commands output = %q, want command %q", out.String(), want)
+	}
+	if strings.Contains(out.String(), "doctor --target") {
+		t.Fatalf("doctor --commands retained removed repo selector: %q", out.String())
+	}
+
+	fix := NewRootCmd()
+	fixOut, fixErrOut := &bytes.Buffer{}, &bytes.Buffer{}
+	fix.SetOut(fixOut)
+	fix.SetErr(fixErrOut)
+	fix.SetArgs([]string{"--repo", tmp, "doctor", "--fix"})
+	if err := fix.Execute(); err != nil {
+		t.Fatalf("canonical project-id remediation failed: %v\nstdout: %s\nstderr: %s", err, fixOut.String(), fixErrOut.String())
+	}
+	if got, err := origin.ProjectID(teamDir); err != nil || got == "" {
+		t.Fatalf("canonical remediation project id = %q, err = %v", got, err)
 	}
 }
 

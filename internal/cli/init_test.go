@@ -1132,6 +1132,49 @@ func TestInit_PMProviderLinearWritesSingleSource(t *testing.T) {
 	}
 }
 
+func TestInit_CustomTemplateLinearInputDoesNotInjectUndeclaredPMProvider(t *testing.T) {
+	tmplDir := t.TempDir()
+	manifest := `[template]
+name = "linear-note-only"
+version = "0.0.1"
+
+[[parameter]]
+key = "linear.note"
+type = "string"
+default = ""
+`
+	if err := os.WriteFile(filepath.Join(tmplDir, "template.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	target := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{
+		"init", tmplDir,
+		"--target", target,
+		"--set", "linear.note=hello",
+		"--no-input",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init custom template: %v\nstderr: %s", err, errOut.String())
+	}
+
+	cfg, err := os.ReadFile(filepath.Join(target, ".agent_team", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(cfg)
+	if !strings.Contains(body, `note = "hello"`) {
+		t.Fatalf("custom config missing declared linear input:\n%s", body)
+	}
+	if strings.Contains(body, "[pm]") || strings.Contains(body, "provider =") {
+		t.Fatalf("custom template gained undeclared PM provider:\n%s", body)
+	}
+}
+
 func TestInit_PatternViolationFails(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := NewRootCmd()

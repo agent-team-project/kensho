@@ -30,6 +30,8 @@ func TestV05CompatibilitySurfacesStayRemoved(t *testing.T) {
 		"ErrAgent" + "Load",
 		"legacyRepo" + "TargetFlagHelp",
 		"team." + "pm_tool",
+		"\"doctor\"" + ", \"--target\"",
+		"agent-team doctor " + "--target",
 	}
 	for _, rel := range []string{"cmd", "internal", "scripts", "template", ".agent_team"} {
 		base := filepath.Join(root, rel)

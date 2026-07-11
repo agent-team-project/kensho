@@ -437,7 +437,7 @@ func resolveInitConfig(cmd *cobra.Command, m *template.Manifest, sets []template
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return nil, exitErr(2)
 	}
-	if initShouldAutoEnableLinear(withSets, sets) {
+	if initShouldAutoEnableLinear(withSets, sets, m) {
 		withSets.SetDotted("pm.provider", "linear")
 	}
 	if projectID, ok := withSets.GetDotted("project.id"); !ok || strings.TrimSpace(fmt.Sprint(projectID)) == "" {
@@ -481,7 +481,10 @@ func missingRequired(resolved template.Tree, m *template.Manifest) []string {
 	return template.MissingRequiredKeys(resolved, m)
 }
 
-func initShouldAutoEnableLinear(resolved template.Tree, sets []template.SetSpec) bool {
+func initShouldAutoEnableLinear(resolved template.Tree, sets []template.SetSpec, m *template.Manifest) bool {
+	if m == nil || m.FindParameter("pm.provider") == nil {
+		return false
+	}
 	explicitProvider := false
 	linearSet := false
 	for _, s := range sets {

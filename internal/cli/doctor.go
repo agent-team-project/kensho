@@ -178,7 +178,7 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 					}
 				} else {
 					warnings = append(warnings, fmt.Sprintf("[project].id missing/empty in %s — run `agent-team doctor --fix` to backfill it.", cfgPath))
-					actions = appendDoctorActions(actions, strings.Join(shellQuoteArgs([]string{"agent-team", "doctor", "--target", abs, "--fix"}), " "))
+					actions = appendDoctorActions(actions, "agent-team doctor --fix")
 				}
 			}
 			provider := pmprovider.NormalizeProviderName(pmProvider)
