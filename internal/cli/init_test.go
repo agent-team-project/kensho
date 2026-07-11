@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/agent-team-project/agent-team/internal/loader"
+	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
 // initArgsWithRequired is the canonical "init the bundled template into tmp,
@@ -314,6 +315,98 @@ func TestInit_FullProfilePreservesSelfDogfoodTemplate(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("full profile instances.toml missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestInit_FullProfileCompletenessSteeringReachesRuntimeSurfaces(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs(initArgsWithRequiredFull(tmp))
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init full profile: %v\nstderr: %s", err, errOut.String())
+	}
+
+	dispatch := NewRootCmd()
+	dispatchOut, dispatchErr := &bytes.Buffer{}, &bytes.Buffer{}
+	dispatch.SetOut(dispatchOut)
+	dispatch.SetErr(dispatchErr)
+	dispatch.SetArgs([]string{
+		"job", "create", "TST-375",
+		"--repo", tmp,
+		"--pipeline", "platform_ticket_to_pr",
+		"--kickoff", "Implement TST-375.",
+		"--dispatch",
+		"--dry-run",
+		"--json",
+	})
+	if err := dispatch.Execute(); err != nil {
+		t.Fatalf("preview platform implement dispatch: %v\nstderr: %s", err, dispatchErr.String())
+	}
+	var preview jobAdvancePreview
+	if err := json.Unmarshal(dispatchOut.Bytes(), &preview); err != nil {
+		t.Fatalf("decode platform implement dispatch: %v\nbody: %s", err, dispatchOut.String())
+	}
+	if preview.Dispatch == nil || preview.Dispatch.Preview == nil {
+		t.Fatalf("platform implement dispatch missing route preview: %+v", preview)
+	}
+	kickoff, _ := preview.Dispatch.Preview.Payload["kickoff"].(string)
+	normalizedKickoff := strings.Join(strings.Fields(kickoff), " ")
+	for _, want := range []string{
+		"declared per-instance field",
+		"daemon event, HTTP, and pipeline dispatch",
+		"interactive, `--no-daemon`, ad-hoc `--name`",
+		"`run --detach`; `instance up`; `template run`",
+		"managed resume for every runtime",
+		"dynamic dispatch payload overrides",
+		"Before coding, enumerate every applicable member",
+		"Add a test for each applicable path",
+		"conflicting combination is explicitly rejected",
+		"disclose every applicable path left uncovered",
+	} {
+		if !strings.Contains(normalizedKickoff, want) {
+			t.Errorf("platform implement dispatch kickoff missing %q:\n%s", want, kickoff)
+		}
+	}
+
+	selfDogfood, err := topology.LoadFromTeamDir(filepath.Join("..", "..", ".agent_team"))
+	if err != nil {
+		t.Fatalf("load self-dogfood topology: %v", err)
+	}
+	platformPipeline := selfDogfood.Pipelines["platform_ticket_to_pr"]
+	if platformPipeline == nil {
+		t.Fatal("self-dogfood topology missing platform_ticket_to_pr")
+	}
+	var selfDogfoodInstructions string
+	for _, step := range platformPipeline.Steps {
+		if step.ID == "implement" {
+			selfDogfoodInstructions = step.Instructions
+			break
+		}
+	}
+	if preview.Step == nil {
+		t.Fatal("platform implement dispatch preview missing step")
+	}
+	if strings.TrimSpace(selfDogfoodInstructions) != strings.TrimSpace(preview.Step.Instructions) {
+		t.Fatalf("self-dogfood and rendered platform implement instructions differ:\nself-dogfood:\n%s\nrendered:\n%s", selfDogfoodInstructions, preview.Step.Instructions)
+	}
+
+	teamDir := filepath.Join(tmp, ".agent_team")
+	reviewer, err := loader.LoadAgent(filepath.Join(teamDir, "agents", "reviewer"), teamDir)
+	if err != nil {
+		t.Fatalf("load rendered reviewer: %v", err)
+	}
+	for _, want := range []string{
+		"report the finding at class altitude",
+		"Name every member checked and every failing member",
+		"define passing as the whole class holding",
+	} {
+		if !strings.Contains(reviewer.Prompt, want) {
+			t.Errorf("loaded reviewer prompt missing %q", want)
 		}
 	}
 }
