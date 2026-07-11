@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -57,17 +59,36 @@ def main(argv: list[str]) -> int:
     results: list[dict[str, Any]] = []
     status = "pass"
     gate_evidence_root = evidence_dir / "gates" / safe_name(job_id or commit[:12])
+    base_state: dict[str, Any] = {}
     try:
         for index, gate in enumerate(gates, start=1):
             result = run_gate(gate, index, len(gates), checkout, logs_dir, gate_evidence_root, evidence_dir, repo)
+            if result["status"] == "fail":
+                compare_failed_gate(
+                    result,
+                    gate,
+                    repo,
+                    commit,
+                    temp_root,
+                    logs_dir,
+                    gate_evidence_root,
+                    evidence_dir,
+                    base_state,
+                    warnings,
+                )
             results.append(result)
             if result["status"] != "pass":
                 status = "fail"
     finally:
         if args.keep_worktree:
             warnings.append(f"temporary worktree preserved at {checkout}")
+            if base_state.get("checkout_added"):
+                warnings.append(f"temporary base worktree preserved at {base_state['checkout']}")
         else:
-            remove_temp_worktree(repo, checkout, temp_root, warnings)
+            if base_state.get("checkout_added"):
+                remove_temp_worktree(repo, Path(base_state["checkout"]), warnings)
+            remove_temp_worktree(repo, checkout, warnings)
+            shutil.rmtree(temp_root, ignore_errors=True)
 
     finished_at = utc_now()
     summary = summarize(job_id, status, results)
@@ -366,6 +387,7 @@ def run_gate(
             log.write(line)
             if line.strip():
                 tail.append(line.strip())
+        proc.stdout.close()
         exit_code = proc.wait()
     duration_ms = int((time.monotonic() - start_time) * 1000)
     status = "pass" if exit_code == 0 else "fail"
@@ -386,6 +408,443 @@ def run_gate(
     if evidence_refs:
         result["evidence_refs"] = evidence_refs
     return result
+
+
+def compare_failed_gate(
+    result: dict[str, Any],
+    gate: dict[str, str],
+    repo: Path,
+    commit: str,
+    temp_root: Path,
+    logs_dir: Path,
+    gate_evidence_root: Path,
+    evidence_dir: Path,
+    base_state: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    prepare_base_checkout(repo, commit, temp_root, base_state)
+    if reason := base_state.get("unavailable_reason"):
+        warning = f"base comparison unavailable for {gate['name']}: {reason}"
+        warnings.append(warning)
+        result["base_comparison"] = {
+            "status": "unavailable",
+            "reason": reason,
+        }
+        return
+
+    base_checkout = Path(base_state["checkout"])
+    head_log = logs_dir / f"{safe_name(gate['name'])}.log"
+    base_log = logs_dir / f"{safe_name(gate['name'])}.base.log"
+    command = base_comparison_command(gate["command"], head_log)
+    gate_evidence_dir = gate_evidence_root / safe_name(gate["name"]) / "base"
+    gate_evidence_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.setdefault("CI", "1")
+    env["AGENT_TEAM_EVIDENCE_DIR"] = str(evidence_dir)
+    env["AGENT_TEAM_GATE_EVIDENCE_DIR"] = str(gate_evidence_dir)
+    env["AGENT_TEAM_GATE_LOG"] = str(base_log)
+    env["AGENT_TEAM_GATE_NAME"] = gate["name"]
+
+    print(f"verify: base comparison start {gate['name']}: {command}", flush=True)
+    exit_code, duration_ms, tail = run_logged_command(
+        command,
+        base_checkout,
+        base_log,
+        env,
+        f"{gate['name']}(base)",
+    )
+    base_status = "pass" if exit_code == 0 else "fail"
+    print(f"verify: base comparison {base_status} {gate['name']} ({duration_ms}ms)", flush=True)
+    base_signature = "" if exit_code == 0 else failure_signature(exit_code, tail)
+    is_go_test = is_simple_go_test_command(gate["command"])
+    is_structured_test = is_simple_structured_test_command(gate["command"])
+    head_identities: list[str] = []
+    base_identities: list[str] = []
+    head_identities_complete = False
+    base_identities_complete = False
+    head_fingerprint = ""
+    base_fingerprint = ""
+    if is_go_test:
+        head_identities, head_identities_complete = go_failure_identities(head_log)
+        base_identities, base_identities_complete = go_failure_identities(base_log)
+        if head_identities_complete and head_identities:
+            reproduced = (
+                exit_code != 0
+                and exit_code == result["exit_code"]
+                and set(head_identities).issubset(base_identities)
+            )
+            reproduction_basis = "go-test-identity-subset"
+        elif not head_identities:
+            head_fingerprint = full_output_fingerprint(head_log)
+            base_fingerprint = full_output_fingerprint(base_log)
+            reproduced = (
+                exit_code != 0
+                and exit_code == result["exit_code"]
+                and bool(head_fingerprint)
+                and head_fingerprint == base_fingerprint
+            )
+            reproduction_basis = "exit-code-and-full-output-fingerprint"
+        else:
+            reproduced = False
+            reproduction_basis = "go-test-identity-subset"
+    else:
+        head_identities, head_identities_complete = structured_failure_identities(head_log)
+        base_identities, base_identities_complete = structured_failure_identities(base_log)
+        if is_structured_test and head_identities_complete and head_identities:
+            reproduced = (
+                exit_code != 0
+                and exit_code == result["exit_code"]
+                and set(head_identities).issubset(base_identities)
+            )
+            reproduction_basis = "failure-identity-subset"
+        else:
+            head_fingerprint = full_output_fingerprint(head_log)
+            base_fingerprint = full_output_fingerprint(base_log)
+            reproduced = (
+                exit_code != 0
+                and exit_code == result["exit_code"]
+                and bool(head_fingerprint)
+                and head_fingerprint == base_fingerprint
+            )
+            reproduction_basis = "exit-code-and-full-output-fingerprint"
+    comparison = {
+        "status": base_status,
+        "reproduced": reproduced,
+        "reproduction_basis": reproduction_basis,
+        "default_branch": base_state["default_branch"],
+        "default_branch_sha": base_state["default_branch_sha"],
+        "merge_base": base_state["merge_base"],
+        "command": command,
+        "head_exit_code": result["exit_code"],
+        "head_signature": result["signature"],
+        "exit_code": exit_code,
+        "duration_ms": duration_ms,
+        "log_path": relpath(base_log, repo),
+        "signature": base_signature,
+    }
+    comparison["head_failure_identities"] = head_identities
+    comparison["base_failure_identities"] = base_identities
+    comparison["head_failure_identities_complete"] = head_identities_complete
+    comparison["base_failure_identities_complete"] = base_identities_complete
+    if head_fingerprint or base_fingerprint:
+        comparison["head_output_fingerprint"] = head_fingerprint
+        comparison["base_output_fingerprint"] = base_fingerprint
+    if exit_code != 0 and not reproduced:
+        if is_go_test and head_identities and not head_identities_complete:
+            comparison["reason"] = "the worker Go failure did not expose complete package/test identities"
+        elif reproduction_basis == "go-test-identity-subset":
+            comparison["reason"] = "one or more worker package/test failures did not reproduce at the merge-base"
+        elif reproduction_basis == "failure-identity-subset":
+            comparison["reason"] = "one or more worker failure identities did not reproduce at the merge-base"
+        elif not head_fingerprint:
+            comparison["reason"] = "the worker failure output did not expose a stable identity"
+        else:
+            comparison["reason"] = "the merge-base full-output fingerprint differs from the worker commit"
+    if reproduced:
+        result["class"] = "infra"
+        result["signature"] = "base-broken"
+    result["base_comparison"] = comparison
+    evidence_refs = collect_evidence_refs(gate_evidence_root / safe_name(gate["name"]), repo)
+    if evidence_refs:
+        result["evidence_refs"] = evidence_refs
+
+
+def prepare_base_checkout(repo: Path, commit: str, temp_root: Path, state: dict[str, Any]) -> None:
+    if state.get("initialized"):
+        return
+    state["initialized"] = True
+    default_branch, default_branch_sha, reason = resolve_default_branch(repo)
+    if reason:
+        state["unavailable_reason"] = reason
+        return
+    merge_base_proc = subprocess.run(
+        ["git", "-C", str(repo), "merge-base", commit, default_branch_sha],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    merge_base = merge_base_proc.stdout.strip()
+    if merge_base_proc.returncode != 0 or not merge_base:
+        state["unavailable_reason"] = (
+            f"no merge-base between {commit[:12]} and {default_branch} "
+            f"at {default_branch_sha[:12]}: "
+            f"{last_line(merge_base_proc.stderr) or merge_base_proc.returncode}"
+        )
+        return
+    checkout = temp_root / "base"
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "worktree", "add", "--detach", str(checkout), merge_base],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        state["unavailable_reason"] = f"base checkout failed: {last_line(proc.stderr) or proc.returncode}"
+        return
+    state.update(
+        {
+            "default_branch": default_branch,
+            "default_branch_sha": default_branch_sha,
+            "merge_base": merge_base,
+            "checkout": str(checkout),
+            "checkout_added": True,
+        }
+    )
+
+
+def resolve_default_branch(repo: Path) -> tuple[str, str, str]:
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "ls-remote", "--symref", "origin", "HEAD"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return "", "", f"remote default branch discovery failed: {last_line(proc.stderr) or proc.returncode}"
+    default_ref = ""
+    default_branch_sha = ""
+    for line in proc.stdout.splitlines():
+        target, separator, name = line.partition("\t")
+        if not separator or name != "HEAD":
+            continue
+        if target.startswith("ref: refs/heads/"):
+            default_ref = target.removeprefix("ref: ")
+        elif re.fullmatch(r"[0-9a-fA-F]{40,64}", target):
+            default_branch_sha = target.lower()
+    if not default_ref or not default_branch_sha:
+        return "", "", "remote default branch discovery did not return a symbolic HEAD and commit"
+
+    fetch_proc = subprocess.run(
+        ["git", "-C", str(repo), "fetch", "--no-write-fetch-head", "--no-tags", "origin", default_ref],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    default_branch = f"origin/{default_ref.removeprefix('refs/heads/')}"
+    if fetch_proc.returncode != 0:
+        return (
+            "",
+            "",
+            f"remote default branch fetch failed for {default_branch}: "
+            f"{last_line(fetch_proc.stderr) or fetch_proc.returncode}",
+        )
+    if rev_parse(repo, default_branch_sha) != default_branch_sha:
+        return "", "", f"pinned remote default branch {default_branch} does not resolve after fetch"
+    return default_branch, default_branch_sha, ""
+
+
+def base_comparison_command(command: str, head_log: Path) -> str:
+    tokens = single_shell_command_tokens(command)
+    if tokens is None or len(tokens) < 3 or tokens[:2] != ["go", "test"]:
+        return command
+    package_args = tokens[2:]
+    if any(token.startswith("-") or re.search(r"[|&;<>()$`]", token) for token in package_args):
+        return command
+    try:
+        log = head_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return command
+    tests = failed_go_test_names_from_text(log)
+    packages = sorted(
+        {
+            match
+            for match in re.findall(r"^FAIL\s+(\S+)(?:\s+[\d.]+s)?\s*$", log, flags=re.MULTILINE)
+            if match != "FAIL"
+        }
+    )
+    if not packages:
+        return command
+    scoped = ["go", "test"]
+    if tests:
+        pattern = "^(?:" + "|".join(re.escape(test) for test in tests) + ")$"
+        scoped.extend(["-run", pattern])
+    scoped.extend(packages)
+    return shlex.join(scoped)
+
+
+def is_simple_go_test_command(command: str) -> bool:
+    tokens = single_shell_command_tokens(command)
+    return tokens is not None and len(tokens) >= 3 and tokens[:2] == ["go", "test"]
+
+
+def is_simple_structured_test_command(command: str) -> bool:
+    tokens = single_shell_command_tokens(command)
+    if not tokens:
+        return False
+    runner = Path(tokens[0]).name
+    if runner in {"pytest", "py.test", "pytest-3"}:
+        return True
+    if not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", runner):
+        return False
+    return len(tokens) >= 3 and tokens[1] == "-m" and tokens[2] in {"pytest", "unittest"}
+
+
+def single_shell_command_tokens(command: str) -> list[str] | None:
+    if "\n" in command or "\r" in command:
+        return None
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars="|&;()<>")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    if any(token and all(char in "|&;()<>" for char in token) for token in tokens):
+        return None
+    if any("$(" in token or "`" in token for token in tokens):
+        return None
+    return tokens
+
+
+def failed_go_test_names(log_path: Path) -> list[str]:
+    try:
+        log = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return failed_go_test_names_from_text(log)
+
+
+def failed_go_test_names_from_text(log: str) -> list[str]:
+    return sorted(
+        {
+            match.split("/", 1)[0]
+            for match in re.findall(r"^\s*--- FAIL: ([^\s(]+)", log, flags=re.MULTILINE)
+        }
+    )
+
+
+def go_failure_identities(log_path: Path) -> tuple[list[str], bool]:
+    try:
+        log = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return [], False
+    return go_failure_identities_from_text(log)
+
+
+def go_failure_identities_from_text(log: str) -> tuple[list[str], bool]:
+    identities: set[str] = set()
+    pending_tests: set[str] = set()
+    saw_package_failure = False
+    complete = True
+    for line in log.splitlines():
+        test_match = re.match(r"^\s*--- FAIL: ([^\s(]+)", line)
+        if test_match:
+            pending_tests.add(test_match.group(1))
+            continue
+        package_match = re.match(r"^FAIL\s+(\S+)(?:\s+.*)?$", line)
+        if not package_match:
+            continue
+        saw_package_failure = True
+        package = package_match.group(1)
+        if not pending_tests:
+            complete = False
+            continue
+        identities.update(f"go-test:{package}:{test}" for test in pending_tests)
+        pending_tests.clear()
+    if pending_tests:
+        complete = False
+    return sorted(identities), saw_package_failure and complete and bool(identities)
+
+
+def structured_failure_identities(log_path: Path) -> tuple[list[str], bool]:
+    try:
+        log = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return [], False
+
+    unittest_identities = {
+        f"unittest:{match}"
+        for match in re.findall(r"^(?:FAIL|ERROR):\s+\S+\s+\(([^)]+)\)\s*$", log, flags=re.MULTILINE)
+    }
+    unittest_footer = re.search(r"^FAILED \(([^)]*)\)\s*$", log, flags=re.MULTILINE)
+    if unittest_identities and unittest_footer:
+        counts = [
+            int(count)
+            for count in re.findall(r"(?:failures|errors)=(\d+)", unittest_footer.group(1))
+        ]
+        complete = bool(counts) and sum(counts) == len(unittest_identities)
+        return sorted(unittest_identities), complete
+
+    pytest_failed_identities = {
+        f"pytest:{match}"
+        for match in re.findall(r"^FAILED\s+(\S+(?:::\S+)+)(?:\s+-.*)?$", log, flags=re.MULTILINE)
+    }
+    pytest_error_identities = {
+        f"pytest-error:{match}"
+        for match in re.findall(r"^ERROR\s+(\S+(?:::\S+)+)(?:\s+-.*)?$", log, flags=re.MULTILINE)
+    }
+    pytest_identities = pytest_failed_identities | pytest_error_identities
+    pytest_footer = next(
+        (
+            line
+            for line in reversed(log.splitlines())
+            if re.match(r"^=+.*=+\s*$", line) and re.search(r"\b(?:failed|errors?)\b", line)
+        ),
+        "",
+    )
+    if pytest_identities and pytest_footer:
+        failed_count = sum(int(count) for count in re.findall(r"(\d+)\s+failed\b", pytest_footer))
+        error_count = sum(int(count) for count in re.findall(r"(\d+)\s+errors?\b", pytest_footer))
+        complete = (
+            failed_count == len(pytest_failed_identities)
+            and error_count == len(pytest_error_identities)
+        )
+        return sorted(pytest_identities), complete
+
+    return [], False
+
+
+def full_output_fingerprint(log_path: Path) -> str:
+    try:
+        log = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    ansi_escape = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+    lines = [ansi_escape.sub("", line).rstrip() for line in log.splitlines()]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    normalized = "\n".join(lines)
+    if not normalized.strip():
+        return ""
+    return f"sha256:{hashlib.sha256(normalized.encode('utf-8')).hexdigest()}"
+
+
+def run_logged_command(
+    command: str,
+    cwd: Path,
+    log_path: Path,
+    env: dict[str, str],
+    prefix: str,
+) -> tuple[int, int, list[str]]:
+    start_time = time.monotonic()
+    tail: deque[str] = deque(maxlen=20)
+    with log_path.open("w", encoding="utf-8") as log:
+        proc = subprocess.Popen(
+            command,
+            cwd=cwd,
+            shell=True,
+            executable="/bin/bash",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            sys.stdout.write(f"{prefix}: {line}")
+            sys.stdout.flush()
+            log.write(line)
+            if line.strip():
+                tail.append(line.strip())
+        proc.stdout.close()
+        exit_code = proc.wait()
+    return exit_code, int((time.monotonic() - start_time) * 1000), list(tail)
 
 
 def record_gate_results(job_id: str, repo: Path, results: list[dict[str, Any]], warnings: list[str]) -> None:
@@ -444,7 +903,7 @@ def complete_step(job_id: str, pipeline_step: str, repo: Path, status: str, summ
         raise SystemExit(message)
 
 
-def remove_temp_worktree(repo: Path, checkout: Path, temp_root: Path, warnings: list[str]) -> None:
+def remove_temp_worktree(repo: Path, checkout: Path, warnings: list[str]) -> None:
     proc = subprocess.run(
         ["git", "-C", str(repo), "worktree", "remove", "--force", str(checkout)],
         text=True,
@@ -453,7 +912,6 @@ def remove_temp_worktree(repo: Path, checkout: Path, temp_root: Path, warnings: 
     )
     if proc.returncode != 0:
         warnings.append(f"temporary worktree removal failed: {last_line(proc.stderr) or proc.returncode}")
-    shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def summarize(job_id: str, status: str, results: list[dict[str, Any]]) -> str:

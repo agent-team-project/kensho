@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/agent-team-project/agent-team/internal/job"
 )
 
 func loadSelfDogfoodResearchTopology(t *testing.T) *Topology {
@@ -78,6 +80,28 @@ func TestResearchProgramTemplateMatchesSelfDogfood(t *testing.T) {
 	}
 	if got, want := strings.TrimSpace(body[startAt:endAt]), strings.TrimSpace(string(fragment)); got != want {
 		t.Fatalf("bundled and self-dogfood research topology differ")
+	}
+}
+
+func TestResearchPipelinesClassifyBaseBrokenAsInfra(t *testing.T) {
+	top := loadSelfDogfoodResearchTopology(t)
+	for _, name := range []string{"research_study", "research_slice"} {
+		pipeline := top.Pipelines[name]
+		if pipeline == nil {
+			t.Fatalf("pipeline %q missing", name)
+		}
+		matchers, err := job.CompileGateSignatureMatchers(pipeline.InfraSignatures)
+		if err != nil {
+			t.Fatalf("compile %s infra signatures: %v", name, err)
+		}
+		classification := job.ClassifyGateRecord(matchers, job.GateRecord{
+			Name:      "go-test",
+			Status:    job.GateStatusFail,
+			Signature: "base-broken",
+		})
+		if classification.Class != job.GateClassInfra || classification.MatchedSignature != "base_broken" {
+			t.Fatalf("%s base-broken classification = %+v, want class=infra matched_signature=base_broken", name, classification)
+		}
 	}
 }
 

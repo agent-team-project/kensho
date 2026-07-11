@@ -119,6 +119,7 @@ auto_advance  = true
 redispatch_on_reentry = false
 
 [pipelines.ticket_to_pr.infra_signatures]
+base_broken = "^base-broken$"
 github_project_token_missing = "(?i)(PROJECTS_TOKEN secret (missing|unset)|Set the PROJECTS_TOKEN secret|set PROJECTS_TOKEN, GH_TOKEN, or GITHUB_TOKEN)"
 github_token_missing = "(?i)no GitHub token found"
 
@@ -296,6 +297,7 @@ trigger.event = "platform.ticket"
 auto_advance = true
 
 [pipelines.platform_ticket_to_pr.infra_signatures]
+base_broken = "^base-broken$"
 github_project_token_missing = "(?i)(PROJECTS_TOKEN secret (missing|unset)|Set the PROJECTS_TOKEN secret|set PROJECTS_TOKEN, GH_TOKEN, or GITHUB_TOKEN)"
 github_token_missing = "(?i)no GitHub token found"
 
@@ -810,6 +812,9 @@ auto_advance = true
 redispatch_on_reentry = false
 reap_worktree = "on_close"
 
+[pipelines.research_study.infra_signatures]
+base_broken = "^base-broken$"
+
 [[pipelines.research_study.steps]]
 id           = "preregister"
 target       = "research-worker"
@@ -887,6 +892,9 @@ trigger.event = "research.slice.ready"
 auto_advance = true
 redispatch_on_reentry = false
 reap_worktree = "on_merge"
+
+[pipelines.research_slice.infra_signatures]
+base_broken = "^base-broken$"
 
 [[pipelines.research_slice.steps]]
 id           = "implement"

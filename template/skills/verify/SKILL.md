@@ -80,3 +80,53 @@ The runner writes:
 - `target/agent-evidence/logs/<job>/<gate>.log` - full combined stdout/stderr for each gate.
 
 The verifier does not edit product files. It writes evidence artifacts and temporary checkout state only.
+
+## Base-broken discriminator
+
+After a gate fails, the runner discovers the remote default branch directly
+from `origin`, fetches that branch without trusting local remote-tracking refs,
+pins the fetched commit SHA in evidence, computes its merge-base with the worker
+commit, and reruns only that failed gate in a detached checkout. For a
+single, plain `go test <packages>` gate, the rerun is narrowed to the failed packages
+and anchored top-level test names parsed from the head log. Go failures carry
+package/test identities, including complete subtest paths, and a non-zero base
+run counts as reproduction only when every head identity appears at the
+merge-base. Only the scoped rerun's `-run` expression is anchored at top-level
+parent tests. A Go compile or build failure with no test identities instead
+requires the same exit code and a non-empty SHA-256 fingerprint of the entire
+ANSI-stripped output. Partially identified Go failures remain ambiguous and do
+not use the fingerprint fallback. This prevents an old failing test or subtest
+from hiding a new head-only regression while still recognizing an identical
+pre-existing compile failure.
+
+Structured identity matching is enabled only when the entire gate parses as one
+recognized `go test`, `unittest`, or `pytest` invocation. Compound commands,
+redirected commands, command substitutions, and otherwise ambiguous shell
+shapes cannot use an identity subset to claim that the whole gate reproduced;
+they require the same exit code and a non-empty SHA-256 fingerprint of the
+entire ANSI-stripped output. Other runners and recognized test invocations with
+no complete structured identities use that same conservative fingerprint
+comparison. The runner never compares only the final output line, so distinct
+failures with the same generic footer do not become `base-broken`.
+Pytest completeness accounts for both `FAILED` and `ERROR` identities and
+requires each footer count to match; an unrepresented setup, teardown, or
+collection error keeps the worker failure classified as content.
+Missing or empty output, a missing command or file at the base, and any other
+ambiguous comparison preserve the head classification.
+
+- If the scoped gate also fails at the merge-base, the result records
+  `class: infra` and `signature: base-broken`. The pipeline's semantic
+  `base_broken` infra signature makes the durable job gate classification agree.
+- If the scoped gate passes at the merge-base, the original failure signature
+  is preserved, so existing signature-based classification is unchanged.
+- If remote-default discovery or fetch, the merge-base, or the base checkout is
+  unavailable,
+  the original failure signature is preserved and the evidence contains both
+  an `unavailable` comparison result and a warning.
+
+Every failed gate receives a `base_comparison` object in the JSON evidence. A
+completed comparison includes the default-branch ref and pinned fetched SHA,
+merge-base commit, scoped command, reproduction basis, head/base exit statuses,
+structured failure identities or full-output fingerprints, duration, and base
+log path.
+Passing gate records are unchanged and do not trigger a base checkout.

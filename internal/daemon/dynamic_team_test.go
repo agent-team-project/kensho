@@ -127,6 +127,7 @@ match.target = "worker"
 	if charter == nil {
 		t.Fatal("result missing charter")
 	}
+	stagedShim := stageCharteredChildShim(t, teamDir, charter.Instance)
 	if charter.ParentDeploymentURI != "agt://parent-dep/project/parent-dep" ||
 		!strings.HasPrefix(charter.ChildDeploymentID, "child-adapter-port-gh155-") ||
 		charter.ChildDeploymentURI != resource.DeploymentURI(charter.ChildDeploymentID) {
@@ -289,12 +290,12 @@ match.target = "worker"
 	assertCharteredAuditAllows(t, teamDir, top, childActor, "channel.publish", "channel:team-platform-supervisor")
 	assertCharteredAuditDenies(t, teamDir, top, childActor, "channel.publish", "channel:other")
 	assertCharteredAuditDenies(t, teamDir, top, childActor, "inbox.send", "inbox:manager")
-	assertCharteredChildShimAllows(t, teamDir, charter.Instance, "job.show")
-	assertCharteredChildShimAllows(t, teamDir, charter.Instance, "inbox.check")
-	assertCharteredChildShimAllows(t, teamDir, charter.Instance, "channel.publish")
-	assertCharteredChildShimDenies(t, teamDir, charter.Instance, "job.merge")
-	assertCharteredChildShimDenies(t, teamDir, charter.Instance, "inbox.send")
-	assertCharteredChildShimDenies(t, teamDir, charter.Instance, "channel.delete")
+	assertCharteredChildShimAllows(t, stagedShim, "job.show")
+	assertCharteredChildShimAllows(t, stagedShim, "inbox.check")
+	assertCharteredChildShimAllows(t, stagedShim, "channel.publish")
+	assertCharteredChildShimDenies(t, stagedShim, "job.merge")
+	assertCharteredChildShimDenies(t, stagedShim, "inbox.send")
+	assertCharteredChildShimDenies(t, stagedShim, "channel.delete")
 	if declaredAllow, enforce, strict := resolver.authorityForInstance("worker", charter.Instance); !enforce || strict || !containsString(declaredAllow, "job.*") {
 		t.Fatalf("declared worker authority = allow=%#v enforce=%v strict=%v", declaredAllow, enforce, strict)
 	}
@@ -576,6 +577,7 @@ func TestDynamicTeamAuthorityGrantPreservesOwnScope(t *testing.T) {
 	if charter == nil || charter.State != TeamCharterStateRunning {
 		t.Fatalf("charter = %+v", charter)
 	}
+	stagedShim := stageCharteredChildShim(t, teamDir, charter.Instance)
 	if !reflect.DeepEqual(charter.Authority.GrantedVerbs, []string{"inbox.send", "job.gate.set:own"}) {
 		t.Fatalf("granted verbs = %#v", charter.Authority.GrantedVerbs)
 	}
@@ -601,9 +603,9 @@ func TestDynamicTeamAuthorityGrantPreservesOwnScope(t *testing.T) {
 	assertCharteredAuditAllowsTarget(t, teamDir, top, childActor, "job.gate.set", "job:gh155-scope:gate:tests", "gh155-scope")
 	assertCharteredAuditDeniesTarget(t, teamDir, top, childActor, "job.gate.set", "job:other-job:gate:tests", "other-job")
 	assertCharteredAuditDeniesTarget(t, teamDir, top, childActor, "job.merge", "job:gh155-scope", "gh155-scope")
-	assertCharteredChildShimAllows(t, teamDir, charter.Instance, "job.gate.set")
-	assertCharteredChildShimAllows(t, teamDir, charter.Instance, "inbox.send")
-	assertCharteredChildShimDenies(t, teamDir, charter.Instance, "job.merge")
+	assertCharteredChildShimAllows(t, stagedShim, "job.gate.set")
+	assertCharteredChildShimAllows(t, stagedShim, "inbox.send")
+	assertCharteredChildShimDenies(t, stagedShim, "job.merge")
 }
 
 func TestHTTPDynamicTeamCharteredChildSpawnRejectedPendingResourceReconciliation(t *testing.T) {
@@ -1145,24 +1147,22 @@ func assertCharteredAuditDeniesTarget(t *testing.T, teamDir string, top *topolog
 	}
 }
 
-func assertCharteredChildShimAllows(t *testing.T, teamDir, instance, verb string) {
+func assertCharteredChildShimAllows(t *testing.T, shim, verb string) {
 	t.Helper()
 	parts := strings.Split(verb, ".")
 	args := append([]string{}, parts...)
 	args = append(args, "gh155-dynteam")
-	shim := charteredChildShimPath(t, teamDir, instance)
 	out, err := exec.Command(shim, args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("shim denied %s unexpectedly: %v; output=%s", verb, err, out)
 	}
 }
 
-func assertCharteredChildShimDenies(t *testing.T, teamDir, instance, verb string) {
+func assertCharteredChildShimDenies(t *testing.T, shim, verb string) {
 	t.Helper()
 	parts := strings.Split(verb, ".")
 	args := append([]string{}, parts...)
 	args = append(args, "gh155-dynteam")
-	shim := charteredChildShimPath(t, teamDir, instance)
 	out, err := exec.Command(shim, args...).CombinedOutput()
 	if err == nil {
 		t.Fatalf("shim allowed %s; output=%s", verb, out)
@@ -1176,18 +1176,26 @@ func assertCharteredChildShimDenies(t *testing.T, teamDir, instance, verb string
 	}
 }
 
-func charteredChildShimPath(t *testing.T, teamDir, instance string) string {
+func stageCharteredChildShim(t *testing.T, teamDir, instance string) string {
 	t.Helper()
-	if snapshot, err := ReadInstanceLaunchEnv(DaemonRoot(teamDir), instance); err == nil {
-		if path := lastEnvValue(snapshot.Env, "PATH"); path != "" {
-			first := strings.Split(path, string(os.PathListSeparator))[0]
-			shim := filepath.Join(first, "agent-team")
-			if _, err := os.Stat(shim); err == nil {
-				return shim
-			}
-		}
+	snapshot, err := ReadInstanceLaunchEnv(DaemonRoot(teamDir), instance)
+	if err != nil {
+		t.Fatalf("stage chartered child runtime shim: read launch environment: %v", err)
 	}
-	return filepath.Join(teamDir, "state", instance, "runtime", "bin", "agent-team")
+	path := lastEnvValue(snapshot.Env, "PATH")
+	if path == "" {
+		t.Fatal("stage chartered child runtime shim: launch PATH is empty")
+	}
+	source := filepath.Join(strings.Split(path, string(os.PathListSeparator))[0], "agent-team")
+	body, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("stage chartered child runtime shim: read %s: %v", source, err)
+	}
+	staged := filepath.Join(t.TempDir(), "agent-team")
+	if err := os.WriteFile(staged, body, 0o755); err != nil {
+		t.Fatalf("stage chartered child runtime shim: write %s: %v", staged, err)
+	}
+	return staged
 }
 
 func shellQuoteTest(value string) string {
