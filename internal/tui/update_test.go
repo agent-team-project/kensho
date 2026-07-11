@@ -106,11 +106,12 @@ func TestPollingGenerationCoalescesManualRefreshAndRejectsStaleTicks(t *testing.
 	}
 
 	model, commands = Update(model, Tick{At: fixtureTime.Add(5 * time.Second), Generation: firstGeneration})
-	if model.PollScheduled || !model.RefreshInFlight || len(commands) != 1 || commands[0].Kind != CommandRefresh {
+	if !model.PollScheduled || !model.RefreshInFlight || len(commands) != 2 || commands[0].Kind != CommandRefresh || commands[1].Kind != CommandTick {
 		t.Fatalf("current tick model=%+v commands=%+v", model, commands)
 	}
+	nextGeneration := model.PollGeneration
 	model, commands = Update(model, RefreshFinished{At: fixtureTime.Add(5 * time.Second), AnySuccess: true, Complete: true})
-	if !model.PollScheduled || model.PollGeneration == firstGeneration || len(commands) != 1 || commands[0].Kind != CommandTick {
+	if !model.PollScheduled || model.PollGeneration != nextGeneration || nextGeneration == firstGeneration || len(commands) != 0 {
 		t.Fatalf("next generation model=%+v commands=%+v", model, commands)
 	}
 	currentGeneration := model.PollGeneration

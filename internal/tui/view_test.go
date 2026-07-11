@@ -404,26 +404,33 @@ func TestOneHourSoak(t *testing.T) {
 	clockAt := fixtureTime
 	commandRuntime := &commandRuntime{ctx: context.Background(), teamDir: harness.teamDir, clock: func() time.Time { return clockAt }}
 	program := newProgramModel(NewModel(clockAt, Capabilities{Dumb: true}), commandRuntime)
-	var scheduledAt time.Time
-	var scheduledDelay time.Duration
-	var schedulePending bool
+	type timerRecord struct {
+		at    time.Time
+		delay time.Duration
+	}
+	timers := map[uint64]timerRecord{}
+	tickMessages := make(chan tea.Msg, 8)
 	schedules := 0
 	program.tick = func(delay time.Duration, message func(time.Time) tea.Msg) tea.Cmd {
-		if schedulePending {
-			t.Fatal("production polling scheduler created a second pending timer")
+		probe, ok := message(time.Time{}).(Tick)
+		if !ok || probe.Generation == 0 {
+			t.Fatalf("production polling scheduler emitted %T without generation", probe)
 		}
-		schedulePending = true
-		scheduledAt = time.Now()
-		scheduledDelay = delay
+		if _, exists := timers[probe.Generation]; exists {
+			t.Fatalf("production polling scheduler reused generation %d", probe.Generation)
+		}
+		timers[probe.Generation] = timerRecord{at: time.Now(), delay: delay}
 		schedules++
-		return tea.Tick(delay, message)
+		command := tea.Tick(delay, message)
+		go func() { tickMessages <- command() }()
+		return func() tea.Msg { return nil }
 	}
 	initial := runSoakCommand(t, program.Init())
-	updated, pending := program.Update(initial)
+	updated, _ := program.Update(initial)
 	program = updated.(ProgramModel)
 	updated, _ = program.Update(tea.WindowSizeMsg{Width: 160, Height: 50})
 	program = updated.(ProgramModel)
-	if !program.Domain.HasSnapshot() || program.Domain.Connection != ConnectionConnected || !program.Domain.PollScheduled || pending == nil {
+	if !program.Domain.HasSnapshot() || program.Domain.Connection != ConnectionConnected || !program.Domain.PollScheduled {
 		t.Fatalf("soak initial domain = connection %s scheduled %v errors=%v", program.Domain.Connection, program.Domain.PollScheduled, program.Domain.Snapshot.SourceErrors)
 	}
 	startGoroutines := runtime.NumGoroutine()
@@ -446,6 +453,7 @@ func TestOneHourSoak(t *testing.T) {
 	baselineReady := false
 	var samples []soakHeapSample
 	refreshes, filterChanges, navigations := 0, 0, 0
+	currentTicks, staleTicks := 0, 0
 	disconnected, reconnected := false, false
 	cadenceChecks := 0
 	nextHeapSample := started.Add(time.Minute)
@@ -462,37 +470,53 @@ func TestOneHourSoak(t *testing.T) {
 			harness.start(t)
 			reconnected = true
 		}
-		if !schedulePending || pending == nil {
+		if !program.Domain.PollScheduled {
 			t.Fatal("production polling scheduler lost its sole pending timer")
 		}
-		wantDelay := nextPollDelay(program.Domain)
-		if scheduledDelay != wantDelay {
-			t.Fatalf("scheduled delay = %s, want model cadence %s in %s", scheduledDelay, wantDelay, program.Domain.Connection)
+		tickMessage := (<-tickMessages).(Tick)
+		record, ok := timers[tickMessage.Generation]
+		if !ok {
+			t.Fatalf("timer generation %d has no creation record", tickMessage.Generation)
 		}
-		schedulePending = false
-		tickMessage := runSoakCommand(t, pending)
+		delete(timers, tickMessage.Generation)
 		now = time.Now()
-		observedDelay := now.Sub(scheduledAt)
-		if observedDelay < scheduledDelay-time.Second || observedDelay > scheduledDelay+time.Second {
-			t.Fatalf("production polling cadence drifted: got %s, want %s±1s", observedDelay, scheduledDelay)
+		observedDelay := now.Sub(record.at)
+		if observedDelay < record.delay-time.Second || observedDelay > record.delay+time.Second {
+			t.Fatalf("production polling cadence drifted: got %s, want %s±1s", observedDelay, record.delay)
 		}
 		cadenceChecks++
+		current := tickMessage.Generation == program.Domain.PollGeneration
+		if !current {
+			staleTicks++
+			updated, staleCommand := program.Update(tickMessage)
+			program = updated.(ProgramModel)
+			if staleCommand != nil || !program.Domain.PollScheduled {
+				t.Fatalf("stale generation %d disturbed current scheduler %+v", tickMessage.Generation, program.Domain)
+			}
+			continue
+		}
+		currentTicks++
 		if now.After(deadline) {
 			break
 		}
 		clockAt = fixtureTime.Add(now.Sub(started))
-		updated, refreshCommand := program.Update(tickMessage)
+		updated, _ = program.Update(tickMessage)
 		program = updated.(ProgramModel)
-		if refreshCommand == nil || !program.Domain.RefreshInFlight || program.Domain.PollScheduled {
+		if !program.Domain.RefreshInFlight || !program.Domain.PollScheduled {
 			t.Fatalf("tick did not consume one schedule and start one refresh: %+v", program.Domain)
 		}
-		refreshMessage := runSoakCommand(t, refreshCommand)
-		updated, pending = program.Update(refreshMessage)
+		refreshCommands := program.commands([]Command{{Kind: CommandRefresh}})
+		if len(refreshCommands) != 1 {
+			t.Fatalf("production refresh adapter commands = %d, want 1", len(refreshCommands))
+		}
+		refreshMessage := runSoakCommand(t, refreshCommands[0])
+		updated, refreshFollowup := program.Update(refreshMessage)
 		program = updated.(ProgramModel)
 		refreshes++
-		if !schedulePending || !program.Domain.PollScheduled || pending == nil {
+		if !program.Domain.PollScheduled {
 			t.Fatal("refresh completion did not leave exactly one production timer")
 		}
+		_ = refreshFollowup // A connection-state cadence change may replace the current generation.
 		if disconnected && !reconnected && program.Domain.Connection != ConnectionDisconnected {
 			t.Fatalf("real transport loss rendered %s, want disconnected", program.Domain.Connection)
 		}
@@ -550,8 +574,8 @@ func TestOneHourSoak(t *testing.T) {
 		t.Fatalf("soak did not execute real disconnect/reconnect: disconnected=%v reconnected=%v", disconnected, reconnected)
 	}
 	minimumRefreshes := max(1, int(duration/cadence)-6)
-	if refreshes < minimumRefreshes || filterChanges == 0 || navigations != refreshes || schedules != refreshes+1 || cadenceChecks < refreshes {
-		t.Fatalf("soak coverage refreshes=%d want>=%d schedules=%d cadence_checks=%d filter_changes=%d navigations=%d", refreshes, minimumRefreshes, schedules, cadenceChecks, filterChanges, navigations)
+	if refreshes < minimumRefreshes || filterChanges == 0 || navigations != refreshes || currentTicks < refreshes || currentTicks > refreshes+1 || cadenceChecks != currentTicks+staleTicks {
+		t.Fatalf("soak coverage refreshes=%d want>=%d schedules=%d current_ticks=%d stale_ticks=%d cadence_checks=%d filter_changes=%d navigations=%d", refreshes, minimumRefreshes, schedules, currentTicks, staleTicks, cadenceChecks, filterChanges, navigations)
 	}
 	if !baselineReady {
 		t.Fatal("soak never captured a post-warm-up heap baseline")
@@ -582,7 +606,7 @@ func TestOneHourSoak(t *testing.T) {
 	if slope > 1024*1024 {
 		t.Fatalf("final-window retained-heap slope = %.0f bytes/hour, limit 1048576", slope)
 	}
-	t.Logf("SOAK EVIDENCE duration=%s scheduler=ProgramModel/tea.Tick cadence=%s schedules=%d cadence_checks=%d refreshes=%d filters=%d navigations=%d routes=%d real_disconnect=true real_reconnect=true final_window=%s heap_slope_bytes_per_hour=%.0f retained_window_samples=%d retained_baseline_median=%d retained_final_median=%d retained_limit=%d goroutines=%d->%d fds=%d->%d", duration, cadence, schedules, cadenceChecks, refreshes, filterChanges, navigations, len(routeOrder), finalWindow, slope, window, baseline, retainedFinal, limit, startGoroutines, runtime.NumGoroutine(), startFDs, finalFDs)
+	t.Logf("SOAK EVIDENCE duration=%s scheduler=ProgramModel/tea.Tick cadence=%s schedules=%d current_ticks=%d stale_ticks=%d cadence_checks=%d refreshes=%d filters=%d navigations=%d routes=%d real_disconnect=true real_reconnect=true final_window=%s heap_slope_bytes_per_hour=%.0f retained_window_samples=%d retained_baseline_median=%d retained_final_median=%d retained_limit=%d goroutines=%d->%d fds=%d->%d", duration, cadence, schedules, currentTicks, staleTicks, cadenceChecks, refreshes, filterChanges, navigations, len(routeOrder), finalWindow, slope, window, baseline, retainedFinal, limit, startGoroutines, runtime.NumGoroutine(), startFDs, finalFDs)
 }
 
 func runSoakCommand(t *testing.T, command tea.Cmd) tea.Msg {

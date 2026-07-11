@@ -103,6 +103,7 @@ type Model struct {
 	Polling           bool
 	PollScheduled     bool
 	PollGeneration    uint64
+	PollDelay         time.Duration
 	ReconnectAttempts int
 	ReconnectJitter   bool
 	Query             string

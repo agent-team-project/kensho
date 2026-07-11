@@ -173,12 +173,13 @@ func Update(model Model, msg Msg) (Model, []Command) {
 			model.Feedback = noDaemonFeedback(value.Error)
 			model.ReconnectAttempts++
 		}
-		return schedulePoll(model)
+		return reconcilePoll(model)
 	case Tick:
 		if !model.PollScheduled || value.Generation != model.PollGeneration {
 			return model, nil
 		}
 		model.PollScheduled = false
+		model.PollDelay = 0
 		model.Now = normalizedTime(value.At, model.Now)
 		if model.Connection == ConnectionReconnected {
 			model.Connection = ConnectionConnected
@@ -193,12 +194,14 @@ func Update(model Model, msg Msg) (Model, []Command) {
 		if model.Connection == ConnectionDisconnected || model.Connection == ConnectionStale {
 			model.Connection = ConnectionReconnecting
 		}
-		return model, []Command{{Kind: CommandRefresh}}
+		model, pollCommands := schedulePoll(model)
+		return model, append([]Command{{Kind: CommandRefresh}}, pollCommands...)
 	case ReconnectTick:
 		if !model.PollScheduled || value.Generation != model.PollGeneration {
 			return model, nil
 		}
 		model.PollScheduled = false
+		model.PollDelay = 0
 		model.Now = normalizedTime(value.At, model.Now)
 		if model.RefreshInFlight {
 			return schedulePoll(model)
@@ -208,7 +211,8 @@ func Update(model Model, msg Msg) (Model, []Command) {
 		}
 		model.RefreshInFlight = true
 		model.Connection = ConnectionReconnecting
-		return model, []Command{{Kind: CommandRefresh}}
+		model, pollCommands := schedulePoll(model)
+		return model, append([]Command{{Kind: CommandRefresh}}, pollCommands...)
 	case QueryChanged:
 		model.Query = value.Value
 		model.QueryError = validateOverviewQuery(value.Value)
@@ -375,12 +379,28 @@ func schedulePoll(model Model) (Model, []Command) {
 	}
 	model.PollGeneration++
 	model.PollScheduled = true
-	return model, []Command{{Kind: CommandTick, After: nextPollDelay(model), Generation: model.PollGeneration}}
+	model.PollDelay = nextPollDelay(model)
+	return model, []Command{{Kind: CommandTick, After: model.PollDelay, Generation: model.PollGeneration}}
+}
+
+func reconcilePoll(model Model) (Model, []Command) {
+	if !model.Polling {
+		return model, nil
+	}
+	desired := nextPollDelay(model)
+	if model.PollScheduled && model.PollDelay == desired {
+		return model, nil
+	}
+	if model.PollScheduled {
+		invalidatePoll(&model)
+	}
+	return schedulePoll(model)
 }
 
 func invalidatePoll(model *Model) {
 	model.PollGeneration++
 	model.PollScheduled = false
+	model.PollDelay = 0
 }
 
 func requestQuit(model Model) (Model, []Command) {
