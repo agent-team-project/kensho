@@ -46,7 +46,7 @@ func TestQueueListJSONEmptyArray(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"queue", "ls", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"queue", "ls", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("queue ls json: %v\nstderr=%s", err, errOut.String())
 	}
@@ -70,7 +70,7 @@ func TestQueueQuarantineListJSONEmptyArray(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("queue quarantine ls json: %v\nstderr=%s", err, errOut.String())
 	}
@@ -120,7 +120,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	lsOut, lsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	ls.SetOut(lsOut)
 	ls.SetErr(lsErr)
-	ls.SetArgs([]string{"queue", "ls", "--target", tmp})
+	ls.SetArgs([]string{"queue", "ls", "--repo", tmp})
 	if err := ls.Execute(); err != nil {
 		t.Fatalf("queue ls: %v\nstderr=%s", err, lsErr.String())
 	}
@@ -134,7 +134,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	lsCommandsOut, lsCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	lsCommands.SetOut(lsCommandsOut)
 	lsCommands.SetErr(lsCommandsErr)
-	lsCommands.SetArgs([]string{"queue", "ls", "--target", tmp, "--commands"})
+	lsCommands.SetArgs([]string{"queue", "ls", "--repo", tmp, "--commands"})
 	if err := lsCommands.Execute(); err != nil {
 		t.Fatalf("queue ls --commands: %v\nstderr=%s", err, lsCommandsErr.String())
 	}
@@ -153,7 +153,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	showTextOut, showTextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	showText.SetOut(showTextOut)
 	showText.SetErr(showTextErr)
-	showText.SetArgs([]string{"queue", "show", "q-local", "--target", tmp})
+	showText.SetArgs([]string{"queue", "show", "q-local", "--repo", tmp})
 	if err := showText.Execute(); err != nil {
 		t.Fatalf("queue show text: %v\nstderr=%s", err, showTextErr.String())
 	}
@@ -167,7 +167,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	showCommandsOut, showCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	showCommands.SetOut(showCommandsOut)
 	showCommands.SetErr(showCommandsErr)
-	showCommands.SetArgs([]string{"queue", "show", "q-local", "--target", tmp, "--commands"})
+	showCommands.SetArgs([]string{"queue", "show", "q-local", "--repo", tmp, "--commands"})
 	if err := showCommands.Execute(); err != nil {
 		t.Fatalf("queue show --commands: %v\nstderr=%s", err, showCommandsErr.String())
 	}
@@ -183,7 +183,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
 	show.SetOut(showOut)
 	show.SetErr(showErr)
-	show.SetArgs([]string{"queue", "show", "q-local", "--target", tmp, "--json"})
+	show.SetArgs([]string{"queue", "show", "q-local", "--repo", tmp, "--json"})
 	if err := show.Execute(); err != nil {
 		t.Fatalf("queue show: %v\nstderr=%s", err, showErr.String())
 	}
@@ -199,7 +199,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	dryDropOut, dryDropErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryDrop.SetOut(dryDropOut)
 	dryDrop.SetErr(dryDropErr)
-	dryDrop.SetArgs([]string{"queue", "drop", "q-local", "--target", tmp, "--dry-run", "--json"})
+	dryDrop.SetArgs([]string{"queue", "drop", "q-local", "--repo", tmp, "--dry-run", "--json"})
 	if err := dryDrop.Execute(); err != nil {
 		t.Fatalf("queue drop dry-run: %v\nstderr=%s", err, dryDropErr.String())
 	}
@@ -218,7 +218,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	dryDropCommandsOut, dryDropCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryDropCommands.SetOut(dryDropCommandsOut)
 	dryDropCommands.SetErr(dryDropCommandsErr)
-	dryDropCommands.SetArgs([]string{"queue", "drop", "q-local", "--target", tmp, "--dry-run", "--commands"})
+	dryDropCommands.SetArgs([]string{"queue", "drop", "q-local", "--repo", tmp, "--dry-run", "--commands"})
 	if err := dryDropCommands.Execute(); err != nil {
 		t.Fatalf("queue drop dry-run commands: %v\nstderr=%s", err, dryDropCommandsErr.String())
 	}
@@ -231,7 +231,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	dryDropFormatOut, dryDropFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryDropFormat.SetOut(dryDropFormatOut)
 	dryDropFormat.SetErr(dryDropFormatErr)
-	dryDropFormat.SetArgs([]string{"queue", "drop", "q-local", "--target", tmp, "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}"})
+	dryDropFormat.SetArgs([]string{"queue", "drop", "q-local", "--repo", tmp, "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}"})
 	if err := dryDropFormat.Execute(); err != nil {
 		t.Fatalf("queue drop dry-run format: %v\nstderr=%s", err, dryDropFormatErr.String())
 	}
@@ -248,7 +248,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	dropFormatOut, dropFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dropFormat.SetOut(dropFormatOut)
 	dropFormat.SetErr(dropFormatErr)
-	dropFormat.SetArgs([]string{"queue", "drop", "q-local-format", "--target", tmp, "--format", "{{.ID}} {{.Action}} {{.State}}"})
+	dropFormat.SetArgs([]string{"queue", "drop", "q-local-format", "--repo", tmp, "--format", "{{.ID}} {{.Action}} {{.State}}"})
 	if err := dropFormat.Execute(); err != nil {
 		t.Fatalf("queue drop format: %v\nstderr=%s", err, dropFormatErr.String())
 	}
@@ -263,7 +263,7 @@ func TestQueueCommandListShowDropLocal(t *testing.T) {
 	dropOut, dropErr := &bytes.Buffer{}, &bytes.Buffer{}
 	drop.SetOut(dropOut)
 	drop.SetErr(dropErr)
-	drop.SetArgs([]string{"queue", "drop", "q-local", "--target", tmp, "--json"})
+	drop.SetArgs([]string{"queue", "drop", "q-local", "--repo", tmp, "--json"})
 	if err := drop.Execute(); err != nil {
 		t.Fatalf("queue drop: %v\nstderr=%s", err, dropErr.String())
 	}
@@ -312,7 +312,7 @@ func TestQueueListReasonFilterAndLockDetail(t *testing.T) {
 	lsOut, lsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	ls.SetOut(lsOut)
 	ls.SetErr(lsErr)
-	ls.SetArgs([]string{"queue", "ls", "--target", tmp, "--reason", daemon.QueueReasonLockHeld})
+	ls.SetArgs([]string{"queue", "ls", "--repo", tmp, "--reason", daemon.QueueReasonLockHeld})
 	if err := ls.Execute(); err != nil {
 		t.Fatalf("queue ls reason: %v\nstderr=%s", err, lsErr.String())
 	}
@@ -327,7 +327,7 @@ func TestQueueListReasonFilterAndLockDetail(t *testing.T) {
 	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
 	show.SetOut(showOut)
 	show.SetErr(showErr)
-	show.SetArgs([]string{"queue", "show", "q-lock", "--target", tmp})
+	show.SetArgs([]string{"queue", "show", "q-lock", "--repo", tmp})
 	if err := show.Execute(); err != nil {
 		t.Fatalf("queue show: %v\nstderr=%s", err, showErr.String())
 	}
@@ -423,7 +423,7 @@ func TestQueueShowUsesJobScopedActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	show.SetOut(out)
 	show.SetErr(stderr)
-	show.SetArgs([]string{"queue", "show", "q-job-action", "--target", tmp})
+	show.SetArgs([]string{"queue", "show", "q-job-action", "--repo", tmp})
 	if err := show.Execute(); err != nil {
 		t.Fatalf("queue show: %v\nstderr=%s", err, stderr.String())
 	}
@@ -506,7 +506,7 @@ func TestQueueDoctorReportsPersistedQueueProblems(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"queue", "doctor", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"queue", "doctor", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("queue doctor succeeded unexpectedly")
 	}
@@ -543,7 +543,7 @@ func TestQueueDoctorReportsPersistedQueueProblems(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"queue", "doctor", "--target", tmp})
+	text.SetArgs([]string{"queue", "doctor", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("queue doctor text succeeded unexpectedly")
 	}
@@ -557,7 +557,7 @@ func TestQueueDoctorReportsPersistedQueueProblems(t *testing.T) {
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	format.SetOut(formatOut)
 	format.SetErr(formatErr)
-	format.SetArgs([]string{"queue", "doctor", "--target", tmp, "--format", "{{.OK}} {{.Summary.Files}} {{len .Problems}}"})
+	format.SetArgs([]string{"queue", "doctor", "--repo", tmp, "--format", "{{.OK}} {{.Summary.Files}} {{len .Problems}}"})
 	if err := format.Execute(); err == nil {
 		t.Fatal("queue doctor format succeeded unexpectedly")
 	}
@@ -572,7 +572,7 @@ func TestQueueDoctorReportsPersistedQueueProblems(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"queue", "doctor", "--target", tmp, "--commands"})
+	commands.SetArgs([]string{"queue", "doctor", "--repo", tmp, "--commands"})
 	err := commands.Execute()
 	if err == nil {
 		t.Fatal("queue doctor --commands unexpectedly succeeded")
@@ -607,7 +607,6 @@ func TestQueueDoctorFormatValidation(t *testing.T) {
 		{[]string{"queue", "ls", "--commands", "--json"}, wantCommandsModeConflict("--json")},
 		{[]string{"queue", "ls", "--commands", "--format", "{{.ID}}"}, wantCommandsModeConflict("--format")},
 		{[]string{"queue", "ls", "--commands", "--summary"}, wantCommandsModeConflict("--summary")},
-		{[]string{"queue", "watch", "--commands"}, wantCommandsModeConflict("--watch")},
 		{[]string{"queue", "quarantine", "ls", "--commands", "--json"}, wantCommandsModeConflict("--json")},
 		{[]string{"queue", "quarantine", "ls", "--commands", "--format", "{{.ID}}"}, wantCommandsModeConflict("--format")},
 		{[]string{"queue", "quarantine", "ls", "--commands", "--summary"}, wantCommandsModeConflict("--summary")},
@@ -712,7 +711,7 @@ func TestQueueDoctorQuarantineDryRunAndApply(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"queue", "doctor", "--target", tmp, "--quarantine", "--dry-run", "--json"})
+	dry.SetArgs([]string{"queue", "doctor", "--repo", tmp, "--quarantine", "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("queue doctor quarantine dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -736,7 +735,7 @@ func TestQueueDoctorQuarantineDryRunAndApply(t *testing.T) {
 	dryCommandsOut, dryCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryCommands.SetOut(dryCommandsOut)
 	dryCommands.SetErr(dryCommandsErr)
-	dryCommands.SetArgs([]string{"queue", "doctor", "--target", tmp, "--quarantine", "--dry-run", "--commands"})
+	dryCommands.SetArgs([]string{"queue", "doctor", "--repo", tmp, "--quarantine", "--dry-run", "--commands"})
 	if err := dryCommands.Execute(); err != nil {
 		t.Fatalf("queue doctor quarantine dry-run commands: %v\nstderr=%s", err, dryCommandsErr.String())
 	}
@@ -751,7 +750,7 @@ func TestQueueDoctorQuarantineDryRunAndApply(t *testing.T) {
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)
 	apply.SetErr(applyErr)
-	apply.SetArgs([]string{"queue", "doctor", "--target", tmp, "--quarantine", "--json"})
+	apply.SetArgs([]string{"queue", "doctor", "--repo", tmp, "--quarantine", "--json"})
 	if err := apply.Execute(); err != nil {
 		t.Fatalf("queue doctor quarantine apply: %v\nstderr=%s\nstdout=%s", err, applyErr.String(), applyOut.String())
 	}
@@ -783,7 +782,7 @@ func TestQueueDoctorQuarantineDryRunAndApply(t *testing.T) {
 	lsOut, lsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	ls.SetOut(lsOut)
 	ls.SetErr(lsErr)
-	ls.SetArgs([]string{"queue", "ls", "--target", tmp, "--json"})
+	ls.SetArgs([]string{"queue", "ls", "--repo", tmp, "--json"})
 	if err := ls.Execute(); err != nil {
 		t.Fatalf("queue ls after quarantine: %v\nstderr=%s", err, lsErr.String())
 	}
@@ -826,7 +825,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	doctorOut, doctorErr := &bytes.Buffer{}, &bytes.Buffer{}
 	doctor.SetOut(doctorOut)
 	doctor.SetErr(doctorErr)
-	doctor.SetArgs([]string{"queue", "doctor", "--target", tmp, "--quarantine", "--json"})
+	doctor.SetArgs([]string{"queue", "doctor", "--repo", tmp, "--quarantine", "--json"})
 	if err := doctor.Execute(); err != nil {
 		t.Fatalf("queue doctor quarantine: %v\nstderr=%s\nstdout=%s", err, doctorErr.String(), doctorOut.String())
 	}
@@ -835,7 +834,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	lsOut, lsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	ls.SetOut(lsOut)
 	ls.SetErr(lsErr)
-	ls.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--json"})
+	ls.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--json"})
 	if err := ls.Execute(); err != nil {
 		t.Fatalf("queue quarantine ls: %v\nstderr=%s", err, lsErr.String())
 	}
@@ -866,7 +865,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	lsFormatOut, lsFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	lsFormat.SetOut(lsFormatOut)
 	lsFormat.SetErr(lsFormatErr)
-	lsFormat.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--format", "{{.ID}} {{.State}} {{.Restorable}}"})
+	lsFormat.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--format", "{{.ID}} {{.State}} {{.Restorable}}"})
 	if err := lsFormat.Execute(); err != nil {
 		t.Fatalf("queue quarantine ls format: %v\nstderr=%s", err, lsFormatErr.String())
 	}
@@ -878,7 +877,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	listCommandsOut, listCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	listCommands.SetOut(listCommandsOut)
 	listCommands.SetErr(listCommandsErr)
-	listCommands.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--sort", "id", "--commands"})
+	listCommands.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--sort", "id", "--commands"})
 	if err := listCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine ls --commands: %v\nstderr=%s", err, listCommandsErr.String())
 	}
@@ -898,7 +897,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summaryCmd.SetOut(summaryOut)
 	summaryCmd.SetErr(summaryErr)
-	summaryCmd.SetArgs([]string{"queue", "ls", "--target", tmp, "--summary", "--json"})
+	summaryCmd.SetArgs([]string{"queue", "ls", "--repo", tmp, "--summary", "--json"})
 	if err := summaryCmd.Execute(); err != nil {
 		t.Fatalf("queue summary with quarantine: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -914,7 +913,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	summaryTextOut, summaryTextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summaryText.SetOut(summaryTextOut)
 	summaryText.SetErr(summaryTextErr)
-	summaryText.SetArgs([]string{"queue", "ls", "--target", tmp, "--summary"})
+	summaryText.SetArgs([]string{"queue", "ls", "--repo", tmp, "--summary"})
 	if err := summaryText.Execute(); err != nil {
 		t.Fatalf("queue summary text with quarantine: %v\nstderr=%s", err, summaryTextErr.String())
 	}
@@ -926,7 +925,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	quarantineSummaryOut, quarantineSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	quarantineSummaryCmd.SetOut(quarantineSummaryOut)
 	quarantineSummaryCmd.SetErr(quarantineSummaryErr)
-	quarantineSummaryCmd.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--summary", "--json"})
+	quarantineSummaryCmd.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--summary", "--json"})
 	if err := quarantineSummaryCmd.Execute(); err != nil {
 		t.Fatalf("queue quarantine ls summary json: %v\nstderr=%s", err, quarantineSummaryErr.String())
 	}
@@ -945,7 +944,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	quarantineSummaryTextOut, quarantineSummaryTextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	quarantineSummaryText.SetOut(quarantineSummaryTextOut)
 	quarantineSummaryText.SetErr(quarantineSummaryTextErr)
-	quarantineSummaryText.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--restorable", "--summary"})
+	quarantineSummaryText.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--restorable", "--summary"})
 	if err := quarantineSummaryText.Execute(); err != nil {
 		t.Fatalf("queue quarantine ls restorable summary text: %v\nstderr=%s", err, quarantineSummaryTextErr.String())
 	}
@@ -957,7 +956,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	invalidSummaryOut, invalidSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidSummary.SetOut(invalidSummaryOut)
 	invalidSummary.SetErr(invalidSummaryErr)
-	invalidSummary.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--summary", "--limit", "1"})
+	invalidSummary.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--summary", "--limit", "1"})
 	if err := invalidSummary.Execute(); err == nil {
 		t.Fatalf("queue quarantine ls summary accepted --limit; stdout=%s stderr=%s", invalidSummaryOut.String(), invalidSummaryErr.String())
 	}
@@ -969,7 +968,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)
 	filtered.SetErr(filteredErr)
-	filtered.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--job", "SQU-132", "--restorable", "--json"})
+	filtered.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--job", "SQU-132", "--restorable", "--json"})
 	if err := filtered.Execute(); err != nil {
 		t.Fatalf("queue quarantine filtered ls: %v\nstderr=%s", err, filteredErr.String())
 	}
@@ -985,7 +984,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	unrestorableOut, unrestorableErr := &bytes.Buffer{}, &bytes.Buffer{}
 	unrestorable.SetOut(unrestorableOut)
 	unrestorable.SetErr(unrestorableErr)
-	unrestorable.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--unrestorable", "--json"})
+	unrestorable.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--unrestorable", "--json"})
 	if err := unrestorable.Execute(); err != nil {
 		t.Fatalf("queue quarantine unrestorable ls: %v\nstderr=%s", err, unrestorableErr.String())
 	}
@@ -1001,7 +1000,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
 	conflict.SetOut(conflictOut)
 	conflict.SetErr(conflictErr)
-	conflict.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--restorable", "--unrestorable"})
+	conflict.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--restorable", "--unrestorable"})
 	if err := conflict.Execute(); err == nil {
 		t.Fatalf("queue quarantine conflicting restorable filters succeeded: stdout=%s", conflictOut.String())
 	}
@@ -1013,7 +1012,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	restoreAllDryOut, restoreAllDryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restoreAllDry.SetOut(restoreAllDryOut)
 	restoreAllDry.SetErr(restoreAllDryErr)
-	restoreAllDry.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--all", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--job", "SQU-132", "--dry-run", "--json"})
+	restoreAllDry.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--all", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--job", "SQU-132", "--dry-run", "--json"})
 	if err := restoreAllDry.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore --all dry-run: %v\nstderr=%s", err, restoreAllDryErr.String())
 	}
@@ -1029,7 +1028,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	restoreAllCommandsOut, restoreAllCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restoreAllCommands.SetOut(restoreAllCommandsOut)
 	restoreAllCommands.SetErr(restoreAllCommandsErr)
-	restoreAllCommands.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--all", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--job", "SQU-132", "--dry-run", "--commands"})
+	restoreAllCommands.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--all", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--job", "SQU-132", "--dry-run", "--commands"})
 	if err := restoreAllCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore --all --commands: %v\nstderr=%s", err, restoreAllCommandsErr.String())
 	}
@@ -1042,7 +1041,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	restoreAllFormatOut, restoreAllFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restoreAllFormat.SetOut(restoreAllFormatOut)
 	restoreAllFormat.SetErr(restoreAllFormatErr)
-	restoreAllFormat.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--all", "--job", "SQU-132", "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}"})
+	restoreAllFormat.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--all", "--job", "SQU-132", "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}"})
 	if err := restoreAllFormat.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore --all format: %v\nstderr=%s", err, restoreAllFormatErr.String())
 	}
@@ -1054,7 +1053,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	restorePathWithFilterOut, restorePathWithFilterErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restorePathWithFilter.SetOut(restorePathWithFilterOut)
 	restorePathWithFilter.SetErr(restorePathWithFilterErr)
-	restorePathWithFilter.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--job", "SQU-132", restorable.Path})
+	restorePathWithFilter.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--job", "SQU-132", restorable.Path})
 	if err := restorePathWithFilter.Execute(); err == nil {
 		t.Fatalf("queue quarantine restore path with filter succeeded: stdout=%s", restorePathWithFilterOut.String())
 	}
@@ -1066,7 +1065,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	showOut, showErr := &bytes.Buffer{}, &bytes.Buffer{}
 	show.SetOut(showOut)
 	show.SetErr(showErr)
-	show.SetArgs([]string{"queue", "quarantine", "show", "--target", tmp, "--json", restorable.Path})
+	show.SetArgs([]string{"queue", "quarantine", "show", "--repo", tmp, "--json", restorable.Path})
 	if err := show.Execute(); err != nil {
 		t.Fatalf("queue quarantine show json: %v\nstderr=%s", err, showErr.String())
 	}
@@ -1082,7 +1081,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	showFormatOut, showFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	showFormat.SetOut(showFormatOut)
 	showFormat.SetErr(showFormatErr)
-	showFormat.SetArgs([]string{"queue", "quarantine", "show", "--target", tmp, "--format", "{{.ID}} {{.State}} {{.QueueItem.Instance}}", restorable.Path})
+	showFormat.SetArgs([]string{"queue", "quarantine", "show", "--repo", tmp, "--format", "{{.ID}} {{.State}} {{.QueueItem.Instance}}", restorable.Path})
 	if err := showFormat.Execute(); err != nil {
 		t.Fatalf("queue quarantine show format: %v\nstderr=%s", err, showFormatErr.String())
 	}
@@ -1094,7 +1093,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	showTextOut, showTextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	showText.SetOut(showTextOut)
 	showText.SetErr(showTextErr)
-	showText.SetArgs([]string{"queue", "quarantine", "show", "--target", tmp, restorable.Path})
+	showText.SetArgs([]string{"queue", "quarantine", "show", "--repo", tmp, restorable.Path})
 	if err := showText.Execute(); err != nil {
 		t.Fatalf("queue quarantine show text: %v\nstderr=%s", err, showTextErr.String())
 	}
@@ -1108,7 +1107,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	showCommandsOut, showCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	showCommands.SetOut(showCommandsOut)
 	showCommands.SetErr(showCommandsErr)
-	showCommands.SetArgs([]string{"queue", "quarantine", "show", "--target", tmp, restorable.Path, "--commands"})
+	showCommands.SetArgs([]string{"queue", "quarantine", "show", "--repo", tmp, restorable.Path, "--commands"})
 	if err := showCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine show --commands: %v\nstderr=%s", err, showCommandsErr.String())
 	}
@@ -1124,7 +1123,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--dry-run", "--json", restorable.Path})
+	dry.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--dry-run", "--json", restorable.Path})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -1143,7 +1142,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	restoreCommandsOut, restoreCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restoreCommands.SetOut(restoreCommandsOut)
 	restoreCommands.SetErr(restoreCommandsErr)
-	restoreCommands.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--dry-run", "--commands", restorable.Path})
+	restoreCommands.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--dry-run", "--commands", restorable.Path})
 	if err := restoreCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore --commands: %v\nstderr=%s", err, restoreCommandsErr.String())
 	}
@@ -1156,7 +1155,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	restoreOut, restoreErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restore.SetOut(restoreOut)
 	restore.SetErr(restoreErr)
-	restore.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--json", restorable.Path})
+	restore.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--json", restorable.Path})
 	if err := restore.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore: %v\nstderr=%s", err, restoreErr.String())
 	}
@@ -1178,7 +1177,7 @@ func TestQueueQuarantineListAndRestore(t *testing.T) {
 	restoreBadOut, restoreBadErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restoreBad.SetOut(restoreBadOut)
 	restoreBad.SetErr(restoreBadErr)
-	restoreBad.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--json", invalid.Path})
+	restoreBad.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--json", invalid.Path})
 	if err := restoreBad.Execute(); err == nil {
 		t.Fatalf("restored invalid quarantine unexpectedly: stdout=%s", restoreBadOut.String())
 	}
@@ -1229,7 +1228,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--dry-run", "--json", explicitPath})
+	dry.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--dry-run", "--json", explicitPath})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -1248,7 +1247,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	dryCommandsOut, dryCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryCommands.SetOut(dryCommandsOut)
 	dryCommands.SetErr(dryCommandsErr)
-	dryCommands.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--dry-run", "--commands", explicitPath})
+	dryCommands.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--dry-run", "--commands", explicitPath})
 	if err := dryCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop --commands: %v\nstderr=%s", err, dryCommandsErr.String())
 	}
@@ -1261,7 +1260,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	dryFormatOut, dryFormatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryFormat.SetOut(dryFormatOut)
 	dryFormat.SetErr(dryFormatErr)
-	dryFormat.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--dry-run", "--format", "{{.Path}} {{.Action}} {{.DryRun}}", explicitPath})
+	dryFormat.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--dry-run", "--format", "{{.Path}} {{.Action}} {{.DryRun}}", explicitPath})
 	if err := dryFormat.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop format: %v\nstderr=%s", err, dryFormatErr.String())
 	}
@@ -1273,7 +1272,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	dropOut, dropErr := &bytes.Buffer{}, &bytes.Buffer{}
 	drop.SetOut(dropOut)
 	drop.SetErr(dropErr)
-	drop.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--json", explicitPath})
+	drop.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--json", explicitPath})
 	if err := drop.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop explicit: %v\nstderr=%s", err, dropErr.String())
 	}
@@ -1292,7 +1291,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	filterDryOut, filterDryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filterDry.SetOut(filterDryOut)
 	filterDry.SetErr(filterDryErr)
-	filterDry.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--job", "SQU-133", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--restorable", "--dry-run", "--json"})
+	filterDry.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--all", "--job", "SQU-133", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--restorable", "--dry-run", "--json"})
 	if err := filterDry.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop filtered batch dry-run: %v\nstderr=%s", err, filterDryErr.String())
 	}
@@ -1308,7 +1307,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	filterCommandsOut, filterCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filterCommands.SetOut(filterCommandsOut)
 	filterCommands.SetErr(filterCommandsErr)
-	filterCommands.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--job", "SQU-133", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--restorable", "--dry-run", "--commands"})
+	filterCommands.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--all", "--job", "SQU-133", "--state", "pending", "--instance", "worker", "--event-type", "agent.dispatch", "--restorable", "--dry-run", "--commands"})
 	if err := filterCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop filtered batch --commands: %v\nstderr=%s", err, filterCommandsErr.String())
 	}
@@ -1321,7 +1320,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
 	conflict.SetOut(conflictOut)
 	conflict.SetErr(conflictErr)
-	conflict.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--restorable", "--unrestorable"})
+	conflict.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--all", "--restorable", "--unrestorable"})
 	if err := conflict.Execute(); err == nil {
 		t.Fatalf("queue quarantine drop conflicting filters succeeded: stdout=%s", conflictOut.String())
 	}
@@ -1333,7 +1332,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	pathWithFilterOut, pathWithFilterErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pathWithFilter.SetOut(pathWithFilterOut)
 	pathWithFilter.SetErr(pathWithFilterErr)
-	pathWithFilter.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--job", "SQU-133", explicitPath})
+	pathWithFilter.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--job", "SQU-133", explicitPath})
 	if err := pathWithFilter.Execute(); err == nil {
 		t.Fatalf("queue quarantine drop path with filter succeeded: stdout=%s", pathWithFilterOut.String())
 	}
@@ -1345,7 +1344,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	batchDryOut, batchDryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	batchDry.SetOut(batchDryOut)
 	batchDry.SetErr(batchDryErr)
-	batchDry.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--unrestorable", "--dry-run", "--json"})
+	batchDry.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--all", "--unrestorable", "--dry-run", "--json"})
 	if err := batchDry.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop batch dry-run: %v\nstderr=%s", err, batchDryErr.String())
 	}
@@ -1361,7 +1360,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	batchCommandsOut, batchCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	batchCommands.SetOut(batchCommandsOut)
 	batchCommands.SetErr(batchCommandsErr)
-	batchCommands.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--unrestorable", "--dry-run", "--commands"})
+	batchCommands.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--all", "--unrestorable", "--dry-run", "--commands"})
 	if err := batchCommands.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop batch --commands: %v\nstderr=%s", err, batchCommandsErr.String())
 	}
@@ -1374,7 +1373,7 @@ func TestQueueQuarantineDropExplicitAndBatch(t *testing.T) {
 	batchOut, batchErr := &bytes.Buffer{}, &bytes.Buffer{}
 	batch.SetOut(batchOut)
 	batch.SetErr(batchErr)
-	batch.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--unrestorable", "--json"})
+	batch.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--all", "--unrestorable", "--json"})
 	if err := batch.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop batch: %v\nstderr=%s", err, batchErr.String())
 	}
@@ -1426,7 +1425,7 @@ func TestQueueQuarantineBatchLimit(t *testing.T) {
 	restoreOut, restoreErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restore.SetOut(restoreOut)
 	restore.SetErr(restoreErr)
-	restore.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--all", "--limit", "2", "--dry-run", "--format", "{{.ID}}"})
+	restore.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--all", "--limit", "2", "--dry-run", "--format", "{{.ID}}"})
 	if err := restore.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore --all limit dry-run: %v\nstderr=%s", err, restoreErr.String())
 	}
@@ -1438,7 +1437,7 @@ func TestQueueQuarantineBatchLimit(t *testing.T) {
 	listSortedOut, listSortedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	listSorted.SetOut(listSortedOut)
 	listSorted.SetErr(listSortedErr)
-	listSorted.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--sort", "attempts", "--limit", "2", "--format", "{{.ID}}"})
+	listSorted.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--sort", "attempts", "--limit", "2", "--format", "{{.ID}}"})
 	if err := listSorted.Execute(); err != nil {
 		t.Fatalf("queue quarantine ls sorted limit: %v\nstderr=%s", err, listSortedErr.String())
 	}
@@ -1450,7 +1449,7 @@ func TestQueueQuarantineBatchLimit(t *testing.T) {
 	restoreSortedOut, restoreSortedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	restoreSorted.SetOut(restoreSortedOut)
 	restoreSorted.SetErr(restoreSortedErr)
-	restoreSorted.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--all", "--sort", "attempts", "--limit", "2", "--dry-run", "--format", "{{.ID}}"})
+	restoreSorted.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--all", "--sort", "attempts", "--limit", "2", "--dry-run", "--format", "{{.ID}}"})
 	if err := restoreSorted.Execute(); err != nil {
 		t.Fatalf("queue quarantine restore --all sorted limit dry-run: %v\nstderr=%s", err, restoreSortedErr.String())
 	}
@@ -1462,7 +1461,7 @@ func TestQueueQuarantineBatchLimit(t *testing.T) {
 	dropOut, dropErr := &bytes.Buffer{}, &bytes.Buffer{}
 	drop.SetOut(dropOut)
 	drop.SetErr(dropErr)
-	drop.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--limit", "1", "--dry-run", "--json"})
+	drop.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--all", "--limit", "1", "--dry-run", "--json"})
 	if err := drop.Execute(); err != nil {
 		t.Fatalf("queue quarantine drop --all limit dry-run: %v\nstderr=%s", err, dropErr.String())
 	}
@@ -1478,7 +1477,7 @@ func TestQueueQuarantineBatchLimit(t *testing.T) {
 	invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidLimit.SetOut(invalidOut)
 	invalidLimit.SetErr(invalidErr)
-	invalidLimit.SetArgs([]string{"queue", "quarantine", "drop", "--target", tmp, "--all", "--limit", "-1"})
+	invalidLimit.SetArgs([]string{"queue", "quarantine", "drop", "--repo", tmp, "--all", "--limit", "-1"})
 	if err := invalidLimit.Execute(); err == nil {
 		t.Fatalf("queue quarantine drop negative limit succeeded: stdout=%s", invalidOut.String())
 	}
@@ -1490,7 +1489,7 @@ func TestQueueQuarantineBatchLimit(t *testing.T) {
 	invalidSortOut, invalidSortErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidSort.SetOut(invalidSortOut)
 	invalidSort.SetErr(invalidSortErr)
-	invalidSort.SetArgs([]string{"queue", "quarantine", "ls", "--target", tmp, "--sort", "priority"})
+	invalidSort.SetArgs([]string{"queue", "quarantine", "ls", "--repo", tmp, "--sort", "priority"})
 	if err := invalidSort.Execute(); err == nil {
 		t.Fatalf("queue quarantine ls invalid sort succeeded: stdout=%s", invalidSortOut.String())
 	}
@@ -1502,7 +1501,7 @@ func TestQueueQuarantineBatchLimit(t *testing.T) {
 	pathLimitOut, pathLimitErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pathLimit.SetOut(pathLimitOut)
 	pathLimit.SetErr(pathLimitErr)
-	pathLimit.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--limit", "1", filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-limit-a.json")})
+	pathLimit.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--limit", "1", filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-limit-a.json")})
 	if err := pathLimit.Execute(); err == nil {
 		t.Fatalf("queue quarantine restore path with limit succeeded: stdout=%s", pathLimitOut.String())
 	}
@@ -1514,7 +1513,7 @@ func TestQueueQuarantineBatchLimit(t *testing.T) {
 	pathSortOut, pathSortErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pathSort.SetOut(pathSortOut)
 	pathSort.SetErr(pathSortErr)
-	pathSort.SetArgs([]string{"queue", "quarantine", "restore", "--target", tmp, "--sort", "attempts", filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-limit-a.json")})
+	pathSort.SetArgs([]string{"queue", "quarantine", "restore", "--repo", tmp, "--sort", "attempts", filepath.Join("quarantine", stamp, daemon.QueueStateDead, "q-limit-a.json")})
 	if err := pathSort.Execute(); err == nil {
 		t.Fatalf("queue quarantine restore path with sort succeeded: stdout=%s", pathSortOut.String())
 	}
@@ -1602,7 +1601,7 @@ func TestQueueDoctorOKWithWarnings(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"queue", "doctor", "--target", tmp})
+	cmd.SetArgs([]string{"queue", "doctor", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("queue doctor warning-only failed: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1649,7 +1648,7 @@ func TestQueueListWatchRendersSnapshot(t *testing.T) {
 	alias.SetContext(ctx)
 	alias.SetOut(aliasOut)
 	alias.SetErr(aliasErr)
-	alias.SetArgs([]string{"queue", "watch", "--target", tmp, "--state", "pending", "--no-clear", "--interval", "1ms", "--format", "{{.ID}} {{.State}}"})
+	alias.SetArgs([]string{"queue", "ls", "--repo", tmp, "--state", "pending", "--no-clear", "--interval", "1ms", "--format", "{{.ID}} {{.State}}"})
 	if err := alias.Execute(); err != nil {
 		t.Fatalf("queue watch alias: %v\nstderr=%s", err, aliasErr.String())
 	}
@@ -1742,7 +1741,7 @@ func TestQueueListFilters(t *testing.T) {
 	list.SetErr(listErr)
 	list.SetArgs([]string{
 		"queue", "ls",
-		"--target", tmp,
+		"--repo", tmp,
 		"--instance", "worker,manager",
 		"--event-type", "agent.dispatch",
 		"--job", "SQU-96",
@@ -1765,7 +1764,7 @@ func TestQueueListFilters(t *testing.T) {
 	sortedOut, sortedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	sorted.SetOut(sortedOut)
 	sorted.SetErr(sortedErr)
-	sorted.SetArgs([]string{"queue", "ls", "--target", tmp, "--sort", "attempts", "--limit", "1", "--format", "{{.ID}}"})
+	sorted.SetArgs([]string{"queue", "ls", "--repo", tmp, "--sort", "attempts", "--limit", "1", "--format", "{{.ID}}"})
 	if err := sorted.Execute(); err != nil {
 		t.Fatalf("queue ls sort/limit: %v\nstderr=%s", err, sortedErr.String())
 	}
@@ -1777,7 +1776,7 @@ func TestQueueListFilters(t *testing.T) {
 	invalidSortOut, invalidSortErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidSort.SetOut(invalidSortOut)
 	invalidSort.SetErr(invalidSortErr)
-	invalidSort.SetArgs([]string{"queue", "ls", "--target", tmp, "--sort", "priority"})
+	invalidSort.SetArgs([]string{"queue", "ls", "--repo", tmp, "--sort", "priority"})
 	if err := invalidSort.Execute(); err == nil {
 		t.Fatalf("queue ls invalid sort succeeded")
 	}
@@ -1789,7 +1788,7 @@ func TestQueueListFilters(t *testing.T) {
 	invalidSummaryOut, invalidSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalidSummary.SetOut(invalidSummaryOut)
 	invalidSummary.SetErr(invalidSummaryErr)
-	invalidSummary.SetArgs([]string{"queue", "ls", "--target", tmp, "--summary", "--limit", "1"})
+	invalidSummary.SetArgs([]string{"queue", "ls", "--repo", tmp, "--summary", "--limit", "1"})
 	if err := invalidSummary.Execute(); err == nil {
 		t.Fatalf("queue ls summary limit succeeded")
 	}
@@ -1801,7 +1800,7 @@ func TestQueueListFilters(t *testing.T) {
 	textListOut, textListErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textList.SetOut(textListOut)
 	textList.SetErr(textListErr)
-	textList.SetArgs([]string{"queue", "ls", "--target", tmp, "--instance", "worker", "--event-type", "agent.dispatch"})
+	textList.SetArgs([]string{"queue", "ls", "--repo", tmp, "--instance", "worker", "--event-type", "agent.dispatch"})
 	if err := textList.Execute(); err != nil {
 		t.Fatalf("queue ls text: %v\nstderr=%s", err, textListErr.String())
 	}
@@ -1824,7 +1823,7 @@ func TestQueueListFilters(t *testing.T) {
 	runtimeListOut, runtimeListErr := &bytes.Buffer{}, &bytes.Buffer{}
 	runtimeList.SetOut(runtimeListOut)
 	runtimeList.SetErr(runtimeListErr)
-	runtimeList.SetArgs([]string{"queue", "ls", "--target", tmp, "--runtime", "codex", "--json"})
+	runtimeList.SetArgs([]string{"queue", "ls", "--repo", tmp, "--runtime", "codex", "--json"})
 	if err := runtimeList.Execute(); err != nil {
 		t.Fatalf("queue ls runtime filter: %v\nstderr=%s", err, runtimeListErr.String())
 	}
@@ -1851,7 +1850,7 @@ func TestQueueListFilters(t *testing.T) {
 	summaryCmd.SetErr(summaryErr)
 	summaryCmd.SetArgs([]string{
 		"queue", "ls",
-		"--target", tmp,
+		"--repo", tmp,
 		"--summary",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
@@ -1880,7 +1879,7 @@ func TestQueueListFilters(t *testing.T) {
 	runtimeSummaryCmd.SetErr(runtimeSummaryErr)
 	runtimeSummaryCmd.SetArgs([]string{
 		"queue", "ls",
-		"--target", tmp,
+		"--repo", tmp,
 		"--summary",
 		"--runtime", "codex",
 		"--json",
@@ -1900,7 +1899,7 @@ func TestQueueListFilters(t *testing.T) {
 	badOut, badErr := &bytes.Buffer{}, &bytes.Buffer{}
 	bad.SetOut(badOut)
 	bad.SetErr(badErr)
-	bad.SetArgs([]string{"queue", "ls", "--target", tmp, "--instance", ","})
+	bad.SetArgs([]string{"queue", "ls", "--repo", tmp, "--instance", ","})
 	if err := bad.Execute(); err == nil {
 		t.Fatalf("queue ls empty instance succeeded; stdout=%s", badOut.String())
 	}
@@ -1912,7 +1911,7 @@ func TestQueueListFilters(t *testing.T) {
 	badRuntimeOut, badRuntimeErr := &bytes.Buffer{}, &bytes.Buffer{}
 	badRuntime.SetOut(badRuntimeOut)
 	badRuntime.SetErr(badRuntimeErr)
-	badRuntime.SetArgs([]string{"queue", "ls", "--target", tmp, "--runtime", "llama"})
+	badRuntime.SetArgs([]string{"queue", "ls", "--repo", tmp, "--runtime", "llama"})
 	if err := badRuntime.Execute(); err == nil {
 		t.Fatalf("queue ls bad runtime succeeded; stdout=%s", badRuntimeOut.String())
 	}
@@ -1988,7 +1987,7 @@ func TestQueueDropAllLocal(t *testing.T) {
 	dry.SetErr(dryErr)
 	dry.SetArgs([]string{
 		"queue", "drop",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
@@ -2017,7 +2016,7 @@ func TestQueueDropAllLocal(t *testing.T) {
 	dryCommands.SetErr(dryCommandsErr)
 	dryCommands.SetArgs([]string{
 		"queue", "drop",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
@@ -2050,7 +2049,7 @@ func TestQueueDropAllLocal(t *testing.T) {
 	runtimeDry.SetErr(runtimeDryErr)
 	runtimeDry.SetArgs([]string{
 		"queue", "drop",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--runtime", "codex",
 		"--dry-run",
@@ -2073,7 +2072,7 @@ func TestQueueDropAllLocal(t *testing.T) {
 	dryFormat.SetErr(dryFormatErr)
 	dryFormat.SetArgs([]string{
 		"queue", "drop",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
@@ -2093,7 +2092,7 @@ func TestQueueDropAllLocal(t *testing.T) {
 	readyOut, readyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	ready.SetOut(readyOut)
 	ready.SetErr(readyErr)
-	ready.SetArgs([]string{"queue", "drop", "--target", tmp, "--all", "--ready", "--runtime", "codex", "--dry-run", "--json"})
+	ready.SetArgs([]string{"queue", "drop", "--repo", tmp, "--all", "--ready", "--runtime", "codex", "--dry-run", "--json"})
 	if err := ready.Execute(); err != nil {
 		t.Fatalf("queue drop --all ready dry-run: %v\nstderr=%s", err, readyErr.String())
 	}
@@ -2111,7 +2110,7 @@ func TestQueueDropAllLocal(t *testing.T) {
 	apply.SetErr(applyErr)
 	apply.SetArgs([]string{
 		"queue", "drop",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--runtime", "codex",
 		"--json",
@@ -2201,7 +2200,7 @@ func TestQueueRetryAllLocal(t *testing.T) {
 	dry.SetErr(dryErr)
 	dry.SetArgs([]string{
 		"queue", "retry",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
@@ -2230,7 +2229,7 @@ func TestQueueRetryAllLocal(t *testing.T) {
 	dryCommands.SetErr(dryCommandsErr)
 	dryCommands.SetArgs([]string{
 		"queue", "retry",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
@@ -2263,7 +2262,7 @@ func TestQueueRetryAllLocal(t *testing.T) {
 	runtimeDry.SetErr(runtimeDryErr)
 	runtimeDry.SetArgs([]string{
 		"queue", "retry",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--runtime", "codex",
 		"--dry-run",
@@ -2286,7 +2285,7 @@ func TestQueueRetryAllLocal(t *testing.T) {
 	dryFormat.SetErr(dryFormatErr)
 	dryFormat.SetArgs([]string{
 		"queue", "retry",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
@@ -2306,7 +2305,7 @@ func TestQueueRetryAllLocal(t *testing.T) {
 	readyOut, readyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	ready.SetOut(readyOut)
 	ready.SetErr(readyErr)
-	ready.SetArgs([]string{"queue", "retry", "--target", tmp, "--all", "--ready", "--runtime", "codex", "--dry-run", "--json"})
+	ready.SetArgs([]string{"queue", "retry", "--repo", tmp, "--all", "--ready", "--runtime", "codex", "--dry-run", "--json"})
 	if err := ready.Execute(); err != nil {
 		t.Fatalf("queue retry --all ready dry-run: %v\nstderr=%s", err, readyErr.String())
 	}
@@ -2324,7 +2323,7 @@ func TestQueueRetryAllLocal(t *testing.T) {
 	apply.SetErr(applyErr)
 	apply.SetArgs([]string{
 		"queue", "retry",
-		"--target", tmp,
+		"--repo", tmp,
 		"--all",
 		"--runtime", "codex",
 		"--json",
@@ -2389,7 +2388,7 @@ func TestQueueRetryAllSortsBeforeLimit(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"queue", "retry", "--target", tmp, "--all", "--sort", "attempts", "--limit", "1", "--dry-run", "--format", "{{.ID}} {{.Action}}"})
+	cmd.SetArgs([]string{"queue", "retry", "--repo", tmp, "--all", "--sort", "attempts", "--limit", "1", "--dry-run", "--format", "{{.ID}} {{.Action}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("queue retry sort/limit: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2460,7 +2459,7 @@ func TestQueuePruneLocal(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summaryCmd.SetOut(summaryOut)
 	summaryCmd.SetErr(summaryErr)
-	summaryCmd.SetArgs([]string{"queue", "ls", "--target", tmp, "--summary", "--json"})
+	summaryCmd.SetArgs([]string{"queue", "ls", "--repo", tmp, "--summary", "--json"})
 	if err := summaryCmd.Execute(); err != nil {
 		t.Fatalf("queue ls summary: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -2479,7 +2478,7 @@ func TestQueuePruneLocal(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryRun.SetOut(dryOut)
 	dryRun.SetErr(dryErr)
-	dryRun.SetArgs([]string{"queue", "prune", "--target", tmp, "--older-than", "24h", "--dry-run", "--json"})
+	dryRun.SetArgs([]string{"queue", "prune", "--repo", tmp, "--older-than", "24h", "--dry-run", "--json"})
 	if err := dryRun.Execute(); err != nil {
 		t.Fatalf("queue prune dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -2498,7 +2497,7 @@ func TestQueuePruneLocal(t *testing.T) {
 	pruneCommandsOut, pruneCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pruneCommands.SetOut(pruneCommandsOut)
 	pruneCommands.SetErr(pruneCommandsErr)
-	pruneCommands.SetArgs([]string{"queue", "prune", "--target", tmp, "--older-than", "24h", "--dry-run", "--commands"})
+	pruneCommands.SetArgs([]string{"queue", "prune", "--repo", tmp, "--older-than", "24h", "--dry-run", "--commands"})
 	if err := pruneCommands.Execute(); err != nil {
 		t.Fatalf("queue prune dry-run commands: %v\nstderr=%s", err, pruneCommandsErr.String())
 	}
@@ -2511,7 +2510,7 @@ func TestQueuePruneLocal(t *testing.T) {
 	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
 	prune.SetOut(pruneOut)
 	prune.SetErr(pruneErr)
-	prune.SetArgs([]string{"queue", "prune", "--target", tmp, "--older-than", "24h", "--format", "{{.ID}} {{.State}} {{.Dropped}}"})
+	prune.SetArgs([]string{"queue", "prune", "--repo", tmp, "--older-than", "24h", "--format", "{{.ID}} {{.State}} {{.Dropped}}"})
 	if err := prune.Execute(); err != nil {
 		t.Fatalf("queue prune: %v\nstderr=%s", err, pruneErr.String())
 	}
@@ -2532,7 +2531,7 @@ func TestQueuePruneLocal(t *testing.T) {
 	allOut, allErr := &bytes.Buffer{}, &bytes.Buffer{}
 	pruneAll.SetOut(allOut)
 	pruneAll.SetErr(allErr)
-	pruneAll.SetArgs([]string{"queue", "prune", "--target", tmp, "--state", "all", "--json"})
+	pruneAll.SetArgs([]string{"queue", "prune", "--repo", tmp, "--state", "all", "--json"})
 	if err := pruneAll.Execute(); err != nil {
 		t.Fatalf("queue prune all: %v\nstderr=%s", err, allErr.String())
 	}
@@ -2595,7 +2594,7 @@ func TestQueuePruneRuntimeFiltersItems(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"queue", "prune", "--target", tmp, "--older-than", "24h", "--runtime", "codex", "--dry-run", "--json"})
+	dry.SetArgs([]string{"queue", "prune", "--repo", tmp, "--older-than", "24h", "--runtime", "codex", "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("queue prune runtime dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -2611,7 +2610,7 @@ func TestQueuePruneRuntimeFiltersItems(t *testing.T) {
 	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
 	prune.SetOut(pruneOut)
 	prune.SetErr(pruneErr)
-	prune.SetArgs([]string{"queue", "prune", "--target", tmp, "--older-than", "24h", "--runtime", "codex", "--json"})
+	prune.SetArgs([]string{"queue", "prune", "--repo", tmp, "--older-than", "24h", "--runtime", "codex", "--json"})
 	if err := prune.Execute(); err != nil {
 		t.Fatalf("queue prune runtime: %v\nstderr=%s", err, pruneErr.String())
 	}
@@ -2738,7 +2737,7 @@ func TestQueuePruneFiltersByInstanceEventJobAndRuntime(t *testing.T) {
 	dry.SetErr(dryErr)
 	dry.SetArgs([]string{
 		"queue", "prune",
-		"--target", tmp,
+		"--repo", tmp,
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
 		"--job", "SQU-901",
@@ -2763,7 +2762,7 @@ func TestQueuePruneFiltersByInstanceEventJobAndRuntime(t *testing.T) {
 	prune.SetErr(pruneErr)
 	prune.SetArgs([]string{
 		"queue", "prune",
-		"--target", tmp,
+		"--repo", tmp,
 		"--instance", "worker",
 		"--event-type", "agent.dispatch",
 		"--job", "SQU-901",
@@ -2837,7 +2836,7 @@ func TestQueuePruneReadyDefaultsToPendingDueItems(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"queue", "prune", "--target", tmp, "--ready", "--dry-run", "--json"})
+	dry.SetArgs([]string{"queue", "prune", "--repo", tmp, "--ready", "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("queue prune ready dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -2853,7 +2852,7 @@ func TestQueuePruneReadyDefaultsToPendingDueItems(t *testing.T) {
 	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
 	prune.SetOut(pruneOut)
 	prune.SetErr(pruneErr)
-	prune.SetArgs([]string{"queue", "prune", "--target", tmp, "--ready", "--format", "{{.ID}} {{.State}} {{.Dropped}}"})
+	prune.SetArgs([]string{"queue", "prune", "--repo", tmp, "--ready", "--format", "{{.ID}} {{.State}} {{.Dropped}}"})
 	if err := prune.Execute(); err != nil {
 		t.Fatalf("queue prune ready: %v\nstderr=%s", err, pruneErr.String())
 	}
@@ -2925,7 +2924,7 @@ func TestQueuePruneLimitPrunesOldestMatches(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"queue", "prune", "--target", tmp, "--limit", "2", "--dry-run", "--json"})
+	dry.SetArgs([]string{"queue", "prune", "--repo", tmp, "--limit", "2", "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("queue prune limit dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -2946,7 +2945,7 @@ func TestQueuePruneLimitPrunesOldestMatches(t *testing.T) {
 	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
 	prune.SetOut(pruneOut)
 	prune.SetErr(pruneErr)
-	prune.SetArgs([]string{"queue", "prune", "--target", tmp, "--limit", "1", "--format", "{{.ID}} {{.Dropped}}"})
+	prune.SetArgs([]string{"queue", "prune", "--repo", tmp, "--limit", "1", "--format", "{{.ID}} {{.Dropped}}"})
 	if err := prune.Execute(); err != nil {
 		t.Fatalf("queue prune limit: %v\nstderr=%s", err, pruneErr.String())
 	}
@@ -3027,7 +3026,7 @@ func TestQueueRetryDryRunSingleDoesNotRequireDaemon(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"queue", "retry", "q-retry-one", "--target", tmp, "--dry-run", "--json"})
+	cmd.SetArgs([]string{"queue", "retry", "q-retry-one", "--repo", tmp, "--dry-run", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("queue retry dry-run single: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3050,7 +3049,7 @@ func TestQueueRetryDryRunSingleDoesNotRequireDaemon(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"queue", "retry", "q-retry-one", "--target", tmp, "--dry-run", "--commands"})
+	commands.SetArgs([]string{"queue", "retry", "q-retry-one", "--repo", tmp, "--dry-run", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("queue retry dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -3063,7 +3062,7 @@ func TestQueueRetryDryRunSingleDoesNotRequireDaemon(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textCmd.SetOut(textOut)
 	textCmd.SetErr(textErr)
-	textCmd.SetArgs([]string{"queue", "retry", "q-retry-one", "--target", tmp, "--dry-run"})
+	textCmd.SetArgs([]string{"queue", "retry", "q-retry-one", "--repo", tmp, "--dry-run"})
 	if err := textCmd.Execute(); err != nil {
 		t.Fatalf("queue retry dry-run single text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -3077,7 +3076,7 @@ func TestQueueRetryDryRunSingleDoesNotRequireDaemon(t *testing.T) {
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	formatCmd.SetOut(formatOut)
 	formatCmd.SetErr(formatErr)
-	formatCmd.SetArgs([]string{"queue", "retry", "q-retry-one", "--target", tmp, "--format", "{{.ID}} {{.Action}} {{.State}}"})
+	formatCmd.SetArgs([]string{"queue", "retry", "q-retry-one", "--repo", tmp, "--format", "{{.ID}} {{.Action}} {{.State}}"})
 	if err := formatCmd.Execute(); err != nil {
 		t.Fatalf("queue retry format: %v\nstderr=%s", err, formatErr.String())
 	}
@@ -3118,7 +3117,7 @@ func TestQueueRetryThroughDaemon(t *testing.T) {
 	retryOut, retryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	retry.SetOut(retryOut)
 	retry.SetErr(retryErr)
-	retry.SetArgs([]string{"queue", "retry", "q-retry", "--target", target, "--json"})
+	retry.SetArgs([]string{"queue", "retry", "q-retry", "--repo", target, "--json"})
 	if err := retry.Execute(); err != nil {
 		t.Fatalf("queue retry: %v\nstderr=%s", err, retryErr.String())
 	}
@@ -3158,7 +3157,7 @@ func TestQueueDrainThroughDaemon(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"queue", "drain", "--target", target, "--dry-run", "--json"})
+	dry.SetArgs([]string{"queue", "drain", "--repo", target, "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("queue drain dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -3177,7 +3176,7 @@ func TestQueueDrainThroughDaemon(t *testing.T) {
 	drainOut, drainErr := &bytes.Buffer{}, &bytes.Buffer{}
 	drain.SetOut(drainOut)
 	drain.SetErr(drainErr)
-	drain.SetArgs([]string{"queue", "drain", "--target", target, "--json"})
+	drain.SetArgs([]string{"queue", "drain", "--repo", target, "--json"})
 	if err := drain.Execute(); err != nil {
 		t.Fatalf("queue drain: %v\nstderr=%s", err, drainErr.String())
 	}
@@ -3244,7 +3243,7 @@ func TestQueueDrainDryRunDoesNotRequireDaemon(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"queue", "drain", "--target", tmp, "--dry-run", "--json"})
+	cmd.SetArgs([]string{"queue", "drain", "--repo", tmp, "--dry-run", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("queue drain dry-run offline: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3268,7 +3267,7 @@ func TestQueueDrainDryRunDoesNotRequireDaemon(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textCmd.SetOut(textOut)
 	textCmd.SetErr(textErr)
-	textCmd.SetArgs([]string{"queue", "drain", "--target", tmp, "--dry-run"})
+	textCmd.SetArgs([]string{"queue", "drain", "--repo", tmp, "--dry-run"})
 	if err := textCmd.Execute(); err != nil {
 		t.Fatalf("queue drain dry-run offline text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -3282,7 +3281,7 @@ func TestQueueDrainDryRunDoesNotRequireDaemon(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commandsCmd.SetOut(commandsOut)
 	commandsCmd.SetErr(commandsErr)
-	commandsCmd.SetArgs([]string{"queue", "drain", "--target", tmp, "--dry-run", "--commands"})
+	commandsCmd.SetArgs([]string{"queue", "drain", "--repo", tmp, "--dry-run", "--commands"})
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("queue drain dry-run offline commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -3297,7 +3296,7 @@ func TestQueueDrainDryRunDoesNotRequireDaemon(t *testing.T) {
 	emptyCommandsOut, emptyCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	emptyCommands.SetOut(emptyCommandsOut)
 	emptyCommands.SetErr(emptyCommandsErr)
-	emptyCommands.SetArgs([]string{"queue", "drain", "--target", empty, "--dry-run", "--commands"})
+	emptyCommands.SetArgs([]string{"queue", "drain", "--repo", empty, "--dry-run", "--commands"})
 	if err := emptyCommands.Execute(); err != nil {
 		t.Fatalf("empty queue drain dry-run commands: %v\nstderr=%s", err, emptyCommandsErr.String())
 	}

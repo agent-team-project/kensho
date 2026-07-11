@@ -99,7 +99,7 @@ func TestUsageCommandRollsUpByRuntimeAndFiltersSince(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"usage", "--target", tmp, "--by", "runtime", "--since", "7d", "--json"})
+	cmd.SetArgs([]string{"usage", "--repo", tmp, "--by", "runtime", "--since", "7d", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("usage: %v\nstderr=%s", err, stderr.String())
 	}
@@ -161,7 +161,7 @@ func TestUsageCommandRollsUpByTeam(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"usage", "--target", tmp, "--by", "team", "--json"})
+	cmd.SetArgs([]string{"usage", "--repo", tmp, "--by", "team", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("usage: %v\nstderr=%s", err, stderr.String())
 	}

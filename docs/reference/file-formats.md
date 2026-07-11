@@ -14,9 +14,6 @@ id = "00000000-0000-0000-0000-000000000000"
 [pm]
 provider = "none"
 
-[team]
-pm_tool = "none"
-
 [linear]
 team_id = ""
 ticket_prefix = ""
@@ -40,8 +37,7 @@ URIs. `[project].parent_uri` is optional and appears as the `parent` deployment
 entry when set.
 
 `[pm].provider` is the current provider selector: `"none"`, `"linear"`, or
-`"github"`. Legacy configs may still carry `[team].pm_tool`; new templates keep
-it aligned for compatibility. When the provider is `"linear"`,
+`"github"`. When the provider is `"linear"`,
 `[linear].team_id` and `[linear].ticket_prefix` must be non-empty. When the
 provider is `"github"`, `[github].owner` and `[github].repo` are required.
 

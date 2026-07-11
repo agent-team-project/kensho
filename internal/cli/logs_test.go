@@ -28,7 +28,7 @@ func TestRun_NoDaemonFlagBypassesDaemonProbe(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "go", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "go", "--no-daemon"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestLogs_NoDaemonReturnsClearError(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "any-instance", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "any-instance", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected exit error")
@@ -97,7 +97,7 @@ func TestLogsSingleInstanceUsesLocalLogWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "manager", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "manager", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -132,7 +132,7 @@ func TestLogsCleanFiltersCodexNoiseBeforeTail(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "worker", "--clean", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "worker", "--clean", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs clean: %v\nstderr=%s", err, stderr.String())
 	}
@@ -167,7 +167,7 @@ func TestLogsRendersCodexJSONLByDefault(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "worker", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "worker", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs render: %v\nstderr=%s", err, stderr.String())
 	}
@@ -205,7 +205,7 @@ func TestLogsRawPreservesCodexJSONL(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "worker", "--raw", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "worker", "--raw", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs raw: %v\nstderr=%s", err, stderr.String())
 	}
@@ -281,7 +281,7 @@ func TestLogsLastMessageUsesStateSidecarWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "manager", "--last-message", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "manager", "--last-message", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs last-message: %v\nstderr=%s", err, stderr.String())
 	}
@@ -311,7 +311,7 @@ func TestLogsLastMessageLatestAndLastUseMetadataOrdering(t *testing.T) {
 	latestOut, latestErr := &bytes.Buffer{}, &bytes.Buffer{}
 	latest.SetOut(latestOut)
 	latest.SetErr(latestErr)
-	latest.SetArgs([]string{"logs", "--latest", "--last-message", "--target", tmp})
+	latest.SetArgs([]string{"logs", "--latest", "--last-message", "--repo", tmp})
 	if err := latest.Execute(); err != nil {
 		t.Fatalf("logs latest last-message: %v\nstderr=%s", err, latestErr.String())
 	}
@@ -323,7 +323,7 @@ func TestLogsLastMessageLatestAndLastUseMetadataOrdering(t *testing.T) {
 	lastOut, lastErr := &bytes.Buffer{}, &bytes.Buffer{}
 	last.SetOut(lastOut)
 	last.SetErr(lastErr)
-	last.SetArgs([]string{"logs", "--last", "2", "--last-message", "--target", tmp})
+	last.SetArgs([]string{"logs", "--last", "2", "--last-message", "--repo", tmp})
 	if err := last.Execute(); err != nil {
 		t.Fatalf("logs last 2 last-message: %v\nstderr=%s", err, lastErr.String())
 	}
@@ -353,7 +353,7 @@ func TestLogsLatestUsesLocalNewestLogWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--latest", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--latest", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --latest local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -392,7 +392,7 @@ func TestLogsLatestUsesDaemonNewestLog(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--latest", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--latest", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --latest daemon: %v\nstderr=%s", err, stderr.String())
 	}
@@ -422,7 +422,7 @@ func TestLogsLatestWithAgentFilterUsesLocalNewestMatchingLog(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--latest", "--agent", "worker", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--latest", "--agent", "worker", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --latest --agent local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -461,7 +461,7 @@ description = "needs input"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--phase", "blocked", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--phase", "blocked", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --phase local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -501,7 +501,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--stale", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--stale", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --stale local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -542,7 +542,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--unhealthy", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--unhealthy", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --unhealthy local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -573,7 +573,7 @@ func TestLogsSingleGrepUsesLocalLogWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "manager", "--grep", "error", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "manager", "--grep", "error", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs local grep: %v\nstderr=%s", err, stderr.String())
 	}
@@ -600,7 +600,7 @@ func TestAttachNoFollowUsesLocalLogWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "manager", "--no-follow", "--tail", "all", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "manager", "--no-follow", "--tail", "all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -627,7 +627,7 @@ func TestExecAliasNoFollowUsesAttachLogMode(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"exec", "manager", "--no-follow", "--tail", "all", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "manager", "--no-follow", "--tail", "all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("exec alias local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -656,7 +656,7 @@ func TestAttachLatestNoFollowUsesLocalNewestLogWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "--latest", "--no-follow", "--tail", "all", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "--latest", "--no-follow", "--tail", "all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --latest local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -686,7 +686,7 @@ func TestAttachLastNoFollowUsesLocalNewestLogsWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "--last", "2", "--no-follow", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "--last", "2", "--no-follow", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --last local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -715,7 +715,7 @@ func TestAttachFiltersNoFollowUseLocalMatchingLogsWhenDaemonStopped(t *testing.T
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "--agent", "worker", "--status", "stopped", "--no-follow", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "--agent", "worker", "--status", "stopped", "--no-follow", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach filters local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -747,7 +747,7 @@ func TestAttachRuntimeFilterNoFollowUsesLocalMatchingLogsWhenDaemonStopped(t *te
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "--runtime", "codex", "--no-follow", "--tail", "all", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "--runtime", "codex", "--no-follow", "--tail", "all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --runtime local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -790,7 +790,7 @@ description = "needs input"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "--phase", "blocked", "--no-follow", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "--phase", "blocked", "--no-follow", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --phase local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -830,7 +830,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "--stale", "--no-follow", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "--stale", "--no-follow", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --stale local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -871,7 +871,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "--unhealthy", "--no-follow", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "--unhealthy", "--no-follow", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --unhealthy local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -905,7 +905,7 @@ func TestAttachRuntimeStaleFilterNoFollowUsesLocalMetadataWhenDaemonStopped(t *t
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "--runtime-stale", "--no-follow", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "--runtime-stale", "--no-follow", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --runtime-stale local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -932,7 +932,7 @@ func TestAttachNoFollowGrepUsesLocalLogWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "manager", "--no-follow", "--grep", "error", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "manager", "--no-follow", "--grep", "error", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach local grep: %v\nstderr=%s", err, stderr.String())
 	}
@@ -960,7 +960,7 @@ func TestAttachNoFollowSinceUsesLocalLogModifiedTime(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "manager", "--no-follow", "--since", "1h", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "manager", "--no-follow", "--since", "1h", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach local since: %v\nstderr=%s", err, stderr.String())
 	}
@@ -989,7 +989,7 @@ func TestLogsAllUsesLocalLogsWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--all", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--all", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --all local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1020,7 +1020,7 @@ func TestLogsLastUsesLocalNewestLogsWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--last", "2", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--last", "2", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --last local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1055,7 +1055,7 @@ func TestLogsAllGrepPrefixesMatchingLines(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--all", "--grep", "error", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--all", "--grep", "error", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --all grep local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1095,7 +1095,7 @@ func TestLogsAllSinceUsesLocalModifiedTimeWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--all", "--since", "1h", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--all", "--since", "1h", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --all --since local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1123,7 +1123,7 @@ func TestLogsSingleSinceOlderLogPrintsNoMatching(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "manager", "--since", "1h", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "manager", "--since", "1h", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs manager --since local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1150,7 +1150,7 @@ func TestLogsListUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--list", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--list", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --list local: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1210,7 +1210,7 @@ func TestLogsJobFilterUsesLocalJobOwnershipWhenDaemonStopped(t *testing.T) {
 	listOut, listErr := &bytes.Buffer{}, &bytes.Buffer{}
 	list.SetOut(listOut)
 	list.SetErr(listErr)
-	list.SetArgs([]string{"logs", "--list", "--json", "--job", "SQU-201", "--target", tmp})
+	list.SetArgs([]string{"logs", "--list", "--json", "--job", "SQU-201", "--repo", tmp})
 	if err := list.Execute(); err != nil {
 		t.Fatalf("logs --list --job: %v\nstderr=%s", err, listErr.String())
 	}
@@ -1226,7 +1226,7 @@ func TestLogsJobFilterUsesLocalJobOwnershipWhenDaemonStopped(t *testing.T) {
 	rawOut, rawErr := &bytes.Buffer{}, &bytes.Buffer{}
 	raw.SetOut(rawOut)
 	raw.SetErr(rawErr)
-	raw.SetArgs([]string{"logs", "--job", "squ-201", "--latest", "--tail", "1", "--target", tmp})
+	raw.SetArgs([]string{"logs", "--job", "squ-201", "--latest", "--tail", "1", "--repo", tmp})
 	if err := raw.Execute(); err != nil {
 		t.Fatalf("logs --job latest: %v\nstderr=%s", err, rawErr.String())
 	}
@@ -1238,7 +1238,7 @@ func TestLogsJobFilterUsesLocalJobOwnershipWhenDaemonStopped(t *testing.T) {
 	lastOut, lastErr := &bytes.Buffer{}, &bytes.Buffer{}
 	last.SetOut(lastOut)
 	last.SetErr(lastErr)
-	last.SetArgs([]string{"logs", "--job", "squ-201", "--latest", "--last-message", "--target", tmp})
+	last.SetArgs([]string{"logs", "--job", "squ-201", "--latest", "--last-message", "--repo", tmp})
 	if err := last.Execute(); err != nil {
 		t.Fatalf("logs --job last-message: %v\nstderr=%s", err, lastErr.String())
 	}
@@ -1278,7 +1278,7 @@ description = "waiting"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--list", "--stale", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--list", "--stale", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --list --stale --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1323,7 +1323,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--list", "--unhealthy", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--list", "--unhealthy", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --list --unhealthy --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1359,7 +1359,7 @@ func TestLogsListJSONUnhealthyIncludesRuntimeStale(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--list", "--unhealthy", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--list", "--unhealthy", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --list --unhealthy --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1398,7 +1398,7 @@ description = "stale status only"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--list", "--runtime-stale", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--list", "--runtime-stale", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --list --runtime-stale --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1435,7 +1435,7 @@ description = "stuck"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--list", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--list", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --list table: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1475,7 +1475,7 @@ func TestLogsListSinceFiltersModifiedStreams(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--list", "--json", "--since", "1h", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--list", "--json", "--since", "1h", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --list --since: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1625,7 +1625,7 @@ func TestLogs_NegativeTailFailsFast(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "any-instance", "--target", tmp, "--tail", "-1"})
+	cmd.SetArgs([]string{"logs", "any-instance", "--repo", tmp, "--tail", "-1"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected exit error")
@@ -1643,7 +1643,7 @@ func TestAttachNegativeTailFailsFast(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"attach", "any-instance", "--target", tmp, "--tail", "-1"})
+	cmd.SetArgs([]string{"attach", "any-instance", "--repo", tmp, "--tail", "-1"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected exit error")
@@ -1756,7 +1756,7 @@ func TestLogsListFormatPrintsRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--list", "--format", "{{.Instance}}:{{.Agent}}:{{.Status}}:{{.Size}}:{{.LogPath}}", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--list", "--format", "{{.Instance}}:{{.Agent}}:{{.Status}}:{{.Size}}:{{.LogPath}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --list --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -1929,7 +1929,7 @@ func TestLogsDaemonReadsLocalLogWithoutDaemon(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"logs", "--daemon", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--daemon", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --daemon: %v", err)
 	}
@@ -1953,7 +1953,7 @@ func TestLogsDaemonGrep(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"logs", "--daemon", "--grep", "error", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--daemon", "--grep", "error", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --daemon --grep: %v", err)
 	}
@@ -1977,7 +1977,7 @@ func TestLogsDaemonTailAllReadsWholeLog(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"logs", "--daemon", "--tail", "all", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--daemon", "--tail", "all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --daemon --tail all: %v", err)
 	}
@@ -1994,7 +1994,7 @@ func TestLogsDaemonMissingLogReturnsHint(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--daemon", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--daemon", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected missing daemon log to fail")
@@ -2136,7 +2136,7 @@ func TestLogsListLastUsesNewestRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"logs", "--list", "--last", "2", "--format", "{{.Instance}}", "--target", tmp})
+	cmd.SetArgs([]string{"logs", "--list", "--last", "2", "--format", "{{.Instance}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("logs --list --last: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2497,7 +2497,7 @@ func TestAttachTailAllReadsWholeInstanceLog(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"attach", "manager", "--no-follow", "--tail", "all", "--target", tmp})
+	cmd.SetArgs([]string{"attach", "manager", "--no-follow", "--tail", "all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --tail all: %v", err)
 	}

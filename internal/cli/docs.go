@@ -252,9 +252,6 @@ func renderCommandReference(b *strings.Builder, cmd *cobra.Command, includeHidde
 		fmt.Fprintf(b, "%s\n\n", markdownProse(long))
 	}
 	fmt.Fprintf(b, "```text\n%s\n```\n\n", cmd.UseLine())
-	if aliases := visibleAliases(cmd); len(aliases) > 0 {
-		fmt.Fprintf(b, "Aliases: `%s`\n\n", strings.Join(aliases, "`, `"))
-	}
 	renderFlagUsageReference(b, "Flags", cmd.LocalNonPersistentFlags().FlagUsages())
 	renderFlagUsageReference(b, "Persistent Flags", cmd.PersistentFlags().FlagUsages())
 	renderFlagUsageReference(b, "Inherited Flags", cmd.InheritedFlags().FlagUsages())
@@ -265,18 +262,6 @@ func renderCommandReference(b *strings.Builder, cmd *cobra.Command, includeHidde
 		}
 		b.WriteString("\n")
 	}
-}
-
-func visibleAliases(cmd *cobra.Command) []string {
-	var aliases []string
-	for _, alias := range cmd.Aliases {
-		alias = strings.TrimSpace(alias)
-		if alias != "" {
-			aliases = append(aliases, alias)
-		}
-	}
-	sort.Strings(aliases)
-	return aliases
 }
 
 func visibleSubcommands(cmd *cobra.Command, includeHidden bool) []*cobra.Command {

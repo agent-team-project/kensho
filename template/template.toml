@@ -185,13 +185,6 @@ pattern     = "^(none|linear|github)$"
 description = "Which PM provider the team talks to. Use none for ticketless jobs, linear for Linear-backed tickets, or github for GitHub Issues/Projects."
 
 [[parameter]]
-key         = "team.pm_tool"
-type        = "string"
-default     = "none"
-pattern     = "^(none|linear|github)$"
-description = "Deprecated alias for pm.provider. Kept for compatibility with existing configs and scripts."
-
-[[parameter]]
 key         = "skills.team"
 type        = "list<string>"
 default     = []

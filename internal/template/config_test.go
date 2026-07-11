@@ -123,8 +123,8 @@ func TestValidate_ConditionalRequired(t *testing.T) {
 	m := &Manifest{
 		Template: Header{Name: "x", Version: "0.0.1"},
 		Parameters: []Parameter{
-			{Key: "team.pm_tool", Type: TypeString, Default: "none"},
-			{Key: "linear.team_id", Type: TypeString, Default: "", RequiredWhenKey: "team.pm_tool", RequiredWhenValue: "linear"},
+			{Key: "pm.provider", Type: TypeString, Default: "none"},
+			{Key: "linear.team_id", Type: TypeString, Default: "", RequiredWhenKey: "pm.provider", RequiredWhenValue: "linear"},
 		},
 	}
 	ticketless := DefaultsFromManifest(m)
@@ -136,7 +136,7 @@ func TestValidate_ConditionalRequired(t *testing.T) {
 	}
 
 	linear := DefaultsFromManifest(m)
-	linear.SetDotted("team.pm_tool", "linear")
+	linear.SetDotted("pm.provider", "linear")
 	err := ValidateAgainstManifest(linear, m)
 	if err == nil {
 		t.Fatal("expected missing conditional required parameter")

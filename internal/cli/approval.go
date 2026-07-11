@@ -16,10 +16,9 @@ import (
 
 func newApprovalCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "approval",
-		Aliases: []string{"approvals"},
-		Short:   "Manage durable job approval requests.",
-		Long:    "Manage durable approval requests under `.agent_team/jobs/<job-id>/approvals/`.",
+		Use:   "approval",
+		Short: "Manage durable job approval requests.",
+		Long:  "Manage durable approval requests under `.agent_team/jobs/<job-id>/approvals/`.",
 	}
 	cmd.AddCommand(newApprovalRequestCmd())
 	cmd.AddCommand(newApprovalLsCmd())
@@ -134,10 +133,9 @@ func newApprovalLsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ls",
-		Aliases: []string{"list"},
-		Short:   "List approval requests for a job.",
-		Args:    cobra.NoArgs,
+		Use:   "ls",
+		Short: "List approval requests for a job.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(jobID) == "" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team approval ls: --job is required.")

@@ -62,13 +62,6 @@ pattern     = "^(none|linear)$"
 description = "Which PM provider the team talks to."
 
 [[parameter]]
-key         = "team.pm_tool"
-type        = "string"
-default     = "none"
-pattern     = "^(none|linear)$"
-description = "Deprecated alias for pm.provider."
-
-[[parameter]]
 key         = "linear.team_id"
 type        = "string"
 default     = ""

@@ -35,7 +35,6 @@ func newDoctorCmd() *cobra.Command {
 		canaryTimeout  time.Duration
 		fix            bool
 	)
-	cwd, _ := os.Getwd()
 
 	cmd := &cobra.Command{
 		Use:   "doctor [agent]",
@@ -93,7 +92,6 @@ func newDoctorCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&strict, "strict", false, "Fail on daemon binary, selected/runtime-default binary, and template provenance warnings.")
 	cmd.Flags().BoolVar(&strictDaemon, "strict-daemon", false, "Fail when the companion agent-teamd binary is not discoverable.")
 	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when the selected LLM runtime binary or pipeline/team step and agent runtime defaults are not discoverable.")
@@ -128,7 +126,7 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		}
 		problems = append(problems, err.Error())
 		actions = appendDoctorActions(actions, strings.Join(shellQuoteArgs([]string{"agent-team", "init", "--target", initTarget}), " "))
-		return reportDoctor(cmd, problems, warnings, actions, nil, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, "target"))
+		return reportDoctor(cmd, problems, warnings, actions, nil, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 	}
 	abs := resolved.RepoRoot
 	teamDir := resolved.TeamDir
@@ -167,9 +165,7 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 				actions = appendDoctorActions(actions, "echo "+shellQuote(fmt.Sprintf("Remove secret-looking values from %s; put credentials in .env or a runtime secret broker instead.", cfgPath)))
 			}
 			pm, _ := cfg["pm"].(map[string]any)
-			team, _ := cfg["team"].(map[string]any)
 			pmProvider, _ := pm["provider"].(string)
-			pmTool, _ := team["pm_tool"].(string)
 			project, _ := cfg["project"].(map[string]any)
 			projectID, _ := project["id"].(string)
 			if strings.TrimSpace(projectID) == "" {
@@ -185,7 +181,8 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 					actions = appendDoctorActions(actions, strings.Join(shellQuoteArgs([]string{"agent-team", "doctor", "--target", abs, "--fix"}), " "))
 				}
 			}
-			provider, providerSource := pmprovider.ConfiguredProviderNameWithSource(pmProvider, pmTool)
+			provider := pmprovider.NormalizeProviderName(pmProvider)
+			providerSource := "pm.provider"
 			if !pmprovider.KnownProvider(provider) {
 				if providerSource == "" {
 					providerSource = "pm.provider"
@@ -422,7 +419,7 @@ func runDoctor(cmd *cobra.Command, target string, strictDaemon, strictRuntime, s
 		}
 	}
 
-	return reportDoctor(cmd, problems, warnings, actions, canary, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, "target"))
+	return reportDoctor(cmd, problems, warnings, actions, canary, jsonOut, commands, tmpl, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 }
 
 func doctorDaemonStatusWarnings(status daemonStatusJSON) []string {

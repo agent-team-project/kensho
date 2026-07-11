@@ -22,9 +22,6 @@ Linear is optional. Ticketless repos use:
 ```toml
 [pm]
 provider = "none"
-
-[team]
-pm_tool = "none"
 ```
 
 For Linear-backed repos, required keys in `$PWD/.agent_team/config.toml` are:
@@ -32,9 +29,6 @@ For Linear-backed repos, required keys in `$PWD/.agent_team/config.toml` are:
 ```toml
 [pm]
 provider = "linear"
-
-[team]
-pm_tool = "linear"             # deprecated alias for [pm].provider
 
 [linear]
 team_id       = "..."          # Linear team UUID
@@ -55,7 +49,7 @@ TEAM_ID=$(python3 -c 'import tomllib; print(tomllib.load(open(".agent_team/confi
 TICKET_PREFIX=$(python3 -c 'import tomllib; print(tomllib.load(open(".agent_team/config.toml","rb"))["linear"]["ticket_prefix"])')
 ```
 
-If `.agent_team/config.toml` is missing or `[pm].provider` (falling back to `[team].pm_tool` for legacy configs) is not `"linear"`, stop and report the helper's message. Do not hardcode fallbacks or continue with partial Linear behavior. For ticketless work, point the user at:
+If `.agent_team/config.toml` is missing or `[pm].provider` is not `"linear"`, stop and report the helper's message. Do not hardcode fallbacks or continue with partial Linear behavior. For ticketless work, point the user at:
 
 ```sh
 agent-team job create "<kickoff>" --dispatch --workspace worktree
@@ -63,7 +57,7 @@ agent-team job create "<kickoff>" --dispatch --workspace worktree
 
 ## Preflight: confirm Linear is the configured PM tool
 
-The helper enforces that `[pm] provider = "linear"` is set (or legacy `[team] pm_tool = "linear"` is present) and that `[linear].team_id` and `[linear].ticket_prefix` are non-empty. A ticketless repo gets an actionable error instead of a Python traceback. Fail and stop if the helper reports an unconfigured repo — do not proceed to any other bash in this skill.
+The helper enforces that `[pm] provider = "linear"` is set and that `[linear].team_id` and `[linear].ticket_prefix` are non-empty. A ticketless repo gets an actionable error instead of a Python traceback. Fail and stop if the helper reports an unconfigured repo — do not proceed to any other bash in this skill.
 
 ```bash
 "${AGENT_TEAM_ROOT}/skills/linear/scripts/linear-graphql.sh" 'query { viewer { id } }' | jq .
@@ -223,7 +217,7 @@ query($teamId: ID!) {
 
 ## Failure modes
 
-- **`Linear not configured for this repo`** — `[pm].provider` is absent, `"none"`, or another value (legacy `[team].pm_tool` is accepted when `[pm].provider` is absent). For ticketless work, use `agent-team job create "<kickoff>" --dispatch --workspace worktree`. To enable Linear, set `[pm].provider = "linear"` plus `[linear].team_id` and `[linear].ticket_prefix`.
+- **`Linear not configured for this repo`** — `[pm].provider` is absent, `"none"`, or another value. For ticketless work, use `agent-team job create "<kickoff>" --dispatch --workspace worktree`. To enable Linear, set `[pm].provider = "linear"` plus `[linear].team_id` and `[linear].ticket_prefix`.
 - **`Linear is enabled but missing config`** — `[pm].provider = "linear"` but one or both required `[linear]` fields are empty. Fill them in or re-run init with `--set pm.provider=linear --set linear.team_id=<uuid> --set linear.ticket_prefix=<PREFIX>`.
 - **`linear-graphql.sh: no Linear API key found`** — the helper couldn't locate a key. Ensure `LINEAR_API_KEY` or `LINEAR_USER_API_KEY` is exported, or present in `$PWD/.env`.
 - **`AuthenticationError` from Linear** — key is present but rejected. Regenerate it.

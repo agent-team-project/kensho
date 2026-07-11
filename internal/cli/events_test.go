@@ -622,7 +622,7 @@ func TestEventsCommandFallsBackToLocalEventLogWhenDaemonStopped(t *testing.T) {
 		"events",
 		"--tail", "1",
 		"--format", "{{.Action}}:{{.Instance}}:{{.Status}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events fallback: %v\nstderr=%s", err, stderr.String())
@@ -690,7 +690,7 @@ func TestEventsCommandFiltersByJobAndStepWhenDaemonStopped(t *testing.T) {
 		"events",
 		"--job", "https://linear.app/squirtlesquad/issue/SQU-701/global-events",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := byJob.Execute(); err != nil {
 		t.Fatalf("events --job fallback: %v\nstderr=%s", err, jobErr.String())
@@ -707,7 +707,7 @@ func TestEventsCommandFiltersByJobAndStepWhenDaemonStopped(t *testing.T) {
 		"events",
 		"--step", "implement",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := byStep.Execute(); err != nil {
 		t.Fatalf("events --step fallback: %v\nstderr=%s", err, stepErr.String())
@@ -750,7 +750,7 @@ func TestEventsLatestUsesLocalNewestMetadataWhenDaemonStopped(t *testing.T) {
 		"events",
 		"--latest",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --latest fallback: %v\nstderr=%s", err, stderr.String())
@@ -794,7 +794,7 @@ func TestEventsRuntimeFilterUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 		"events",
 		"--runtime", "codex",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --runtime fallback: %v\nstderr=%s", err, stderr.String())
@@ -812,7 +812,7 @@ func TestEventsRuntimeFilterUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 		"--runtime", "codex",
 		"--latest",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := latest.Execute(); err != nil {
 		t.Fatalf("events --runtime --latest fallback: %v\nstderr=%s", err, latestErr.String())
@@ -825,7 +825,7 @@ func TestEventsRuntimeFilterUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	bad.SetOut(&bytes.Buffer{})
 	var badErr bytes.Buffer
 	bad.SetErr(&badErr)
-	bad.SetArgs([]string{"events", "--runtime", "llama", "--target", tmp})
+	bad.SetArgs([]string{"events", "--runtime", "llama", "--repo", tmp})
 	if err := bad.Execute(); err == nil {
 		t.Fatal("events accepted unknown runtime")
 	}
@@ -877,7 +877,7 @@ description = "needs input"
 		"events",
 		"--phase", "blocked",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --phase fallback: %v\nstderr=%s", err, stderr.String())
@@ -931,7 +931,7 @@ description = "fresh"
 		"events",
 		"--stale",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --stale fallback: %v\nstderr=%s", err, stderr.String())
@@ -986,7 +986,7 @@ description = "fresh"
 		"events",
 		"--unhealthy",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --unhealthy fallback: %v\nstderr=%s", err, stderr.String())
@@ -1029,7 +1029,7 @@ func TestEventsUnhealthyFilterIncludesRuntimeStaleWhenDaemonStopped(t *testing.T
 		"events",
 		"--unhealthy",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --unhealthy runtime-stale fallback: %v\nstderr=%s", err, stderr.String())
@@ -1073,7 +1073,7 @@ func TestEventsRuntimeStaleFilterIncludesOnlyCurrentRuntimeStaleWhenDaemonStoppe
 		"events",
 		"--runtime-stale",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --runtime-stale fallback: %v\nstderr=%s", err, stderr.String())
@@ -1133,7 +1133,7 @@ description = "newer"
 		"--latest",
 		"--phase", "blocked",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --latest --phase fallback: %v\nstderr=%s", err, stderr.String())
@@ -1189,7 +1189,7 @@ description = "fresh"
 		"--latest",
 		"--unhealthy",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --latest --unhealthy fallback: %v\nstderr=%s", err, stderr.String())
@@ -1234,7 +1234,7 @@ func TestEventsLatestHonorsRuntimeStaleUnhealthyFilterWhenDaemonStopped(t *testi
 		"--latest",
 		"--unhealthy",
 		"--format", "{{.Instance}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events --latest --unhealthy runtime-stale fallback: %v\nstderr=%s", err, stderr.String())
@@ -1252,7 +1252,7 @@ func TestEventsCommandLocalFallbackHandlesMissingEventLog(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"events", "--target", tmp})
+	cmd.SetArgs([]string{"events", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("events empty fallback: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1269,7 +1269,7 @@ func TestEventsSummaryRejectsFollow(t *testing.T) {
 	cmd := NewRootCmd()
 	var stderr bytes.Buffer
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"events", "--summary", "--follow", "--target", tmp})
+	cmd.SetArgs([]string{"events", "--summary", "--follow", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected --summary/--follow validation error")
@@ -1293,7 +1293,7 @@ func TestEventsRejectsInvalidPhaseFilter(t *testing.T) {
 		var stderr bytes.Buffer
 		cmd.SetOut(&bytes.Buffer{})
 		cmd.SetErr(&stderr)
-		cmd.SetArgs(append(tc.args, "--target", tmp))
+		cmd.SetArgs(append(tc.args, "--repo", tmp))
 		err := cmd.Execute()
 		if err == nil {
 			t.Fatalf("%v: expected validation error", tc.args)
@@ -1319,7 +1319,7 @@ func TestEventsLatestLastValidation(t *testing.T) {
 		var stderr bytes.Buffer
 		cmd.SetOut(&bytes.Buffer{})
 		cmd.SetErr(&stderr)
-		cmd.SetArgs(append(tc.args, "--target", tmp))
+		cmd.SetArgs(append(tc.args, "--repo", tmp))
 		err := cmd.Execute()
 		if err == nil {
 			t.Fatalf("%v: expected validation error", tc.args)

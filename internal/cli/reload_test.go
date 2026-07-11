@@ -155,7 +155,7 @@ func TestReloadRequiresRunningDaemon(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"reload", "--target", tmp})
+	cmd.SetArgs([]string{"reload", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {

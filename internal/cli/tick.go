@@ -47,7 +47,6 @@ func newTickCmd() *cobra.Command {
 		interval      time.Duration
 		maxCycles     int
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "tick",
 		Short: "Run one orchestration maintenance cycle.",
@@ -201,7 +200,7 @@ func newTickCmd() *cobra.Command {
 				}
 			}
 			if commands {
-				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 				return renderTickCommands(cmd.OutOrStdout(), result, tickApplyCommandOptions{
 					BaseArgs:      []string{"agent-team", "tick"},
 					Repo:          scope.Repo,
@@ -227,7 +226,6 @@ func newTickCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")
@@ -282,7 +280,6 @@ func newDrainCmd() *cobra.Command {
 		interval      time.Duration
 		maxCycles     int
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "drain",
 		Short: "Run maintenance cycles until idle.",
@@ -373,7 +370,6 @@ func newDrainCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for advanced pipeline steps: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for advanced step dispatches (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for advanced step dispatches. Overrides env and repo config.")

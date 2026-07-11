@@ -27,7 +27,6 @@ func TestLifecycleHelpShowsTopLevelStartStop(t *testing.T) {
 	}
 	for _, want := range []string{
 		"start", "stop", "kill", "restart", "reload", "plan", "sync", "status", "health", "monitor", "watch", "inspect", "rm", "prune", "wait", "stats", "send", "dispatch", "job", "pipeline", "team", "schedule", "queue", "intake", "events", "ps", "logs", "attach",
-		"Docker-like shortcuts:", "agent-team up", "agent-team down", "agent-team ls", "agent-team top", "agent-team exec",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("root help missing %q: %s", want, out.String())
@@ -44,26 +43,6 @@ func TestLifecycleMetadataCanManagedResumeRequiresClaudeSessionID(t *testing.T) 
 	}
 }
 
-func TestLifecycleAliasesResolve(t *testing.T) {
-	cmd := NewRootCmd()
-	cases := map[string]string{
-		"up":   "start",
-		"down": "stop",
-		"ls":   "ps",
-		"top":  "stats",
-		"exec": "attach",
-	}
-	for alias, canonical := range cases {
-		found, _, err := cmd.Find([]string{alias})
-		if err != nil {
-			t.Fatalf("find %s: %v", alias, err)
-		}
-		if found == nil || found.Name() != canonical {
-			t.Fatalf("alias %s resolved to %v, want %s", alias, found, canonical)
-		}
-	}
-}
-
 func TestStopTopLevelNoDaemonUsesInstanceDownPath(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
@@ -72,7 +51,7 @@ func TestStopTopLevelNoDaemonUsesInstanceDownPath(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"stop", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected stop without daemon to fail")
@@ -205,7 +184,7 @@ func TestStartRejectsInvalidLatestLastBeforeStartingDaemon(t *testing.T) {
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(stderr)
 			args := append([]string{}, tc.args...)
-			args = append(args, "--target", tmp)
+			args = append(args, "--repo", tmp)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			if err == nil {
@@ -240,7 +219,7 @@ func TestStartRejectsInvalidRuntimeBeforeStartingDaemon(t *testing.T) {
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(stderr)
 			args := append([]string{}, tc.args...)
-			args = append(args, "--target", tmp)
+			args = append(args, "--repo", tmp)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			if err == nil {
@@ -283,7 +262,7 @@ func TestStartAndRestartRuntimeDryRunUseLocalMetadataWhenDaemonStopped(t *testin
 			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 			cmd.SetOut(out)
 			cmd.SetErr(stderr)
-			cmd.SetArgs([]string{tc.command, "--runtime", "codex", "--dry-run", "--json", "--target", tmp})
+			cmd.SetArgs([]string{tc.command, "--runtime", "codex", "--dry-run", "--json", "--repo", tmp})
 			if err := cmd.Execute(); err != nil {
 				t.Fatalf("%s --runtime codex --dry-run: %v\nstderr=%s", tc.command, err, stderr.String())
 			}
@@ -326,7 +305,7 @@ func TestStopAndKillRuntimeDryRunUseLocalMetadataWhenDaemonStopped(t *testing.T)
 			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 			cmd.SetOut(out)
 			cmd.SetErr(stderr)
-			cmd.SetArgs([]string{tc.command, "--runtime", "codex", "--dry-run", "--json", "--target", tmp})
+			cmd.SetArgs([]string{tc.command, "--runtime", "codex", "--dry-run", "--json", "--repo", tmp})
 			if err := cmd.Execute(); err != nil {
 				t.Fatalf("%s --runtime codex --dry-run: %v\nstderr=%s", tc.command, err, stderr.String())
 			}
@@ -344,7 +323,7 @@ func TestStopAndKillRuntimeDryRunUseLocalMetadataWhenDaemonStopped(t *testing.T)
 	bad.SetOut(&bytes.Buffer{})
 	var badErr bytes.Buffer
 	bad.SetErr(&badErr)
-	bad.SetArgs([]string{"stop", "--runtime", "llama", "--dry-run", "--target", tmp})
+	bad.SetArgs([]string{"stop", "--runtime", "llama", "--dry-run", "--repo", tmp})
 	if err := bad.Execute(); err == nil {
 		t.Fatal("stop accepted unknown runtime")
 	}
@@ -492,7 +471,7 @@ func TestStartDryRunJSONDoesNotStartDaemon(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --dry-run --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -535,7 +514,7 @@ func TestStartDryRunCommandsPrintsApplyCommand(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--target", tmp, "--dry-run", "--agent", "manager", "--commands"})
+	cmd.SetArgs([]string{"start", "--repo", tmp, "--dry-run", "--agent", "manager", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --dry-run --commands: %v\nstderr: %s", err, stderr.String())
 	}
@@ -572,7 +551,7 @@ func TestStartDryRunCommandsPrintsApplyCommand(t *testing.T) {
 	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noAction.SetOut(noActionOut)
 	noAction.SetErr(noActionErr)
-	noAction.SetArgs([]string{"start", "--target", tmp, "--dry-run", "--agent", "manager", "--commands"})
+	noAction.SetArgs([]string{"start", "--repo", tmp, "--dry-run", "--agent", "manager", "--commands"})
 	if err := noAction.Execute(); err != nil {
 		t.Fatalf("start --dry-run --commands no actionable rows: %v\nstderr: %s", err, noActionErr.String())
 	}
@@ -591,7 +570,7 @@ func TestStartDryRunSummaryJSONCountsActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--dry-run", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--dry-run", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --dry-run --summary --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -635,7 +614,7 @@ func TestStartDryRunUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --dry-run --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -690,7 +669,7 @@ description = "waiting"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--phase", "blocked", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--phase", "blocked", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --phase --dry-run --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -728,7 +707,7 @@ func TestStartFilterOnlyDryRunUsesMetadataWithoutTopology(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--status", "stopped", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--status", "stopped", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --status stopped --dry-run without topology: %v\nstderr=%s", err, stderr.String())
 	}
@@ -761,7 +740,7 @@ func TestStartLatestDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--latest", "--status", "stopped", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--latest", "--status", "stopped", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --latest dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -795,7 +774,7 @@ func TestStartLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--last", "2", "--status", "stopped", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--last", "2", "--status", "stopped", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --last dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -817,7 +796,7 @@ func TestStartDryRunFormatDoesNotStartDaemon(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}:{{.DryRun}}", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}:{{.DryRun}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --dry-run --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -849,7 +828,7 @@ func TestStartQuietDryRunSuppressesOutput(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--dry-run", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--dry-run", "--quiet", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --dry-run --quiet: %v\nstderr: %s", err, stderr.String())
 	}
@@ -991,7 +970,7 @@ description = "fresh work"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--stale", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--stale", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --stale --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1034,7 +1013,7 @@ description = "fresh work"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--unhealthy", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--unhealthy", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --unhealthy --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1077,7 +1056,7 @@ func TestStartUnhealthyDryRunTargetsRuntimeStaleInstance(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--unhealthy", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--unhealthy", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --unhealthy --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1114,7 +1093,7 @@ func TestStartRuntimeStaleDryRunTargetsOnlyRuntimeStaleInstance(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--runtime-stale", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--runtime-stale", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --runtime-stale --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1157,7 +1136,7 @@ description = "fresh work"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--unhealthy", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--unhealthy", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --unhealthy --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1209,7 +1188,7 @@ description = "fresh work"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"kill", "--stale", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"kill", "--stale", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("kill --stale --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1252,7 +1231,7 @@ description = "fresh work"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"kill", "--unhealthy", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"kill", "--unhealthy", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("kill --unhealthy --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1296,7 +1275,7 @@ func TestStopRuntimeStaleDryRunTargetsOnlyRuntimeStaleInstance(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stop", "--runtime-stale", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "--runtime-stale", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop --runtime-stale --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1329,7 +1308,7 @@ func TestKillUnhealthyDryRunTargetsRuntimeStaleInstance(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"kill", "--unhealthy", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"kill", "--unhealthy", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("kill --unhealthy --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1356,7 +1335,7 @@ func TestStartWaitFormatPrintsRowsAfterHealthWait(t *testing.T) {
 		"--wait",
 		"--timeout", "2s",
 		"--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --wait --format: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
@@ -1408,7 +1387,7 @@ func TestStartWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 		"--wait",
 		"--timeout", "50ms",
 		"--json",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --agent manager --wait --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
@@ -1447,7 +1426,7 @@ description = "stale work"
 		"--wait",
 		"--timeout", "5ms",
 		"--json",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	err := cmd.Execute()
 	var code ExitCode
@@ -1538,7 +1517,7 @@ func TestStartAttachRejectsJSONBeforeStartingDaemon(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "manager", "--attach", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"start", "manager", "--attach", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected attach/json validation error")
@@ -1582,7 +1561,7 @@ func TestStartAttachRequiresExactlyOneSelectedInstance(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "--attach", "--target", tmp})
+	cmd.SetArgs([]string{"start", "--attach", "--repo", tmp})
 	err = cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected multi-target attach validation error")
@@ -1624,7 +1603,7 @@ func TestStartAttachStreamsSelectedInstanceLog(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"start", "manager", "--attach", "--tail", "all", "--target", tmp})
+	cmd.SetArgs([]string{"start", "manager", "--attach", "--tail", "all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("start --attach: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -1645,7 +1624,7 @@ func TestRestartAttachRejectsJSONBeforeStartingDaemon(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "manager", "--attach", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "manager", "--attach", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected attach/json validation error")
@@ -1689,7 +1668,7 @@ func TestRestartAttachRequiresExactlyOneSelectedInstance(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--attach", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--attach", "--repo", tmp})
 	err = cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected multi-target attach validation error")
@@ -1751,7 +1730,7 @@ func TestRestartAttachStreamsSelectedInstanceLog(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "manager", "--attach", "--tail", "all", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "manager", "--attach", "--tail", "all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --attach: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -1801,7 +1780,7 @@ func TestKillTopLevelRequiresDaemon(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"kill", "--target", tmp})
+	cmd.SetArgs([]string{"kill", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected kill without daemon to fail")
@@ -1948,7 +1927,7 @@ func TestStopDryRunUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stop", "manager", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "manager", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop manager --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1992,17 +1971,17 @@ func TestStopKillRestartDryRunCommandsPrintApplyCommands(t *testing.T) {
 	}{
 		{
 			name: "stop named remove timeout",
-			args: []string{"stop", "manager", "--target", tmp, "--dry-run", "--rm", "--timeout", "10s", "--commands"},
+			args: []string{"stop", "manager", "--repo", tmp, "--dry-run", "--rm", "--timeout", "10s", "--commands"},
 			want: "agent-team stop --repo " + tmp + " manager --rm --timeout 10s",
 		},
 		{
 			name: "kill filtered",
-			args: []string{"kill", "--target", tmp, "--dry-run", "--all", "--runtime", "claude", "--commands"},
+			args: []string{"kill", "--repo", tmp, "--dry-run", "--all", "--runtime", "claude", "--commands"},
 			want: "agent-team kill --repo " + tmp + " --all --runtime claude",
 		},
 		{
 			name: "restart filtered force timeout",
-			args: []string{"restart", "--target", tmp, "--dry-run", "--agent", "manager", "--force", "--timeout", "5s", "--commands"},
+			args: []string{"restart", "--repo", tmp, "--dry-run", "--agent", "manager", "--force", "--timeout", "5s", "--commands"},
 			want: "agent-team restart --repo " + tmp + " --agent manager --force --timeout 5s",
 		},
 		{
@@ -2029,7 +2008,7 @@ func TestStopKillRestartDryRunCommandsPrintApplyCommands(t *testing.T) {
 	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noAction.SetOut(noActionOut)
 	noAction.SetErr(noActionErr)
-	noAction.SetArgs([]string{"kill", "ticket-manager", "--target", tmp, "--dry-run", "--commands"})
+	noAction.SetArgs([]string{"kill", "ticket-manager", "--repo", tmp, "--dry-run", "--commands"})
 	if err := noAction.Execute(); err != nil {
 		t.Fatalf("kill --dry-run --commands no actionable rows: %v\nstderr: %s", err, noActionErr.String())
 	}
@@ -2056,7 +2035,7 @@ func TestStopDryRunSummaryJSONCountsStopsAndSkips(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stop", "manager", "ticket-manager", "--dry-run", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "manager", "ticket-manager", "--dry-run", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop explicit --dry-run --summary --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2099,7 +2078,7 @@ description = "waiting"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stop", "--phase", "blocked", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "--phase", "blocked", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop --phase --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2133,7 +2112,7 @@ func TestKillDryRunUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"kill", "--all", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"kill", "--all", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("kill --all --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2174,7 +2153,7 @@ func TestStopLatestDryRunSelectsNewestMatchingMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stop", "--latest", "--status", "running", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "--latest", "--status", "running", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop --latest dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2208,7 +2187,7 @@ func TestStopLastDryRunSelectsNewestMatchingMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stop", "--last", "2", "--status", "running", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "--last", "2", "--status", "running", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop --last dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2240,7 +2219,7 @@ func TestKillLatestDryRunSelectsNewestMatchingMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"kill", "--latest", "--status", "running", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"kill", "--latest", "--status", "running", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("kill --latest dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2273,7 +2252,7 @@ func TestKillLastDryRunSelectsNewestMatchingMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"kill", "--last", "2", "--status", "running", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"kill", "--last", "2", "--status", "running", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("kill --last dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2310,7 +2289,7 @@ func TestStopRmRemovesStateAndDaemonMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stop", "adhoc", "--rm", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "adhoc", "--rm", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop --rm --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2358,7 +2337,7 @@ func TestStopDryRunFormatPrintsActionRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stop", "adhoc", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}:{{.DryRun}}", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "adhoc", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}:{{.DryRun}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop --dry-run --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2387,7 +2366,7 @@ func TestKillWaitJSONReportsTerminalStatus(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"kill", "adhoc", "--wait", "--timeout", "2s", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"kill", "adhoc", "--wait", "--timeout", "2s", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("kill --wait --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -2444,7 +2423,7 @@ func TestStopQuietSuppressesRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stop", "adhoc", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"stop", "adhoc", "--quiet", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop --quiet: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2626,7 +2605,7 @@ func TestRestartRejectsInvalidLatestLastBeforeStartingDaemon(t *testing.T) {
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(stderr)
 			args := append([]string{}, tc.args...)
-			args = append(args, "--target", tmp)
+			args = append(args, "--repo", tmp)
 			cmd.SetArgs(args)
 			err := cmd.Execute()
 			if err == nil {
@@ -2667,7 +2646,7 @@ func TestRestartQuietDryRunSuppressesOutput(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--dry-run", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--dry-run", "--quiet", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --dry-run --quiet: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2688,7 +2667,7 @@ func TestRestartDryRunFormatPrintsActionRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}:{{.DryRun}}", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}:{{.DryRun}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --dry-run --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2717,7 +2696,7 @@ func TestRestartForceDryRunAccepted(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--force", "--timeout", "1s", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--force", "--timeout", "1s", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --force --dry-run --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2749,7 +2728,7 @@ func TestRestartDryRunSummaryJSONCountsStartsAndRestarts(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--dry-run", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--dry-run", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --dry-run --summary --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2781,7 +2760,7 @@ func TestRestartDryRunUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "manager", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "manager", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart manager --dry-run --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2891,7 +2870,7 @@ func TestRestartFilterOnlyDryRunUsesMetadataWithoutTopology(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--phase", "idle", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--phase", "idle", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --phase idle --dry-run without topology: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2923,7 +2902,7 @@ func TestRestartLatestDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--latest", "--status", "stopped", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--latest", "--status", "stopped", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --latest dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2956,7 +2935,7 @@ func TestRestartLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"restart", "--last", "2", "--status", "stopped", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"restart", "--last", "2", "--status", "stopped", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --last dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3033,7 +3012,7 @@ func TestRestartWaitFormatPrintsRowsAfterHealthWait(t *testing.T) {
 		"--timeout", "2s",
 		"--wait-timeout", "2s",
 		"--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --wait --format: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
@@ -3083,7 +3062,7 @@ func TestRestartWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 		"--wait",
 		"--wait-timeout", "2s",
 		"--json",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("restart --agent manager --wait --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
@@ -3281,7 +3260,7 @@ func TestStatusShowsDaemonAndInstances(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3301,7 +3280,7 @@ func TestStatusCommandsNotRunning(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--target", tmp, "--commands"})
+	cmd.SetArgs([]string{"status", "--repo", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --commands: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3329,7 +3308,7 @@ func TestStatusCommandsRunningNotReady(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--target", tmp, "--commands"})
+	cmd.SetArgs([]string{"status", "--repo", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --commands: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3351,7 +3330,7 @@ func TestStatusSummaryCommands(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--target", tmp, "--commands"})
+	cmd.SetArgs([]string{"status", "--summary", "--repo", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --commands: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3372,7 +3351,7 @@ func TestStatusSummaryCommandsIncludesPlanCommand(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--plan", "--action", "start", "--target", tmp, "--commands"})
+	cmd.SetArgs([]string{"status", "--summary", "--plan", "--action", "start", "--repo", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --plan --commands: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3390,7 +3369,7 @@ func TestStatusSummaryShowsHealthWithoutFailing(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--summary", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary should not fail on unhealthy fleet: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3413,7 +3392,7 @@ func TestPruneNoLocalMetadataNoops(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3430,7 +3409,7 @@ func TestStatusSummaryJSONShowsHealthWithoutFailing(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --json should not fail on unhealthy fleet: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3453,7 +3432,7 @@ func TestStatusSummaryReportsRuntimeResumeCapabilities(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"status", "--summary", "--target", root})
+	text.SetArgs([]string{"status", "--summary", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("status summary runtime text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -3465,7 +3444,7 @@ func TestStatusSummaryReportsRuntimeResumeCapabilities(t *testing.T) {
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)
 	filtered.SetErr(filteredErr)
-	filtered.SetArgs([]string{"status", "--summary", "--resources", "--runtime", "codex", "--json", "--target", root})
+	filtered.SetArgs([]string{"status", "--summary", "--resources", "--runtime", "codex", "--json", "--repo", root})
 	if err := filtered.Execute(); err != nil {
 		t.Fatalf("status summary filtered runtime json: %v\nstderr=%s", err, filteredErr.String())
 	}
@@ -3536,7 +3515,7 @@ func TestStatusSummaryEventsJSONIncludesEventSummary(t *testing.T) {
 		"--since", "2026-06-17T12:01:00Z",
 		"--agent", "manager",
 		"--json",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --events --json: %v\nstderr: %s", err, errOut.String())
@@ -3574,7 +3553,7 @@ func TestStatusSummaryEventsTextIncludesEventSummary(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--events", "5", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--summary", "--events", "5", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --events: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3607,7 +3586,7 @@ description = "finished"
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--resources", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--summary", "--resources", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --resources --json: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3643,7 +3622,7 @@ func TestStatusSummaryResourcesTextIncludesResourceSummary(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--resources", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--summary", "--resources", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --resources: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3664,7 +3643,7 @@ func TestStatusSummaryPlanJSONIncludesPlanSummary(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--plan", "--agent", "manager", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--summary", "--plan", "--agent", "manager", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --plan --json: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3692,7 +3671,7 @@ func TestStatusSummaryPlanTextIncludesPlanSummary(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--plan", "--agent", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--summary", "--plan", "--agent", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --plan: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3723,7 +3702,7 @@ func TestStatusSummaryLatestJSONScopesHealthRows(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--latest", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--summary", "--latest", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --latest --json should not fail: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3756,7 +3735,7 @@ func TestStatusSummaryStrictTopologyReportsExtra(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--summary", "--strict-topology", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--summary", "--strict-topology", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --summary --strict-topology --json should not fail: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3783,7 +3762,7 @@ func TestStatusJSONShowsDaemonAndInstances(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --json: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3834,7 +3813,7 @@ func TestStatusJSONReportsRuntimeQueuedAndStalledCounts(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--json", "--target", root})
+	cmd.SetArgs([]string{"status", "--json", "--repo", root})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --json runtime: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3865,7 +3844,7 @@ func TestStatusJSONReportsDaemonNotReady(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"status", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --json: %v\nstderr: %s", err, errOut.String())
 	}
@@ -3941,7 +3920,7 @@ func TestStatusRuntimeFilterUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"status", "--runtime", "codex", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--runtime", "codex", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --runtime --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3983,7 +3962,7 @@ description = "waiting"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"status", "--unhealthy", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--unhealthy", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --unhealthy --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4018,7 +3997,7 @@ func TestStatusLatestJSONShowsNewestInstance(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"status", "--latest", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--latest", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --latest --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4051,7 +4030,7 @@ func TestStatusLastJSONShowsNewestInstances(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"status", "--last", "2", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"status", "--last", "2", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --last --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4091,7 +4070,7 @@ description = "waiting"
 		"status",
 		"--format", "{{.Instance}}:{{.Agent}}:{{.Status}}:{{.Phase}}",
 		"--agent", "manager",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --format: %v\nstderr: %s", err, errOut.String())
@@ -4112,32 +4091,32 @@ func TestStatusFormatRejectsConflictingStructuredModes(t *testing.T) {
 	}{
 		{
 			name: "json",
-			args: []string{"status", "--format", "{{.Instance}}", "--json", "--target", tmp},
+			args: []string{"status", "--format", "{{.Instance}}", "--json", "--repo", tmp},
 			want: "--format cannot be combined",
 		},
 		{
 			name: "summary",
-			args: []string{"status", "--format", "{{.Instance}}", "--summary", "--target", tmp},
+			args: []string{"status", "--format", "{{.Instance}}", "--summary", "--repo", tmp},
 			want: "--format cannot be combined",
 		},
 		{
 			name: "invalid template",
-			args: []string{"status", "--format", "{{", "--target", tmp},
+			args: []string{"status", "--format", "{{", "--repo", tmp},
 			want: "invalid --format template",
 		},
 		{
 			name: "commands json",
-			args: []string{"status", "--commands", "--json", "--target", tmp},
+			args: []string{"status", "--commands", "--json", "--repo", tmp},
 			want: "--commands cannot be combined",
 		},
 		{
 			name: "commands format",
-			args: []string{"status", "--commands", "--format", "{{.Instance}}", "--target", tmp},
+			args: []string{"status", "--commands", "--format", "{{.Instance}}", "--repo", tmp},
 			want: "--commands cannot be combined",
 		},
 		{
 			name: "commands watch",
-			args: []string{"status", "--commands", "--watch", "--target", tmp},
+			args: []string{"status", "--commands", "--watch", "--repo", tmp},
 			want: "--commands cannot be combined",
 		},
 	}
@@ -4248,7 +4227,7 @@ description = "waiting"
 		"--watch",
 		"--format", "{{.Instance}}:{{.Phase}}",
 		"--interval", "1ms",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --watch --format: %v\nstderr: %s", err, errOut.String())
@@ -4915,7 +4894,7 @@ func TestWaitQuietSuppressesSuccessfulRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "manager", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "manager", "--quiet", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --quiet: %v", err)
 	}
@@ -4952,7 +4931,7 @@ func TestWaitFormatPrintsResultRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "manager", "--format", "{{.Instance}}:{{.Status}}:{{.PID}}", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "manager", "--format", "{{.Instance}}:{{.Status}}:{{.PID}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --format: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4983,7 +4962,7 @@ description = "finished"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--all", "--until", "stopped", "--summary", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--all", "--until", "stopped", "--summary", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --summary: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5021,7 +5000,7 @@ description = "finished"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--all", "--until", "stopped", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--all", "--until", "stopped", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --summary --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5057,7 +5036,7 @@ func TestWaitUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "manager", "--until", "stopped", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "manager", "--until", "stopped", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5088,7 +5067,7 @@ func TestWaitRuntimeFilterUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--runtime", "codex", "--until", "running", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--runtime", "codex", "--until", "running", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --runtime local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5120,7 +5099,7 @@ func TestWaitLatestUsesNewestLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--latest", "--until", "stopped", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--latest", "--until", "stopped", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --latest local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5153,7 +5132,7 @@ func TestWaitLastUsesNewestLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--last", "2", "--until", "stopped", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--last", "2", "--until", "stopped", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --last local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5187,7 +5166,7 @@ description = "finished"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "manager", "--until-phase", "done", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "manager", "--until-phase", "done", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --until-phase local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5226,7 +5205,7 @@ description = "waiting"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--phase", "blocked", "--until", "running", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--phase", "blocked", "--until", "running", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --phase local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5267,7 +5246,7 @@ description = "fresh work"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--stale", "--until", "running", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--stale", "--until", "running", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --stale local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5309,7 +5288,7 @@ description = "fresh work"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--unhealthy", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--unhealthy", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --unhealthy --dry-run local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5355,7 +5334,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--runtime-stale", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--runtime-stale", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --runtime-stale --dry-run local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5385,7 +5364,7 @@ func TestWaitDryRunReportsCurrentStateWithoutWaiting(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "manager", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "manager", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5402,7 +5381,7 @@ func TestWaitDryRunReportsCurrentStateWithoutWaiting(t *testing.T) {
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
 	commands.SetArgs([]string{
-		"wait", "--agent", "manager", "--dry-run", "--commands", "--target", tmp,
+		"wait", "--agent", "manager", "--dry-run", "--commands", "--repo", tmp,
 		"--until", "running", "--timeout", "5s", "--interval", "250ms", "--fail-on-crash",
 	})
 	if err := commands.Execute(); err != nil {
@@ -5424,7 +5403,7 @@ description = "ready"
 	phaseOut, phaseErr := &bytes.Buffer{}, &bytes.Buffer{}
 	phaseCommands.SetOut(phaseOut)
 	phaseCommands.SetErr(phaseErr)
-	phaseCommands.SetArgs([]string{"wait", "manager", "--target", tmp, "--until-phase", "idle", "--dry-run", "--commands"})
+	phaseCommands.SetArgs([]string{"wait", "manager", "--repo", tmp, "--until-phase", "idle", "--dry-run", "--commands"})
 	if err := phaseCommands.Execute(); err != nil {
 		t.Fatalf("wait --until-phase --dry-run --commands: %v\nstderr=%s", err, phaseErr.String())
 	}
@@ -5465,7 +5444,7 @@ description = "finished"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "--all", "--dry-run", "--summary", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "--all", "--dry-run", "--summary", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("wait --dry-run --summary: %v\nstderr=%s", err, stderr.String())
 	}
@@ -5498,7 +5477,7 @@ func TestWaitFailOnCrashExitsAfterRenderingResult(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "worker", "--fail-on-crash", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "worker", "--fail-on-crash", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -5626,7 +5605,7 @@ func TestWaitQuietSuppressesTimeoutMessage(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"wait", "manager", "--quiet", "--timeout", "5ms", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"wait", "manager", "--quiet", "--timeout", "5ms", "--interval", "1ms", "--repo", tmp})
 	err = cmd.Execute()
 	var code ExitCode
 	if err == nil || !errors.As(err, &code) || code != 1 {

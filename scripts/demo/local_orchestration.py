@@ -96,7 +96,7 @@ def main(argv: list[str]) -> int:
                 binary,
                 "runtime",
                 "probe",
-                "--target",
+                "--repo",
                 repo,
                 "--runtime",
                 "codex",
@@ -139,31 +139,31 @@ def main(argv: list[str]) -> int:
         print("schedule commands verified: schedule fire preview, team tick")
 
         step("verify command-only plan hints")
-        plan_commands = run(binary, "plan", "--target", repo, "--commands")
+        plan_commands = run(binary, "plan", "--repo", repo, "--commands")
         require_command(plan_commands, f"agent-team sync --repo {repo} --dry-run")
         team_plan_commands = run(binary, "team", "plan", "delivery", "--repo", repo, "--commands")
         require_command(team_plan_commands, f"agent-team team sync delivery --repo {repo} --dry-run")
         print("plan commands verified: sync preview, team sync preview")
 
         step("verify command-only sync apply hints")
-        sync_commands = run(binary, "sync", "--target", repo, "--dry-run", "--commands")
+        sync_commands = run(binary, "sync", "--repo", repo, "--dry-run", "--commands")
         require_command(sync_commands, f"agent-team sync --repo {repo}")
         team_sync_commands = run(binary, "team", "sync", "delivery", "--repo", repo, "--dry-run", "--commands")
         require_command(team_sync_commands, f"agent-team team sync delivery --repo {repo}")
         print("sync commands verified: sync apply, team sync apply")
 
         step("verify command-only lifecycle apply hints")
-        start_commands = run(binary, "start", "--target", repo, "--dry-run", "--commands")
+        start_commands = run(binary, "start", "--repo", repo, "--dry-run", "--commands")
         require_command(start_commands, f"agent-team start --repo {repo}")
         team_up_commands = run(binary, "team", "up", "delivery", "--repo", repo, "--dry-run", "--commands")
         require_command(team_up_commands, f"agent-team team up delivery --repo {repo}")
         print("lifecycle commands verified: start apply, team up apply")
 
         step("start daemon")
-        run(binary, "daemon", "start", "--target", repo, "--ready-timeout", "5s", "--json", env=env, parse_json=True)
+        run(binary, "daemon", "start", "--repo", repo, "--ready-timeout", "5s", "--json", env=env, parse_json=True)
         if args.runtime == "claude":
             step("start persistent instances")
-            start = run(binary, "start", "--target", repo, "--wait", "--timeout", "5s", "--json", env=env, parse_json=True)
+            start = run(binary, "start", "--repo", repo, "--wait", "--timeout", "5s", "--json", env=env, parse_json=True)
             started = [row.get("instance") for row in start.get("actions", []) if row.get("action") in {"start", "skip"}]
             print(f"persistent instances: {', '.join(started) or '(none)'}")
         else:
@@ -176,7 +176,7 @@ def main(argv: list[str]) -> int:
             "worker",
             "--name",
             "worker-run-prompt-probe",
-            "--target",
+            "--repo",
             repo,
             "--prompt",
             "Probe startup command surface",
@@ -273,10 +273,10 @@ def main(argv: list[str]) -> int:
         step("wait for fake worker exit and reconcile")
         wait_terminal(binary, repo, worker)
         verify_startup_command_surface(repo, worker)
-        run(binary, "tick", "--target", repo, "--skip-schedules", "--skip-drain", "--skip-advance", "--json", parse_json=True)
+        run(binary, "tick", "--repo", repo, "--skip-schedules", "--skip-drain", "--skip-advance", "--json", parse_json=True)
 
         step("verify command-only prune apply hints")
-        prune_commands = run(binary, "prune", "--target", repo, "--dry-run", "--commands")
+        prune_commands = run(binary, "prune", "--repo", repo, "--dry-run", "--commands")
         require_command(prune_commands, f"agent-team prune --repo {repo}")
         team_prune_commands = run(binary, "team", "prune", "delivery", "--repo", repo, "--dry-run", "--commands")
         require_command(team_prune_commands, f"agent-team team prune delivery --repo {repo}")
@@ -287,7 +287,7 @@ def main(argv: list[str]) -> int:
         print(f"job status: {field(job_detail, 'status', 'Status')} last={field(job_detail, 'last_status', 'LastStatus')}")
         overview = run(binary, "team", "overview", "delivery", "--repo", repo, "--json", parse_json=True)
         print(f"team overview state: {overview.get('state', 'unknown')}")
-        snapshot = run(binary, "snapshot", "--target", repo, "--events", "20", "--json", parse_json=True)
+        snapshot = run(binary, "snapshot", "--repo", repo, "--events", "20", "--json", parse_json=True)
         print(f"snapshot sections: jobs={len(snapshot.get('jobs') or [])} events={len(snapshot.get('events') or [])}")
 
         step("verify approval-required manual gate")
@@ -311,13 +311,13 @@ def main(argv: list[str]) -> int:
         return 1
     finally:
         subprocess.run(
-            [str(binary), "stop", "--all", "--target", str(repo), "--timeout", "2s"],
+            [str(binary), "stop", "--all", "--repo", str(repo), "--timeout", "2s"],
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
         subprocess.run(
-            [str(binary), "daemon", "stop", "--target", str(repo), "--timeout", "2s"],
+            [str(binary), "daemon", "stop", "--repo", str(repo), "--timeout", "2s"],
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -347,7 +347,7 @@ def wait_terminal(binary: Path, repo: Path, instance: str, timeout: str = "45s")
     deadline = time.time() + 60
     while True:
         proc = subprocess.run(
-            [str(binary), "wait", instance, "--target", str(repo), "--until", "terminal", "--timeout", timeout, "--json"],
+            [str(binary), "wait", instance, "--repo", str(repo), "--until", "terminal", "--timeout", timeout, "--json"],
             capture_output=True, text=True,
         )
         if proc.returncode == 0:
@@ -358,7 +358,7 @@ def wait_terminal(binary: Path, repo: Path, instance: str, timeout: str = "45s")
             # spawned / just-dispatched-before-metadata (keep waiting). The
             # queue plus lifecycle log disambiguate.
             queued = subprocess.run(
-                [str(binary), "queue", "ls", "--target", str(repo), "--json"],
+                [str(binary), "queue", "ls", "--repo", str(repo), "--json"],
                 capture_output=True, text=True,
             )
             if instance not in queued.stdout and instance_has_terminal_event(repo, instance):
@@ -525,7 +525,7 @@ def verify_linear_column_intake(binary: Path, repo: Path) -> None:
         "linear",
         "--payload",
         linear_status_payload("DEMO-COLUMN", "Ready for Agent", "human-user"),
-        "--target",
+        "--repo",
         repo,
         "--dry-run",
         "--preview-triggers",
@@ -546,7 +546,7 @@ def verify_linear_column_intake(binary: Path, repo: Path) -> None:
         "linear",
         "--payload",
         linear_status_payload("DEMO-OTHER", "Todo", "human-user"),
-        "--target",
+        "--repo",
         repo,
         "--dry-run",
         "--preview-triggers",
@@ -563,7 +563,7 @@ def verify_linear_column_intake(binary: Path, repo: Path) -> None:
         "linear",
         "--payload",
         linear_status_payload("DEMO-SELF", "Ready for Agent", "demo-agent"),
-        "--target",
+        "--repo",
         repo,
         "--dry-run",
         "--preview-triggers",
@@ -581,7 +581,7 @@ def verify_linear_column_intake(binary: Path, repo: Path) -> None:
         "linear",
         "--payload",
         linear_status_payload("DEMO-REENTRY", "Ready for Agent", "human-user"),
-        "--target",
+        "--repo",
         repo,
         "--dry-run",
         "--preview-triggers",
@@ -757,7 +757,7 @@ def verify_instance_brief(binary: Path, repo: Path, job_id: str) -> None:
     # section itself — a job id appearing elsewhere (e.g. Unread Mailbox) must
     # not satisfy this check.
     run(binary, "job", "update", job_id, "--instance", "manager", "--repo", repo, "--json", parse_json=True)
-    brief = run(binary, "instance", "brief", "manager", "--target", repo)
+    brief = run(binary, "instance", "brief", "manager", "--repo", repo)
     require_substrings(brief, "# Instance brief: manager")
     owned = brief_section(brief, "Owned Jobs")
     if job_id not in owned or "(none)" in owned:
@@ -786,7 +786,7 @@ def verify_lock_queue(binary: Path, repo: Path) -> None:
     run(
         binary,
         "tick",
-        "--target",
+        "--repo",
         repo,
         "--skip-schedules",
         "--until-idle",
@@ -806,13 +806,13 @@ def verify_lock_queue(binary: Path, repo: Path) -> None:
     outcomes = second.get("outcomes") or []
     if not any(row.get("action") == "queued" and row.get("reason") == "lock_held" for row in outcomes):
         raise DemoError(f"second lock dispatch was not queued for lock_held: {json.dumps(second, indent=2)}")
-    queued = run(binary, "queue", "ls", "--target", repo, "--reason", "lock_held", "--json", parse_json=True)
+    queued = run(binary, "queue", "ls", "--repo", repo, "--reason", "lock_held", "--json", parse_json=True)
     if not any(row.get("instance_id") == "worker-lock-b" and row.get("reason") == "lock_held" for row in queued):
         raise DemoError(f"lock-held queue item not found: {json.dumps(queued, indent=2)}")
     run(
         binary,
         "tick",
-        "--target",
+        "--repo",
         repo,
         "--skip-schedules",
         "--skip-advance",
@@ -834,7 +834,7 @@ def verify_lock_queue(binary: Path, repo: Path) -> None:
     deadline = time.time() + 20
     remaining = []
     while time.time() < deadline:
-        remaining = run(binary, "queue", "ls", "--target", repo, "--reason", "lock_held", "--json", parse_json=True)
+        remaining = run(binary, "queue", "ls", "--repo", repo, "--reason", "lock_held", "--json", parse_json=True)
         if not any(row.get("instance_id") == "worker-lock-b" for row in remaining):
             break
         time.sleep(0.5)
@@ -846,14 +846,14 @@ def verify_lock_queue(binary: Path, repo: Path) -> None:
 def verify_restart_policy(binary: Path, repo: Path, env: dict[str, str]) -> None:
     before = manager_pid(binary, repo)
     if before == 0:
-        run(binary, "start", "manager", "--target", repo, "--wait", "--timeout", "5s", "--json", env=env, parse_json=True)
+        run(binary, "start", "manager", "--repo", repo, "--wait", "--timeout", "5s", "--json", env=env, parse_json=True)
         before = manager_pid(binary, repo)
     if before == 0:
         raise DemoError("manager did not start for restart-policy demo")
     print(f"killing manager pid {before} to exercise restart policy")
     os.kill(before, signal.SIGKILL)
     time.sleep(0.25)
-    run(binary, "daemon", "reconcile", "--target", repo, "--json", parse_json=True)
+    run(binary, "daemon", "reconcile", "--repo", repo, "--json", parse_json=True)
     deadline = time.time() + 10
     while time.time() < deadline:
         after = manager_pid(binary, repo)
@@ -861,8 +861,8 @@ def verify_restart_policy(binary: Path, repo: Path, env: dict[str, str]) -> None
             print(f"restart policy verified: manager relaunched pid {before} -> {after}")
             return
         time.sleep(0.25)
-        run(binary, "daemon", "reconcile", "--target", repo, "--json", parse_json=True)
-    rows = run(binary, "ps", "--target", repo, "--json", parse_json=True)
+        run(binary, "daemon", "reconcile", "--repo", repo, "--json", parse_json=True)
+    rows = run(binary, "ps", "--repo", repo, "--json", parse_json=True)
     raise DemoError(f"manager was not relaunched by restart policy: {json.dumps(rows, indent=2)}")
 
 
@@ -885,7 +885,7 @@ def verify_startup_command_surface(repo: Path, worker: str) -> None:
 
 
 def manager_pid(binary: Path, repo: Path) -> int:
-    rows = run(binary, "ps", "--target", repo, "--json", parse_json=True)
+    rows = run(binary, "ps", "--repo", repo, "--json", parse_json=True)
     for row in rows:
         if field(row, "instance", "Instance") != "manager":
             continue

@@ -30,7 +30,7 @@ Use `runtime ls` when comparing the supported runtime profiles side by side.
 Its JSON rows include `probe_command`, `select_command`, and, for Codex,
 `daemon_probe_command` fields. Add `--commands` when a script should receive
 only probe commands for the listed runtimes; command-only `agent-team`
-follow-ups preserve the selected `--repo` or `--target` scope.
+follow-ups preserve the selected `--repo` scope.
 
 ## Probe Runtime Health
 
@@ -59,7 +59,7 @@ timeout, so provider reachability, auth, MCP, and sandbox failures are visible
 before jobs or pipelines queue work against a runtime that cannot start. Text
 output includes a concise action list by default; add `--commands` when scripts
 need only those recommended follow-up commands, one per line, while preserving
-the probe exit code. If the probe was scoped with `--target` or `--repo`,
+the probe exit code. If the probe was scoped with `--repo`,
 command-only `agent-team` follow-ups preserve that selected repo. A stopped daemon is a warning because direct runs can still
 work; add `--require-daemon` when the preflight is for daemon-backed dispatch,
 mailbox, or channel flows and should fail until `agent-teamd` is ready. Add `--wait-daemon`
@@ -343,7 +343,7 @@ need only the recommended command lines after filtering, sorting, and limiting,
 or add `--commands --fallbacks` when a recovery script should receive every
 viable managed start, attach dry-run, log follow, Codex last-message, and direct
 runtime resume command for each selected plan. Any `agent-team` follow-up
-preserves the selected `--repo` or `--target` scope, while direct runtime
+preserves the selected `--repo` scope, while direct runtime
 commands such as `codex resume <session>` remain unchanged.
 `--limit` cannot be combined with `--summary`.
 When a positive recorded `running` PID is no longer live, resume-plan marks the

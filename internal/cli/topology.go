@@ -120,7 +120,7 @@ func newTopologyGraphCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			if commands {
-				return renderTopologyGraphCommands(cmd.OutOrStdout(), graph, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderTopologyGraphCommands(cmd.OutOrStdout(), graph, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return renderTopologyGraph(cmd.OutOrStdout(), graph, format, jsonOut)
 		},

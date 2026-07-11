@@ -52,9 +52,9 @@ agent-team queue show <id>
 ```
 
 Use `--runtime claude|codex|docker` to narrow active queue entries by the runtime recorded in the dispatch payload, falling back to daemon metadata when a queued item already names a concrete instance. Runtime-filtered summaries include a `runtimes` count and exclude quarantined files whose runtime cannot be known from the quarantine index.
-Use `queue watch` when a retry, drain, or repair loop is expected to change active queue rows while you are inspecting them.
+Use `queue ls --watch` when a retry, drain, or repair loop is expected to change active queue rows while you are inspecting them.
 Add `--commands` to queue or outbox list views when scripts should print only the ACTION-column commands for the currently visible rows after filters, sort, and limit are applied.
-When `queue ls`, `queue show`, `queue quarantine ls`, `queue quarantine show`, `outbox ls`, `outbox show`, `outbox quarantine ls`, `outbox quarantine show`, or top-level queue/outbox recovery commands are run with an explicit `--repo` or legacy `--target`, `--commands` output preserves that selector in emitted `agent-team` follow-ups so scripts can run from outside the target checkout.
+When `queue ls`, `queue show`, `queue quarantine ls`, `queue quarantine show`, `outbox ls`, `outbox show`, `outbox quarantine ls`, `outbox quarantine show`, or top-level queue/outbox recovery commands are run with an explicit `--repo`, `--commands` output preserves that selector in emitted `agent-team` follow-ups so scripts can run from outside the target checkout.
 
 Preview daemon drain work before applying it:
 
@@ -245,7 +245,7 @@ agent-team outbox drain --dry-run
 agent-team outbox drain --dry-run --commands
 ```
 
-Use `outbox watch` or a scoped `--watch` view while `tick`, `drain`, or `outbox drain` is expected to publish pending fallback events or move failed events after retry.
+Use `outbox ls --watch` or a scoped `--watch` view while `tick`, `drain`, or `outbox drain` is expected to publish pending fallback events or move failed events after retry.
 Use `--commands` on global, job, pipeline, or team outbox lists when scripts need the visible row recovery commands without the table.
 
 ## Outbox Quarantine

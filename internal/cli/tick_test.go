@@ -75,7 +75,7 @@ branch = "worker-squ-94"
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--dry-run", "--json"})
+	dry.SetArgs([]string{"tick", "--repo", target, "--workspace", "repo", "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("tick dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -117,7 +117,7 @@ branch = "worker-squ-94"
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--limit", "2", "--dry-run", "--preview-routes", "--commands"})
+	commands.SetArgs([]string{"tick", "--repo", target, "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--limit", "2", "--dry-run", "--preview-routes", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("tick dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -142,7 +142,7 @@ branch = "worker-squ-94"
 	idleCommandsOut, idleCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	idleCommands.SetOut(idleCommandsOut)
 	idleCommands.SetErr(idleCommandsErr)
-	idleCommands.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-drain", "--skip-advance", "--commands"})
+	idleCommands.SetArgs([]string{"tick", "--repo", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-drain", "--skip-advance", "--commands"})
 	if err := idleCommands.Execute(); err != nil {
 		t.Fatalf("idle tick dry-run commands: %v\nstderr=%s", err, idleCommandsErr.String())
 	}
@@ -154,7 +154,7 @@ branch = "worker-squ-94"
 	routeDryOut, routeDryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	routeDry.SetOut(routeDryOut)
 	routeDry.SetErr(routeDryErr)
-	routeDry.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--dry-run", "--preview-routes", "--runtime", "codex", "--runtime-bin", "codex-dev", "--json"})
+	routeDry.SetArgs([]string{"tick", "--repo", target, "--workspace", "repo", "--dry-run", "--preview-routes", "--runtime", "codex", "--runtime-bin", "codex-dev", "--json"})
 	if err := routeDry.Execute(); err != nil {
 		t.Fatalf("tick dry-run preview-routes: %v\nstderr=%s", err, routeDryErr.String())
 	}
@@ -181,7 +181,7 @@ branch = "worker-squ-94"
 	textDryOut, textDryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textDry.SetOut(textDryOut)
 	textDry.SetErr(textDryErr)
-	textDry.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--dry-run", "--preview-routes", "--skip-reconcile", "--skip-schedules", "--skip-drain"})
+	textDry.SetArgs([]string{"tick", "--repo", target, "--workspace", "repo", "--dry-run", "--preview-routes", "--skip-reconcile", "--skip-schedules", "--skip-drain"})
 	if err := textDry.Execute(); err != nil {
 		t.Fatalf("tick dry-run preview-routes text: %v\nstderr=%s", err, textDryErr.String())
 	}
@@ -195,7 +195,7 @@ branch = "worker-squ-94"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--json"})
+	cmd.SetArgs([]string{"tick", "--repo", target, "--workspace", "repo", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("tick: %v\nstderr=%s", err, stderr.String())
 	}
@@ -280,7 +280,7 @@ func TestTickCompactsConfiguredTerminalRetention(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"tick", "--target", target, "--skip-reconcile", "--skip-schedules", "--skip-drain", "--skip-advance", "--json"})
+	cmd.SetArgs([]string{"tick", "--repo", target, "--skip-reconcile", "--skip-schedules", "--skip-drain", "--skip-advance", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("tick compact: %v\nstderr=%s", err, stderr.String())
 	}
@@ -323,7 +323,7 @@ func TestTickDrainsAgentOutbox(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	dry.SetArgs([]string{"tick", "--repo", target, "--workspace", "repo", "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("tick dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -342,7 +342,7 @@ func TestTickDrainsAgentOutbox(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"tick", "--target", target, "--workspace", "repo", "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	cmd.SetArgs([]string{"tick", "--repo", target, "--workspace", "repo", "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("tick: %v\nstderr=%s", err, stderr.String())
 	}
@@ -392,7 +392,7 @@ func TestTickWaitsForAdvancedJobs(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"tick",
-		"--target", target,
+		"--repo", target,
 		"--workspace", "repo",
 		"--skip-reconcile",
 		"--skip-schedules",
@@ -495,7 +495,7 @@ after = ["lint", "test"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-drain", "--all-ready-steps", "--json"})
+	cmd.SetArgs([]string{"tick", "--repo", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-drain", "--all-ready-steps", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("tick all-ready dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -511,7 +511,7 @@ after = ["lint", "test"]
 	limitedOut, limitedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	limited.SetOut(limitedOut)
 	limited.SetErr(limitedErr)
-	limited.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-drain", "--all-ready-steps", "--limit", "1", "--json"})
+	limited.SetArgs([]string{"tick", "--repo", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-drain", "--all-ready-steps", "--limit", "1", "--json"})
 	if err := limited.Execute(); err != nil {
 		t.Fatalf("tick all-ready limited: %v\nstderr=%s", err, limitedErr.String())
 	}
@@ -560,7 +560,7 @@ func TestTickReconcilesJobEvents(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-schedules", "--skip-drain", "--skip-advance", "--json"})
+	dry.SetArgs([]string{"tick", "--repo", target, "--dry-run", "--skip-schedules", "--skip-drain", "--skip-advance", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("tick dry-run event reconcile: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -583,7 +583,7 @@ func TestTickReconcilesJobEvents(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"tick", "--target", target, "--skip-schedules", "--skip-drain", "--skip-advance", "--json"})
+	cmd.SetArgs([]string{"tick", "--repo", target, "--skip-schedules", "--skip-drain", "--skip-advance", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("tick event reconcile: %v\nstderr=%s", err, stderr.String())
 	}
@@ -651,7 +651,7 @@ agent = "manager"
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"tick", "--target", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	dry.SetArgs([]string{"tick", "--repo", target, "--dry-run", "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("tick dry-run manager wake: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -673,7 +673,7 @@ agent = "manager"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"tick", "--target", target, "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	cmd.SetArgs([]string{"tick", "--repo", target, "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("tick manager wake: %v\nstderr=%s", err, stderr.String())
 	}
@@ -703,7 +703,7 @@ agent = "manager"
 	secondOut, secondErr := &bytes.Buffer{}, &bytes.Buffer{}
 	second.SetOut(secondOut)
 	second.SetErr(secondErr)
-	second.SetArgs([]string{"tick", "--target", target, "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
+	second.SetArgs([]string{"tick", "--repo", target, "--skip-reconcile", "--skip-schedules", "--skip-advance", "--json"})
 	if err := second.Execute(); err != nil {
 		t.Fatalf("second tick manager wake: %v\nstderr=%s", err, secondErr.String())
 	}
@@ -835,7 +835,7 @@ worktree = "/tmp/stale-worker-gh-393"
 		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 		cmd.SetOut(out)
 		cmd.SetErr(stderr)
-		cmd.SetArgs([]string{"tick", "--target", target, "--skip-schedules", "--skip-advance", "--json"})
+		cmd.SetArgs([]string{"tick", "--repo", target, "--skip-schedules", "--skip-advance", "--json"})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("tick attempt %d: %v\nstderr=%s", attempt, err, stderr.String())
 		}
@@ -881,7 +881,7 @@ func TestTickDryRunIncludesDueSchedules(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"tick",
-		"--target", tmp,
+		"--repo", tmp,
 		"--dry-run",
 		"--skip-reconcile",
 		"--skip-drain",
@@ -928,7 +928,7 @@ func TestTickUntilIdleRunsUntilScheduleClears(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"tick",
-		"--target", tmp,
+		"--repo", tmp,
 		"--until-idle",
 		"--max-cycles", "3",
 		"--interval", "0s",
@@ -989,7 +989,7 @@ func TestDrainRunsUntilIdle(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"drain",
-		"--target", target,
+		"--repo", target,
 		"--skip-reconcile",
 		"--skip-schedules",
 		"--skip-advance",
@@ -1048,7 +1048,7 @@ func TestDrainWaitsForAdvancedJobs(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"drain",
-		"--target", target,
+		"--repo", target,
 		"--workspace", "repo",
 		"--skip-reconcile",
 		"--skip-schedules",

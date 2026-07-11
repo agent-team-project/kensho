@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -33,7 +32,6 @@ func newOutcomesReportCmd() *cobra.Command {
 		byEpic  bool
 		jsonOut bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Render outcome trends by week, team, and agent.",
@@ -70,7 +68,6 @@ func newOutcomesReportCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&since, "since", "", "Only include outcomes finalized since a duration ago (for example 7d, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().StringVar(&team, "team", "", "Only include outcomes for one team.")
 	cmd.Flags().StringVar(&agent, "agent", "", "Only include outcomes for one agent type.")

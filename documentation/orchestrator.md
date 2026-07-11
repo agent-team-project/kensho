@@ -278,7 +278,7 @@ agent-team team snapshot <team> [--events N|-1] [--schedule-limit N] [--no-redac
 agent-team inspect [<instance>...] [--all] [--latest | --last N] [--agent manager] [--instance manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--format '{{.Instance}} {{if .Runtime}}{{.Runtime.Lifecycle}}{{end}}'] [--json]
                                   # runtime metadata + state/status/topology detail; reads persisted runtime metadata if the daemon is down
 agent-team wait [<instance>...] [-q] [--all] [--latest | --last N] [--agent manager] [--status running] [--runtime codex] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--until terminal|running|stopped|exited|crashed|removed] [--until-phase done] [--timeout 5m] [--interval 500ms] [--dry-run] [--fail-on-crash] [--summary] [--format '{{.Instance}} {{.Status}} {{.Phase}}'] [--json] # wait for lifecycle or work-phase condition; uses persisted metadata if daemon is down
-agent-team send [<instance>] <message...> [--all] [--latest | --last N] [--agent manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--from user] [--reply-to manager] [--allow-missing] [--dry-run] [--format '{{.To}} {{.ID}}'] [--json]
+agent-team send [<instance>] <message...> [--all] [--latest | --last N] [--agent manager] [--status running] [--phase idle] [--stale] [--runtime-stale] [--unhealthy] [--from user] [--reply-to manager] [--dry-run] [--format '{{.To}} {{.ID}}'] [--json]
                                   # append a message to one instance mailbox or a filtered set; phase/stale/runtime-stale/unhealthy selectors use current metadata
 agent-team channels
                                   # list pub/sub channels; reads local channel state if the daemon is down
@@ -295,8 +295,6 @@ agent-team prune [-q] [--dry-run] [--older-than 24h] [--agent manager] [--status
 agent-team run <agent> [-n <instance>] [-d | --attach --tail N|all] [--ready-timeout 3s] [-p "..."] [--format '{{.Instance}} {{.PID}}'] [--json]
                                   # launch direct by default; --detach dispatches and returns, --attach dispatches and follows logs
 ```
-
-Shortcuts: `agent-team up` = `start`, `agent-team down` = `stop`, `agent-team ls` = `ps`, and `agent-team top` = `stats`.
 
 `agent-team run <agent>` is daemon-aware (SQU-29): when `--prompt` is set (one-shot mode) AND the daemon is running, the CLI POSTs to `/v1/dispatch` with the full claude argv (so agent / skill resolution stays in the CLI). `--detach` and `--attach` make that daemon path explicit, start the daemon if needed, and wait up to `--ready-timeout`; `--detach` returns immediately with a log-follow hint, while `--attach` follows the daemon-captured log. Add `--json` to detached or prompted dispatches to emit metadata for automation. Without `--prompt`, `--detach`, or `--attach`, or with `--no-daemon`, the CLI exec's claude directly. Plain interactive sessions stay direct because users expect an attached terminal.
 
@@ -414,7 +412,7 @@ Instances that have a state dir but no `status.toml` (declared but never spawned
 
 With `--summary`, `ps` renders lifecycle status counts plus a second phase-count table; `--summary --json` includes the same phase aggregate under `phases`.
 
-`agent-team stats --summary` adds CPU, memory, and RSS totals for the same runtime rows and reports phase counts in text and JSON, making `agent-team top --summary` a compact fleet-monitoring view.
+`agent-team stats --summary` adds CPU, memory, and RSS totals for the same runtime rows and reports phase counts in text and JSON, making it a compact fleet-monitoring view.
 
 `agent-team health`, `status --summary`, and `monitor --summary` use the same phase aggregate so the operator can see both lifecycle health and work-state distribution without opening the full instance table. `status --summary` text, enriched status-summary JSON, `monitor`, and `watch` also include runtime resume capability counts for daemon-managed, managed-resume, and direct runtime fallback candidates. `status --summary --resources` / `monitor --summary --resources` / `watch --summary --resources` add aggregate CPU, memory, RSS, lifecycle, and phase counts, `status --summary --plan` / `monitor --summary --plan` / `watch --summary --plan` add compact desired-state action/status counts, and `status --summary --events N` / `monitor --summary --events N` / `watch --summary --events N` add compact recent lifecycle event counts to the same summary view. `--event-action` and `--since` narrow event tails before rendering or summarizing.
 
@@ -446,7 +444,7 @@ Summary views honor the same agent, status, phase, stale, runtime-stale, unhealt
    - The user kills the daemon while instances run — same as crash, ideally.
    Crash-only design (no graceful shutdown logic) is simplest if metadata is durable on disk.
 
-   **Resolved (SQU-28)**: crash-only design adopted. Per-instance metadata is fsync'd to `.agent_team/daemon/<instance>/meta.json` before /v1/dispatch returns. On daemon startup, `Reconcile()` walks the daemon root, probes each running-status PID with `kill(pid, 0)`, and marks dead processes as `exited`. Live processes are adopted (status preserved) — but the daemon cannot `Wait()` on a process it didn't fork, so the eventual exit of an adopted child is observed only by subsequent reconciliation passes. We do not auto-restart anything; surfacing accurate state via `/v1/instances` is the contract. Notification of dispatch parents is deferred to SQU-29 alongside `/v1/message`.
+   **Resolved (SQU-28)**: per-instance metadata is fsync'd to `.agent_team/daemon/<instance>/meta.json` before /v1/dispatch returns. On daemon startup, topology-aware reconciliation probes each running-status PID with `kill(pid, 0)`, marks dead processes as `exited`, adopts live processes, and then applies declared restart policy. The daemon cannot `Wait()` on a process it did not fork, so subsequent reconciliation observes an adopted child's eventual exit.
 
 4. **Backward compat with `assign-worker` skill**. Two paths:
    - Keep `assign-worker` working in no-daemon mode; ship a new `dispatch` skill for daemon mode; agents detect which mode they're in via env var (`AGENT_TEAM_DAEMON_SOCKET=...`).

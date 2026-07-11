@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"text/tabwriter"
 	"text/template"
@@ -61,7 +60,6 @@ func newRepairCmd() *cobra.Command {
 		waitInterval       time.Duration
 		failOnFailed       bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "repair",
 		Short: "Recover common unhealthy orchestration state.",
@@ -254,7 +252,7 @@ func newRepairCmd() *cobra.Command {
 			}
 			result = repairResultWithResumePlanActions(result, lastMessage, fallbacks)
 			if commands {
-				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 				return renderRepairCommands(cmd.OutOrStdout(), result, repairApplyCommandOptions{
 					BaseArgs:              []string{"agent-team", "repair"},
 					ScopeFlag:             "--repo",
@@ -307,7 +305,6 @@ func newRepairCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for retried or advanced pipeline steps: auto, worktree, or repo.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile for retried or advanced step dispatches (claude, codex, or docker). Overrides env and repo config.")
 	cmd.Flags().StringVar(&runtimeBin, "runtime-bin", "", "Runtime binary for retried or advanced step dispatches. Overrides env and repo config.")

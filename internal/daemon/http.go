@@ -37,10 +37,9 @@ import (
 // instance manager's daemon root — convenient for tests that don't care about
 // channel state but still hit `/v1/...`.
 //
-// If events is nil, the topology endpoints (`/v1/event`, `/v1/topology`,
-// `/v1/topology/reload`) return 503 Service Unavailable. Tests that exercise
-// the legacy endpoints can pass nil; the real daemon constructs an
-// EventResolver up front and always supplies one.
+// If events is nil, topology-dependent endpoints return 503 Service
+// Unavailable. The real daemon constructs an EventResolver up front and always
+// supplies one.
 //
 // teamDir is the consumer's `.agent_team/` path, used by `/v1/topology/reload`
 // to re-read `instances.toml` from disk.
@@ -562,11 +561,11 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if events != nil {
-			err = ReconcileWithTopology(teamDir, m, events.Topology())
-		} else {
-			err = Reconcile(m.daemonRoot, m)
+		if events == nil {
+			writeError(w, http.StatusServiceUnavailable, "topology resolver unavailable")
+			return
 		}
+		err = ReconcileWithTopology(teamDir, m, events.Topology())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

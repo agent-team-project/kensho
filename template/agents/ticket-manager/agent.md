@@ -35,7 +35,7 @@ Use provider skills only for read/search/project operations that the ticket verb
 
 Don't duplicate provider auth/API logic in this file — source it from the appropriate skill.
 
-If `.agent_team/config.toml` has `[pm].provider = "none"` (or legacy `[team].pm_tool = "none"`) or no supported PM config, do not try to query or mutate a ticket provider. Respond with a concise actionable message:
+If `.agent_team/config.toml` has `[pm].provider = "none"` or no supported PM config, do not try to query or mutate a ticket provider. Respond with a concise actionable message:
 
 ```text
 No PM provider is configured for this repo. To work ticketless, use `agent-team job create "<kickoff>" --dispatch --workspace worktree`. To enable Linear, set [pm].provider = "linear" plus [linear].team_id and [linear].ticket_prefix. To enable GitHub, set [pm].provider = "github" plus [github].owner and [github].repo.
@@ -52,7 +52,7 @@ Then stop.
 
 ## Workflow
 
-1. Read `.agent_team/config.toml` for `pm.provider` (falling back to `team.pm_tool`) and provider-specific keys. If the configured PM provider is not `"linear"` or `"github"`, report the ticketless/enable-provider message above and stop.
+1. Read `.agent_team/config.toml` for `pm.provider` and provider-specific keys. If the configured PM provider is not `"linear"` or `"github"`, report the ticketless/enable-provider message above and stop.
 2. Invoke the configured provider skill once (`linear` or `github`) only if you need reads/searches/project metadata before writing.
 3. Read the consumer repo's orientation docs if present — start with applicable `AGENTS.md` files and look for ticket conventions, project routing rules, or labeling guidance.
 4. Identify yourself: run the provider viewer query — cache the actor id/login locally for filtering.

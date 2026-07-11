@@ -25,7 +25,7 @@ func TestWatchCommandJSONEmitsMonitorSnapshots(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--json", "--plan", "--agent", "manager", "--action", "start", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--json", "--plan", "--agent", "manager", "--action", "start", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -70,7 +70,7 @@ func TestWatchJSONIncludesFilteredInboxSummary(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--json", "--instance", "manager", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--json", "--instance", "manager", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --json inbox: %v\nstderr: %s", err, stderr.String())
 	}
@@ -115,7 +115,7 @@ func TestWatchFallbacksRewriteRuntimeHealthActions(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--json", "--fallbacks", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--json", "--fallbacks", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --fallbacks --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -142,7 +142,7 @@ func TestWatchSummaryJSONEmitsHealthSnapshots(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--summary", "--json", "--agent", "manager", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--summary", "--json", "--agent", "manager", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --summary --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -188,7 +188,7 @@ func TestWatchSummaryLatestJSONScopesHealthRows(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--summary", "--latest", "--json", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--summary", "--latest", "--json", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --summary --latest --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -229,7 +229,7 @@ func TestWatchEventsJSONEmitsMonitorSnapshots(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--json", "--events", "5", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--json", "--events", "5", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --json --events: %v\nstderr: %s", err, stderr.String())
 	}
@@ -282,7 +282,7 @@ description = "needs input"
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--json", "--phase", "blocked", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--json", "--phase", "blocked", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --phase blocked --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -334,7 +334,7 @@ description = "fresh work"
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--stale", "--all", "--json", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--stale", "--all", "--json", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --stale --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -387,7 +387,7 @@ description = "fresh work"
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--unhealthy", "--all", "--json", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--unhealthy", "--all", "--json", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --unhealthy --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -419,7 +419,7 @@ func TestWatchCommandFormatEmitsMonitorRows(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--format", "{{.Health.Healthy}}:{{len .Instances}}:{{.StatsError}}", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--format", "{{.Health.Healthy}}:{{len .Instances}}:{{.StatsError}}", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -446,7 +446,7 @@ func TestWatchCommandTextClearsByDefault(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch text: %v\nstderr: %s", err, stderr.String())
 	}
@@ -466,7 +466,7 @@ func TestWatchCommandNoClearAppendsTextSnapshots(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--no-clear", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--no-clear", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --no-clear: %v\nstderr: %s", err, stderr.String())
 	}
@@ -530,7 +530,7 @@ func TestWatchSummaryPlanJSONIncludesPlanSummary(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--summary", "--plan", "--json", "--agent", "manager", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--summary", "--plan", "--json", "--agent", "manager", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --summary --plan --json: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
@@ -657,7 +657,7 @@ func TestWatchSummaryEventsJSONIncludesEventSummary(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--summary", "--events", "5", "--event-action", "stop", "--since", "2026-06-17T12:00:30Z", "--json", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--summary", "--events", "5", "--event-action", "stop", "--since", "2026-06-17T12:00:30Z", "--json", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --summary --events --json: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
@@ -706,7 +706,7 @@ description = "complete"
 	cmd.SetContext(ctx)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"watch", "--summary", "--resources", "--all", "--json", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"watch", "--summary", "--resources", "--all", "--json", "--interval", "1ms", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("watch --summary --resources --json: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}

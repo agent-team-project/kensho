@@ -77,7 +77,6 @@ func newIntakeCommunityCmd() *cobra.Command {
 		dryRun         bool
 		jsonOut        bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "community",
 		Short: "Classify open public GitHub issues and PRs without dispatching work.",
@@ -157,7 +156,6 @@ func newIntakeCommunityCmd() *cobra.Command {
 			return renderCommunityIntakeResult(cmd.OutOrStdout(), result)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&githubOwner, "github-owner", "", "GitHub owner or organization to read. Defaults to [github].owner.")
 	cmd.Flags().StringVar(&githubRepo, "github-repo", "", "GitHub repository name to read. Defaults to [github].repo.")
 	cmd.Flags().StringVar(&kind, "kind", "all", "Community items to read: all, issues, or prs.")
@@ -293,7 +291,6 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 		jsonOut       bool
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   provider,
 		Short: "Normalize a " + provider + " webhook payload and publish it.",
@@ -467,7 +464,6 @@ func newWebhookIntakeCmd(provider string, normalize func([]byte) (*intake.Event,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&payload, "payload", "", "Webhook JSON object.")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read webhook JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
@@ -514,7 +510,6 @@ func newIntakeScheduleCmd() *cobra.Command {
 		jsonOut       bool
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "schedule <name>",
 		Short: "Publish a named schedule event.",
@@ -615,7 +610,6 @@ func newIntakeScheduleCmd() *cobra.Command {
 			return publishScheduleEvent(cmd, target, ev, "agent-team intake schedule", wait, waitFilters, waitTimeout, waitInterval, failOnFailed, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&payload, "payload", "", "Additional JSON object merged into the schedule payload.")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "Read additional schedule payload JSON from a file, or '-' for stdin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Normalize and print the event without publishing to the daemon.")
@@ -702,8 +696,7 @@ func newIntakeServiceCmd() *cobra.Command {
 	opts.MaxBodyBytes = defaultIntakeMaxBodyBytes
 	opts.PruneOKOlderThan = 7 * 24 * time.Hour
 	opts.PruneRecoveredOlderThan = 7 * 24 * time.Hour
-	cwd, _ := os.Getwd()
-	opts.Target = cwd
+	opts.Target = "."
 	cmd := &cobra.Command{
 		Use:   "service systemd|launchd|compose|kubernetes",
 		Short: "Print service or deployment config for intake serve.",
@@ -748,7 +741,6 @@ func newIntakeServiceCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&opts.Target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&opts.Addr, "addr", opts.Addr, "Address for the webhook listener.")
 	cmd.Flags().StringVar(&opts.Bin, "bin", opts.Bin, "agent-team binary path used in the service.")
 	cmd.Flags().StringVar(&opts.Name, "name", opts.Name, "Service unit name/comment stem.")
@@ -1203,7 +1195,6 @@ func newIntakeServeCmd() *cobra.Command {
 	opts.PruneRecoveredOlderThan = 7 * 24 * time.Hour
 	opts.GitHubReplayWindow = defaultGitHubReplayWindow
 	opts.MaxBodyBytes = defaultIntakeMaxBodyBytes
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run a local HTTP listener for external webhook intake.",
@@ -1306,7 +1297,6 @@ func newIntakeServeCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8787", "Address for the webhook listener.")
 	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Normalize requests and return previews without publishing to the daemon.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching intake serve command without starting the listener. agent-team follow-ups preserve the selected repo scope.")

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"text/template"
 	"time"
@@ -36,7 +35,6 @@ func newSyncCmd() *cobra.Command {
 		instances    []string
 		actions      []string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Apply topology's desired persistent instance state.",
@@ -104,7 +102,7 @@ func newSyncCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team sync: %v\n", err)
 				return exitErr(2)
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			return runSync(cmd, target, syncOptions{
 				DryRun:       dryRun,
 				Wait:         wait,
@@ -134,7 +132,6 @@ func newSyncCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview topology convergence without starting the daemon or instances.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for selected instances to become healthy after syncing. With no filters, waits for the fleet.")

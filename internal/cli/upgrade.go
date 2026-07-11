@@ -61,7 +61,6 @@ type upgradeApplyAction struct {
 
 func newUpgradeCmd() *cobra.Command {
 	var cfg upgradeConfig
-	cwd, _ := os.Getwd()
 
 	cmd := &cobra.Command{
 		Use:   "upgrade (--check|--apply) [--to <ref>]",
@@ -93,8 +92,7 @@ func newUpgradeCmd() *cobra.Command {
 			return exitErr(2)
 		},
 	}
-	cfg.target = cwd
-	cmd.Flags().StringVar(&cfg.target, "target", cwd, legacyRepoTargetFlagHelp)
+	cfg.target = "."
 	cmd.Flags().StringVar(&cfg.toRef, "to", "", "Template ref to compare against (defaults to the ref in .template.lock).")
 	cmd.Flags().BoolVar(&cfg.check, "check", false, "Compare current template lock against a resolved template ref without writing files.")
 	cmd.Flags().BoolVar(&cfg.apply, "apply", false, "Apply clean template changes and update .template.lock; refuses to run when local conflicts are detected.")
@@ -181,7 +179,7 @@ func runUpgradeApply(cmd *cobra.Command, cfg upgradeConfig) error {
 	out := cmd.OutOrStdout()
 	if cfg.commands {
 		return renderUpgradeApplyCommand(out, result.Conflicts == 0 && result.Added+result.Updated+result.Removed > 0, upgradeApplyCommandOptions{
-			Scope:    operatorCommandScopeFromCommand(cmd, cfg.target, "target"),
+			Scope:    operatorCommandScopeFromCommand(cmd, cfg.target, rootRepoFlagName),
 			ToRef:    cfg.toRef,
 			ToRefSet: cmd.Flags().Changed("to"),
 		})

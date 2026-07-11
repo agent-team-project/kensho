@@ -30,7 +30,7 @@ func TestReconcile_LiveProcessStaysRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := NewInstanceManager(root, nil)
-	if err := Reconcile(root, m); err != nil {
+	if err := reconcileCrashOnly(root, m, "", nil); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 	disk, err := ReadMetadata(root, "alive")
@@ -59,7 +59,7 @@ func TestReconcile_PreservesReaperForManagerSpawnedProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	if err := Reconcile(root, m); err != nil {
+	if err := reconcileCrashOnly(root, m, "", nil); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 	if _, err := m.Stop(meta.Instance); err != nil {
@@ -86,7 +86,7 @@ func TestReconcile_DeadProcessMarkedExited(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := NewInstanceManager(root, nil)
-	if err := Reconcile(root, m); err != nil {
+	if err := reconcileCrashOnly(root, m, "", nil); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 	disk, err := ReadMetadata(root, "dead")
@@ -117,7 +117,7 @@ func TestReconcile_StoppedAndExitedUntouched(t *testing.T) {
 		}
 	}
 	m := NewInstanceManager(root, nil)
-	if err := Reconcile(root, m); err != nil {
+	if err := reconcileCrashOnly(root, m, "", nil); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 	for _, st := range []Status{StatusStopped, StatusExited, StatusCrashed} {

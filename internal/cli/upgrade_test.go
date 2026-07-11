@@ -18,7 +18,7 @@ func TestUpgradeCheck_BundledUpToDate(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"upgrade", "--check", "--target", tmp})
+	cmd.SetArgs([]string{"upgrade", "--check", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("upgrade --check: %v\nstderr: %s", err, errOut.String())
 	}
@@ -56,7 +56,7 @@ func TestUpgradeCheck_DetectsDifferentTarget(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd2.SetOut(out)
 	cmd2.SetErr(errOut)
-	cmd2.SetArgs([]string{"upgrade", "--check", "--target", target, "--to", nextDir})
+	cmd2.SetArgs([]string{"upgrade", "--check", "--repo", target, "--to", nextDir})
 	if err := cmd2.Execute(); err != nil {
 		t.Fatalf("upgrade --check --to: %v\nstderr: %s", err, errOut.String())
 	}
@@ -89,7 +89,7 @@ func TestUpgradeCheckJSONAndStrict(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"upgrade", "--check", "--json", "--strict", "--target", target, "--to", nextDir})
+	cmd.SetArgs([]string{"upgrade", "--check", "--json", "--strict", "--repo", target, "--to", nextDir})
 	err := cmd.Execute()
 	var ec ExitCode
 	if !errors.As(err, &ec) || int(ec) != 1 {
@@ -133,7 +133,7 @@ func TestUpgradeCheckFormatAndStrict(t *testing.T) {
 	cmd.SetArgs([]string{
 		"upgrade", "--check", "--strict",
 		"--format", "{{.Differs}} {{.TargetVersion}} {{.ApplyImplemented}}",
-		"--target", target,
+		"--repo", target,
 		"--to", nextDir,
 	})
 	err := cmd.Execute()
@@ -175,7 +175,7 @@ func TestUpgradeApplyDryRunAndApplyCleanChanges(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dryCmd.SetOut(dryOut)
 	dryCmd.SetErr(dryErr)
-	dryCmd.SetArgs([]string{"upgrade", "--apply", "--dry-run", "--json", "--target", target, "--to", nextDir})
+	dryCmd.SetArgs([]string{"upgrade", "--apply", "--dry-run", "--json", "--repo", target, "--to", nextDir})
 	if err := dryCmd.Execute(); err != nil {
 		t.Fatalf("upgrade --apply --dry-run: %v\nstderr: %s", err, dryErr.String())
 	}
@@ -196,7 +196,7 @@ func TestUpgradeApplyDryRunAndApplyCleanChanges(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commandsCmd.SetOut(commandsOut)
 	commandsCmd.SetErr(commandsErr)
-	commandsCmd.SetArgs([]string{"upgrade", "--apply", "--dry-run", "--commands", "--target", target, "--to", nextDir})
+	commandsCmd.SetArgs([]string{"upgrade", "--apply", "--dry-run", "--commands", "--repo", target, "--to", nextDir})
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("upgrade --apply --dry-run --commands: %v\nstderr: %s", err, commandsErr.String())
 	}
@@ -221,7 +221,7 @@ func TestUpgradeApplyDryRunAndApplyCleanChanges(t *testing.T) {
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	applyCmd.SetOut(applyOut)
 	applyCmd.SetErr(applyErr)
-	applyCmd.SetArgs([]string{"upgrade", "--apply", "--json", "--target", target, "--to", nextDir})
+	applyCmd.SetArgs([]string{"upgrade", "--apply", "--json", "--repo", target, "--to", nextDir})
 	if err := applyCmd.Execute(); err != nil {
 		t.Fatalf("upgrade --apply: %v\nstderr: %s", err, applyErr.String())
 	}
@@ -268,7 +268,7 @@ func TestUpgradeApplyReportsConflictForLocalEdit(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commandsCmd.SetOut(commandsOut)
 	commandsCmd.SetErr(commandsErr)
-	commandsCmd.SetArgs([]string{"upgrade", "--apply", "--dry-run", "--commands", "--target", target, "--to", nextDir})
+	commandsCmd.SetArgs([]string{"upgrade", "--apply", "--dry-run", "--commands", "--repo", target, "--to", nextDir})
 	if err := commandsCmd.Execute(); err != nil {
 		t.Fatalf("conflict upgrade --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -280,7 +280,7 @@ func TestUpgradeApplyReportsConflictForLocalEdit(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"upgrade", "--apply", "--json", "--target", target, "--to", nextDir})
+	cmd.SetArgs([]string{"upgrade", "--apply", "--json", "--repo", target, "--to", nextDir})
 	err := cmd.Execute()
 	var ec ExitCode
 	if !errors.As(err, &ec) || int(ec) != 1 {
@@ -357,7 +357,7 @@ func TestUpgradeRequiresMode(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"upgrade", "--target", tmp})
+	cmd.SetArgs([]string{"upgrade", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected upgrade without a mode to fail")
@@ -382,7 +382,7 @@ func TestUpgradeCheck_FailsWithoutLock(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"upgrade", "--check", "--target", tmp})
+	cmd.SetArgs([]string{"upgrade", "--check", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected missing lock to fail")

@@ -22,8 +22,8 @@ import (
 
 	"github.com/agent-team-project/agent-team/internal/daemon"
 	"github.com/agent-team-project/agent-team/internal/job"
-	"github.com/agent-team-project/agent-team/internal/linearwriteback"
 	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/pmprovider"
 	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/agent-team-project/agent-team/internal/worktreecleanup"
@@ -430,7 +430,7 @@ updated_at = 2026-06-18T12:00:00Z
 	doctorOut, doctorErr := &bytes.Buffer{}, &bytes.Buffer{}
 	doctor.SetOut(doctorOut)
 	doctor.SetErr(doctorErr)
-	doctor.SetArgs([]string{"doctor", "--target", tmp, "--json"})
+	doctor.SetArgs([]string{"doctor", "--repo", tmp, "--json"})
 	err = doctor.Execute()
 	if err == nil {
 		t.Fatal("top-level doctor unexpectedly succeeded")
@@ -1015,7 +1015,7 @@ func TestJobCreatePersistsOriginDerivedEpic(t *testing.T) {
 	reportOut, reportErr := &bytes.Buffer{}, &bytes.Buffer{}
 	reportCmd.SetOut(reportOut)
 	reportCmd.SetErr(reportErr)
-	reportCmd.SetArgs([]string{"outcomes", "report", "--target", tmp, "--by-epic", "--json"})
+	reportCmd.SetArgs([]string{"outcomes", "report", "--repo", tmp, "--by-epic", "--json"})
 	if err := reportCmd.Execute(); err != nil {
 		t.Fatalf("outcomes report --by-epic: %v\nstderr=%s", err, reportErr.String())
 	}
@@ -2058,7 +2058,7 @@ func TestJobShowDisplaysRuntimeMetadata(t *testing.T) {
 	aliasOut, aliasErr := &bytes.Buffer{}, &bytes.Buffer{}
 	alias.SetOut(aliasOut)
 	alias.SetErr(aliasErr)
-	alias.SetArgs([]string{"job", "inspect", "squ-45", "--repo", tmp, "--format", "{{.ID}} {{.Status}}"})
+	alias.SetArgs([]string{"job", "show", "squ-45", "--repo", tmp, "--format", "{{.ID}} {{.Status}}"})
 	if err := alias.Execute(); err != nil {
 		t.Fatalf("job inspect alias: %v\nstderr=%s", err, aliasErr.String())
 	}
@@ -6170,12 +6170,12 @@ func TestJobHandoffWaitFlagValidation(t *testing.T) {
 		},
 		{
 			name: "retry next-state flag without wait",
-			args: []string{"job", "retry", "squ-1", "--dispatch", "--wait-next-state", "running"},
+			args: []string{"job", "reopen", "squ-1", "--dispatch", "--wait-next-state", "running"},
 			want: "wait-related flags require --wait",
 		},
 		{
 			name: "retry invalid wait next-state",
-			args: []string{"job", "retry", "squ-1", "--dispatch", "--wait", "--wait-next-state", "missing"},
+			args: []string{"job", "reopen", "squ-1", "--dispatch", "--wait", "--wait-next-state", "missing"},
 			want: "--wait-next-state must be ready, queued, running, blocked, failed, held, done, none, or all",
 		},
 	} {
@@ -6842,11 +6842,11 @@ func TestJobReopenResetsStatusAndAudits(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"job", "retry", "SQU-68", "--repo", tmp, "--message", "retry after fix", "--dry-run", "--commands"})
+	commands.SetArgs([]string{"job", "reopen", "SQU-68", "--repo", tmp, "--message", "retry after fix", "--dry-run", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("job retry dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
-	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "retry", "squ-68", "--repo", tmp, "--message", "retry after fix"}), " ")
+	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "job", "reopen", "squ-68", "--repo", tmp, "--message", "retry after fix"}), " ")
 	if got := strings.TrimSpace(commandsOut.String()); got != wantCommand {
 		t.Fatalf("job retry dry-run commands = %q, want %q", got, wantCommand)
 	}
@@ -6906,7 +6906,7 @@ func TestJobRetryDispatchesReopenedJob(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"job", "retry", "SQU-80", "--repo", target, "--dispatch", "--workspace", "repo", "--dry-run", "--json"})
+	dry.SetArgs([]string{"job", "reopen", "SQU-80", "--repo", target, "--dispatch", "--workspace", "repo", "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("job retry --dispatch dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -6943,12 +6943,12 @@ func TestJobRetryDispatchesReopenedJob(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"job", "retry", "SQU-80", "--repo", target, "--dispatch", "--source", "manager", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
+	commands.SetArgs([]string{"job", "reopen", "SQU-80", "--repo", target, "--dispatch", "--source", "manager", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("job retry --dispatch dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
 	wantCommand := strings.Join(shellQuoteArgs([]string{
-		"agent-team", "job", "retry", "squ-80",
+		"agent-team", "job", "reopen", "squ-80",
 		"--repo", target,
 		"--dispatch",
 		"--source", "manager",
@@ -6983,7 +6983,7 @@ func TestJobRetryDispatchesReopenedJob(t *testing.T) {
 	noRouteOut, noRouteErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noRoute.SetOut(noRouteOut)
 	noRoute.SetErr(noRouteErr)
-	noRoute.SetArgs([]string{"job", "retry", "squ-80-no-route", "--repo", target, "--dispatch", "--dry-run", "--commands"})
+	noRoute.SetArgs([]string{"job", "reopen", "squ-80-no-route", "--repo", target, "--dispatch", "--dry-run", "--commands"})
 	if err := noRoute.Execute(); err != nil {
 		t.Fatalf("job retry no-route dry-run commands: %v\nstderr=%s", err, noRouteErr.String())
 	}
@@ -6995,7 +6995,7 @@ func TestJobRetryDispatchesReopenedJob(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"job", "retry", "SQU-80", "--repo", target, "--dispatch", "--workspace", "repo", "--json"})
+	cmd.SetArgs([]string{"job", "reopen", "SQU-80", "--repo", target, "--dispatch", "--workspace", "repo", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("job retry --dispatch: %v\nstderr=%s", err, stderr.String())
 	}
@@ -7056,7 +7056,7 @@ func TestJobRetryDispatchWaitsForRequestedStatus(t *testing.T) {
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
-		"job", "retry", "SQU-82",
+		"job", "reopen", "SQU-82",
 		"--repo", target,
 		"--dispatch",
 		"--workspace", "repo",
@@ -7109,7 +7109,7 @@ func TestJobRetryDispatchWaitsForPipelineNextStepState(t *testing.T) {
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
-		"job", "retry", "SQU-83",
+		"job", "reopen", "SQU-83",
 		"--repo", target,
 		"--dispatch",
 		"--workspace", "repo",
@@ -7160,7 +7160,7 @@ func TestJobRetryDispatchWaitTimesOutForEvent(t *testing.T) {
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
-		"job", "retry", "SQU-84",
+		"job", "reopen", "SQU-84",
 		"--repo", target,
 		"--dispatch",
 		"--workspace", "repo",
@@ -7211,7 +7211,7 @@ func TestJobRetryDispatchResetsFailedPipelineStep(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"job", "retry", "squ-81", "--repo", target, "--dispatch", "--workspace", "repo", "--dry-run", "--json"})
+	dry.SetArgs([]string{"job", "reopen", "squ-81", "--repo", target, "--dispatch", "--workspace", "repo", "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("job retry pipeline dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -7252,7 +7252,7 @@ func TestJobRetryDispatchResetsFailedPipelineStep(t *testing.T) {
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
 	commands.SetArgs([]string{
-		"job", "retry", "squ-81",
+		"job", "reopen", "squ-81",
 		"--repo", target,
 		"--dispatch",
 		"--workspace", "repo",
@@ -7264,7 +7264,7 @@ func TestJobRetryDispatchResetsFailedPipelineStep(t *testing.T) {
 		t.Fatalf("job retry pipeline dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
 	wantCommand := strings.Join(shellQuoteArgs([]string{
-		"agent-team", "job", "retry", "squ-81",
+		"agent-team", "job", "reopen", "squ-81",
 		"--repo", target,
 		"--dispatch",
 		"--workspace", "repo",
@@ -7286,7 +7286,7 @@ func TestJobRetryDispatchResetsFailedPipelineStep(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"job", "retry", "squ-81", "--repo", target, "--dispatch", "--workspace", "repo", "--json"})
+	cmd.SetArgs([]string{"job", "reopen", "squ-81", "--repo", target, "--dispatch", "--workspace", "repo", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("job retry pipeline --dispatch: %v\nstderr=%s", err, stderr.String())
 	}
@@ -7856,7 +7856,7 @@ func TestJobReopenRefusesRunningUnlessForced(t *testing.T) {
 	forcedOut, forcedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	forced.SetOut(forcedOut)
 	forced.SetErr(forcedErr)
-	forced.SetArgs([]string{"job", "retry", "squ-69", "--repo", tmp, "--force", "--status", "blocked", "--format", "{{.ID}} {{.Status}} {{.LastEvent}}"})
+	forced.SetArgs([]string{"job", "reopen", "squ-69", "--repo", tmp, "--force", "--status", "blocked", "--format", "{{.ID}} {{.Status}} {{.LastEvent}}"})
 	if err := forced.Execute(); err != nil {
 		t.Fatalf("job retry force: %v\nstderr=%s", err, forcedErr.String())
 	}
@@ -8895,7 +8895,7 @@ func TestJobStatsScopesRowsAndSteps(t *testing.T) {
 	topOut, topErr := &bytes.Buffer{}, &bytes.Buffer{}
 	top.SetOut(topOut)
 	top.SetErr(topErr)
-	top.SetArgs([]string{"job", "top", "SQU-120", "--repo", tmp, "--runtime", "codex", "--format", "{{.Instance}}"})
+	top.SetArgs([]string{"job", "stats", "SQU-120", "--repo", tmp, "--runtime", "codex", "--format", "{{.Instance}}"})
 	if err := top.Execute(); err != nil {
 		t.Fatalf("job top alias: %v\nstderr=%s", err, topErr.String())
 	}
@@ -9357,7 +9357,7 @@ func TestJobAttachDryRunCodexShowsManagedHandoff(t *testing.T) {
 	aliasOut, aliasErr := &bytes.Buffer{}, &bytes.Buffer{}
 	aliasCmd.SetOut(aliasOut)
 	aliasCmd.SetErr(aliasErr)
-	aliasCmd.SetArgs([]string{"job", "exec", "SQU-57", "--repo", env.target, "--dry-run"})
+	aliasCmd.SetArgs([]string{"job", "attach", "SQU-57", "--repo", env.target, "--dry-run"})
 	if err := aliasCmd.Execute(); err != nil {
 		t.Fatalf("job exec codex dry-run alias: %v\nstderr=%s", err, aliasErr.String())
 	}
@@ -11440,7 +11440,7 @@ func TestJobDispatchRecordsWorktreeAndCleanup(t *testing.T) {
 	psOut, psErr := &bytes.Buffer{}, &bytes.Buffer{}
 	ps.SetOut(psOut)
 	ps.SetErr(psErr)
-	ps.SetArgs([]string{"ps", "--json", "--target", target})
+	ps.SetArgs([]string{"ps", "--json", "--repo", target})
 	if err := ps.Execute(); err != nil {
 		t.Fatalf("ps --json: %v\nstderr=%s", err, psErr.String())
 	}
@@ -11455,7 +11455,7 @@ func TestJobDispatchRecordsWorktreeAndCleanup(t *testing.T) {
 	inspectOut, inspectErr := &bytes.Buffer{}, &bytes.Buffer{}
 	inspect.SetOut(inspectOut)
 	inspect.SetErr(inspectErr)
-	inspect.SetArgs([]string{"inspect", "worker-squ-44", "--json", "--target", target})
+	inspect.SetArgs([]string{"inspect", "worker-squ-44", "--json", "--repo", target})
 	if err := inspect.Execute(); err != nil {
 		t.Fatalf("inspect --json: %v\nstderr=%s", err, inspectErr.String())
 	}
@@ -12565,8 +12565,8 @@ func TestJobReconcileGitHubClosedWritesLinearFailureAttention(t *testing.T) {
 	initInto(t, target)
 	teamDir := filepath.Join(target, ".agent_team")
 	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
-[team]
-pm_tool = "linear"
+[pm]
+provider = "linear"
 
 [linear]
 team_id = "team-1"
@@ -12643,7 +12643,7 @@ attention_state = "Todo"
 		t.Fatalf("events missing pr.closed reconcile event: %+v", events)
 	}
 	linearEvent, ok := findJobEvent(events, "linear_writeback_skipped")
-	if !ok || linearEvent.Data["action"] != string(linearwriteback.ActionFailureAttention) || linearEvent.Data["state"] != "Todo" {
+	if !ok || linearEvent.Data["action"] != string(pmprovider.ActionFailureAttention) || linearEvent.Data["state"] != "Todo" {
 		t.Fatalf("events missing Linear failure-attention audit: %+v", events)
 	}
 }
@@ -13484,7 +13484,7 @@ func TestJobStepMetadataAppearsInDiagnostics(t *testing.T) {
 	watchAlias.SetContext(ctx)
 	watchAlias.SetOut(watchAliasOut)
 	watchAlias.SetErr(watchAliasErr)
-	watchAlias.SetArgs([]string{"job", "watch", "squ-204", "--repo", tmp, "--no-clear", "--interval", "1h", "--state", "ready", "--step", "review", "--format", "{{.JobID}} {{.State}} {{len .Steps}} {{(index .Steps 0).ID}}"})
+	watchAlias.SetArgs([]string{"job", "explain", "squ-204", "--repo", tmp, "--no-clear", "--interval", "1h", "--state", "ready", "--step", "review", "--format", "{{.JobID}} {{.State}} {{len .Steps}} {{(index .Steps 0).ID}}"})
 	if err := watchAlias.Execute(); err != nil {
 		t.Fatalf("job watch alias: %v\nstderr=%s", err, watchAliasErr.String())
 	}
@@ -14002,7 +14002,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	holdCommandsOut, holdCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	holdCommands.SetOut(holdCommandsOut)
 	holdCommands.SetErr(holdCommandsErr)
-	holdCommands.SetArgs([]string{"job", "pause", "squ-240", "--repo", tmp, "--until", holdUntil.Format(time.RFC3339), "--dry-run", "--commands", "waiting for user"})
+	holdCommands.SetArgs([]string{"job", "hold", "squ-240", "--repo", tmp, "--until", holdUntil.Format(time.RFC3339), "--dry-run", "--commands", "waiting for user"})
 	if err := holdCommands.Execute(); err != nil {
 		t.Fatalf("job hold dry-run commands: %v\nstderr=%s", err, holdCommandsErr.String())
 	}
@@ -14017,7 +14017,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	if unheld.Held {
 		t.Fatalf("job hold dry-run mutated job: %+v", unheld)
 	}
-	hold.SetArgs([]string{"job", "pause", "squ-240", "--repo", tmp, "--message-file", holdMessageFile, "--until", holdUntil.Format(time.RFC3339), "--json"})
+	hold.SetArgs([]string{"job", "hold", "squ-240", "--repo", tmp, "--message-file", holdMessageFile, "--until", holdUntil.Format(time.RFC3339), "--json"})
 	if err := hold.Execute(); err != nil {
 		t.Fatalf("job hold: %v\nstderr=%s", err, holdErr.String())
 	}
@@ -14235,7 +14235,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	releaseExpiredCommandsOut, releaseExpiredCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	releaseExpiredCommands.SetOut(releaseExpiredCommandsOut)
 	releaseExpiredCommands.SetErr(releaseExpiredCommandsErr)
-	releaseExpiredCommands.SetArgs([]string{"job", "unpause", "--all", "--expired", "--repo", tmp, "--dry-run", "--commands"})
+	releaseExpiredCommands.SetArgs([]string{"job", "release", "--all", "--expired", "--repo", tmp, "--dry-run", "--commands"})
 	if err := releaseExpiredCommands.Execute(); err != nil {
 		t.Fatalf("job release expired dry-run commands: %v\nstderr=%s", err, releaseExpiredCommandsErr.String())
 	}
@@ -14275,7 +14275,7 @@ func TestJobHoldReleaseStopsReadiness(t *testing.T) {
 	if err := os.WriteFile(releaseMessageFile, []byte("resume from file\n"), 0o644); err != nil {
 		t.Fatalf("write release message: %v", err)
 	}
-	release.SetArgs([]string{"job", "resume", "squ-240", "--repo", tmp, "--message-file", releaseMessageFile, "--json"})
+	release.SetArgs([]string{"job", "release", "squ-240", "--repo", tmp, "--message-file", releaseMessageFile, "--json"})
 	if err := release.Execute(); err != nil {
 		t.Fatalf("job release: %v\nstderr=%s", err, releaseErr.String())
 	}
@@ -14693,17 +14693,17 @@ func TestJobPipelineControlRejectsFormatCombinations(t *testing.T) {
 		},
 		{
 			name: "retry commands without dry-run",
-			args: []string{"job", "retry", "squ-1", "--commands"},
+			args: []string{"job", "reopen", "squ-1", "--commands"},
 			want: wantCommandsModeRequiresDryRun(),
 		},
 		{
 			name: "retry commands with json",
-			args: []string{"job", "retry", "squ-1", "--dry-run", "--commands", "--json"},
+			args: []string{"job", "reopen", "squ-1", "--dry-run", "--commands", "--json"},
 			want: wantCommandsModeConflict("--json"),
 		},
 		{
 			name: "retry commands with format",
-			args: []string{"job", "retry", "squ-1", "--dry-run", "--commands", "--format", "{{.ID}}"},
+			args: []string{"job", "reopen", "squ-1", "--dry-run", "--commands", "--format", "{{.ID}}"},
 			want: wantCommandsModeConflict("--format"),
 		},
 		{

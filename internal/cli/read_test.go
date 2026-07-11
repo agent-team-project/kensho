@@ -19,7 +19,7 @@ func TestReadCommandPrintsResourceData(t *testing.T) {
 	root, cleanup := setupReadCommandDeployment(t, "dep", "SQU-124", "")
 	defer cleanup()
 
-	stdout, stderr, err := executeReadCommand("read", resource.JobURI("dep", "squ-124"), "--target", root)
+	stdout, stderr, err := executeReadCommand("read", resource.JobURI("dep", "squ-124"), "--repo", root)
 	if err != nil {
 		t.Fatalf("read command: %v\nstderr=%s", err, stderr)
 	}
@@ -39,7 +39,7 @@ func TestReadCommandJSONPrintsEnvelope(t *testing.T) {
 	root, cleanup := setupReadCommandDeployment(t, "dep", "SQU-124", "")
 	defer cleanup()
 
-	stdout, stderr, err := executeReadCommand("read", resource.JobURI("dep", "squ-124"), "--target", root, "--json")
+	stdout, stderr, err := executeReadCommand("read", resource.JobURI("dep", "squ-124"), "--repo", root, "--json")
 	if err != nil {
 		t.Fatalf("read command json: %v\nstderr=%s", err, stderr)
 	}
@@ -71,7 +71,7 @@ root = "../receiver"
 	t.Setenv("AGENT_TEAM_DAEMON_URL", "http://127.0.0.1:1")
 	t.Setenv(daemon.DaemonTokenFileEnv, filepath.Join(base, "missing-token"))
 
-	stdout, stderr, err := executeReadCommand("read", resource.JobURI("receiver-dep", "squ-225"), "--target", primary)
+	stdout, stderr, err := executeReadCommand("read", resource.JobURI("receiver-dep", "squ-225"), "--repo", primary)
 	if err != nil {
 		t.Fatalf("read routed command: %v\nstderr=%s receiver=%s", err, stderr, receiver)
 	}

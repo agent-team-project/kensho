@@ -35,7 +35,6 @@ func newOverviewCmd() *cobra.Command {
 		interval      time.Duration
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "overview",
 		Short: "Show a concise operator overview across health, jobs, queue, pipelines, and schedules.",
@@ -102,12 +101,11 @@ func newOverviewCmd() *cobra.Command {
 			}
 			result := shapeActions(collectOverview(teamDir, time.Now().UTC(), scheduleLimit))
 			if commands {
-				return renderOverviewCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderOverviewCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return renderOverview(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit overview as JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended actions, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&lastMessage, "last-message", false, "When runtime recovery actions use resume-plan log fallbacks, prefer clean Codex final-message commands.")
@@ -1914,11 +1912,16 @@ func scopedOperatorAction(action string, scope operatorCommandScope) string {
 }
 
 func operatorActionHasRepoScope(fields []string) bool {
+	if len(fields) > 1 && fields[1] == "init" {
+		// init's semantic --target is its creation destination; it does not
+		// consume repo state and must not be prefixed with the current --repo.
+		return true
+	}
 	for _, field := range fields[1:] {
 		switch {
-		case field == "--repo", field == "--target":
+		case field == "--repo":
 			return true
-		case strings.HasPrefix(field, "--repo="), strings.HasPrefix(field, "--target="):
+		case strings.HasPrefix(field, "--repo="):
 			return true
 		}
 	}

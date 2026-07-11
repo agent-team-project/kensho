@@ -45,7 +45,6 @@ func newHealthCmd() *cobra.Command {
 		interval         time.Duration
 		timeout          time.Duration
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "health",
 		Short: "Check daemon, instance, queue, job, and outbox health.",
@@ -166,7 +165,7 @@ func newHealthCmd() *cobra.Command {
 			}
 			result = healthResultWithResumePlanActions(result, lastMessage, fallbacks)
 			if !quiet {
-				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 				if err := writeHealthResultWithFormatAndCommands(cmd.OutOrStdout(), result, jsonOut, formatTemplate, commands, scope); err != nil {
 					return err
 				}
@@ -177,7 +176,6 @@ func newHealthCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use only the exit code.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh health until interrupted.")

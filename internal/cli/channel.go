@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -35,7 +34,6 @@ func newChannelCmd() *cobra.Command {
 // `agent-team ps` shortcut for `instance ps`.
 func newChannelsCmd() *cobra.Command {
 	var opts channelListCommandOptions
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "channels",
 		Short: "List all pub/sub channels (alias for `channel ls`).",
@@ -51,13 +49,12 @@ func newChannelsCmd() *cobra.Command {
 			return runChannelLs(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, listOpts)
 		},
 	}
-	addChannelListFlags(cmd, &opts, cwd)
+	addChannelListFlags(cmd, &opts, ".")
 	return cmd
 }
 
 func newChannelLsCmd() *cobra.Command {
 	var opts channelListCommandOptions
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List all channels: subscriber count, message count, last activity.",
@@ -73,7 +70,7 @@ func newChannelLsCmd() *cobra.Command {
 			return runChannelLs(cmd.OutOrStdout(), cmd.ErrOrStderr(), teamDir, listOpts)
 		},
 	}
-	addChannelListFlags(cmd, &opts, cwd)
+	addChannelListFlags(cmd, &opts, ".")
 	return cmd
 }
 
@@ -84,7 +81,6 @@ func newChannelShowCmd() *cobra.Command {
 		jsonOut bool
 		format  string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "show <name>",
 		Short: "Show one channel's summary plus its tail of recent messages.",
@@ -114,7 +110,6 @@ func newChannelShowCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().IntVar(&tail, "tail", 10, "Show at most this many recent messages; 0 means all messages.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the channel summary and messages with a Go template, e.g. '{{.Channel.Name}} {{len .Messages}}'.")
@@ -130,7 +125,6 @@ func newChannelPublishCmd() *cobra.Command {
 		jsonOut     bool
 		format      string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "publish <name> [body...]",
 		Short: "Publish a message to a channel from the CLI (creates the channel if missing).",
@@ -160,7 +154,6 @@ func newChannelPublishCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&sender, "sender", "(cli)", "Sender label recorded with the message.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to publish.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
@@ -178,7 +171,6 @@ func newChannelRmCmd() *cobra.Command {
 		jsonOut  bool
 		format   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "rm <name>",
 		Short: "Delete a channel and all of its on-disk state.",
@@ -239,7 +231,6 @@ func newChannelRmCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview channel removal without deleting it.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching channel rm apply command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
@@ -311,7 +302,6 @@ type channelRmApplyCommandOptions struct {
 }
 
 func addChannelListFlags(cmd *cobra.Command, opts *channelListCommandOptions, defaultTarget string) {
-	cmd.Flags().StringVar(&opts.Target, "target", defaultTarget, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&opts.Sort, "sort", "name", "Sort channels by name, subscribers, messages, or last.")
 	cmd.Flags().IntVar(&opts.Limit, "limit", 0, "Limit channels after sorting; 0 means no limit.")
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Emit machine-readable JSON.")
@@ -636,7 +626,7 @@ func appendChannelRepoArgs(args []string, repoFlag, repo string, repoSet bool) [
 	}
 	flag := strings.TrimSpace(repoFlag)
 	if flag == "" {
-		flag = "target"
+		flag = rootRepoFlagName
 	}
 	return append(args, "--"+flag, repo)
 }
@@ -648,7 +638,7 @@ func channelRepoSet(cmd *cobra.Command) bool {
 	if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
 		return true
 	}
-	return cmd.Flags().Changed("target")
+	return cmd.Flags().Changed(rootRepoFlagName)
 }
 
 func channelRepoFlag(cmd *cobra.Command) string {

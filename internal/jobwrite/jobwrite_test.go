@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/agent-team-project/agent-team/internal/job"
-	"github.com/agent-team-project/agent-team/internal/linearwriteback"
 	"github.com/agent-team-project/agent-team/internal/outcomes"
+	"github.com/agent-team-project/agent-team/internal/pmprovider"
 )
 
 func TestWriteWithAuditFailureAttentionOnceForFailedTransitions(t *testing.T) {
@@ -285,8 +285,8 @@ func testTeamDir(t *testing.T) string {
 	if err := os.MkdirAll(teamDir, 0o755); err != nil {
 		t.Fatalf("mkdir team dir: %v", err)
 	}
-	config := `[team]
-pm_tool = "linear"
+	config := `[pm]
+provider = "linear"
 
 [linear]
 team_id = "team-1"
@@ -308,7 +308,7 @@ func assertFailureAttentionAuditCount(t *testing.T, teamDir, jobID string, want 
 	}
 	got := 0
 	for _, ev := range events {
-		if ev.Data["action"] == string(linearwriteback.ActionFailureAttention) {
+		if ev.Data["action"] == string(pmprovider.ActionFailureAttention) {
 			got++
 			if ev.Type != "linear_writeback_skipped" {
 				t.Fatalf("failure attention event type = %q, want missing-key skip", ev.Type)

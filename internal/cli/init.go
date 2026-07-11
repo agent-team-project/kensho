@@ -48,6 +48,7 @@ func newInitCmd() *cobra.Command {
 		dryRun       bool
 		commands     bool
 	)
+	cwd, _ := os.Getwd()
 
 	cmd := &cobra.Command{
 		Use:   "init [<ref>]",
@@ -106,7 +107,6 @@ func newInitCmd() *cobra.Command {
 		},
 	}
 
-	cwd, _ := os.Getwd()
 	cmd.Flags().StringVar(&targetFlag, "target", cwd, "Target repo root.")
 	cmd.Flags().BoolVar(&forceFlag, "force", false, "Overwrite existing .agent_team/ files (config.toml is never overwritten).")
 	cmd.Flags().StringVar(&templateFlag, "template", "default", "`default` (uses the supplied/bundled template ref) or `empty` (scaffold only, no manifest).")
@@ -437,8 +437,7 @@ func resolveInitConfig(cmd *cobra.Command, m *template.Manifest, sets []template
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team: %v\n", err)
 		return nil, exitErr(2)
 	}
-	if initShouldAutoEnableLinear(m, withSets, sets) {
-		withSets.SetDotted("team.pm_tool", "linear")
+	if initShouldAutoEnableLinear(withSets, sets) {
 		withSets.SetDotted("pm.provider", "linear")
 	}
 	if projectID, ok := withSets.GetDotted("project.id"); !ok || strings.TrimSpace(fmt.Sprint(projectID)) == "" {
@@ -448,8 +447,6 @@ func resolveInitConfig(cmd *cobra.Command, m *template.Manifest, sets []template
 		}
 		withSets.SetDotted("project.id", id)
 	}
-	syncPMProviderAliases(withSets, sets)
-
 	// Find missing required params.
 	missing := missingRequired(withSets, m)
 	if len(missing) == 0 {
@@ -484,54 +481,27 @@ func missingRequired(resolved template.Tree, m *template.Manifest) []string {
 	return template.MissingRequiredKeys(resolved, m)
 }
 
-func initShouldAutoEnableLinear(m *template.Manifest, resolved template.Tree, sets []template.SetSpec) bool {
-	if m == nil || m.FindParameter("team.pm_tool") == nil {
-		return false
-	}
-	explicitPMTool := false
+func initShouldAutoEnableLinear(resolved template.Tree, sets []template.SetSpec) bool {
+	explicitProvider := false
 	linearSet := false
 	for _, s := range sets {
-		if s.Key == "team.pm_tool" || s.Key == "pm.provider" {
-			explicitPMTool = true
+		if s.Key == "pm.provider" {
+			explicitProvider = true
 			continue
 		}
 		if strings.HasPrefix(s.Key, "linear.") {
 			linearSet = true
 		}
 	}
-	if explicitPMTool || !linearSet {
+	if explicitProvider || !linearSet {
 		return false
 	}
-	pmTool, ok := resolved.GetDotted("team.pm_tool")
-	if !ok || pmTool == nil {
+	provider, ok := resolved.GetDotted("pm.provider")
+	if !ok || provider == nil {
 		return true
 	}
-	pm, ok := pmTool.(string)
+	pm, ok := provider.(string)
 	return ok && (pm == "" || pm == "none")
-}
-
-func syncPMProviderAliases(resolved template.Tree, sets []template.SetSpec) {
-	explicitProvider := false
-	explicitPMTool := false
-	for _, s := range sets {
-		switch s.Key {
-		case "pm.provider":
-			explicitProvider = true
-		case "team.pm_tool":
-			explicitPMTool = true
-		}
-	}
-	if explicitProvider && !explicitPMTool {
-		if value, ok := resolved.GetDotted("pm.provider"); ok {
-			resolved.SetDotted("team.pm_tool", value)
-		}
-		return
-	}
-	if explicitPMTool && !explicitProvider {
-		if value, ok := resolved.GetDotted("team.pm_tool"); ok {
-			resolved.SetDotted("pm.provider", value)
-		}
-	}
 }
 
 func printMissingParams(w fmtWriter, m *template.Manifest, keys []string, reason string) {
@@ -882,9 +852,6 @@ func prependResolvedConfigGuide(body []byte, resolved template.Tree, manifest *t
 
 func resolvedConfigGuide(resolved template.Tree, manifest *template.Manifest) string {
 	provider := resolvedConfigString(resolved, "pm.provider")
-	if provider == "" {
-		provider = resolvedConfigString(resolved, "team.pm_tool")
-	}
 	if provider == "" {
 		provider = "none"
 	}

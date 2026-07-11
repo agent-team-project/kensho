@@ -76,7 +76,6 @@ func newQueueDoctorCmd() *cobra.Command {
 		quarantine bool
 		dryRun     bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Validate persisted queue files.",
@@ -134,7 +133,7 @@ func newQueueDoctorCmd() *cobra.Command {
 					result = refreshed
 				}
 			}
-			if err := renderQueueDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, "target")); err != nil {
+			if err := renderQueueDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)); err != nil {
 				return err
 			}
 			if !result.OK && !quarantine {
@@ -146,7 +145,6 @@ func newQueueDoctorCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit queue doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the queue doctor result with a Go template, e.g. '{{.OK}} {{.Summary.Invalid}}'.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, or with --quarantine --dry-run print the matching quarantine apply command.")

@@ -336,7 +336,7 @@ func TestDaemonRecordsLaunchEnvOnBoot(t *testing.T) {
 	daemonRoot := DaemonRoot(teamDir)
 	old := &LaunchEnv{
 		Bin:        "/tmp/old-agent-teamd",
-		Args:       []string{"/tmp/old-agent-teamd", "--target", "/old"},
+		Args:       []string{"/tmp/old-agent-teamd", "--repo", "/old"},
 		Dir:        "/old",
 		Env:        []string{"OLD=1"},
 		RecordedAt: time.Now().UTC(),

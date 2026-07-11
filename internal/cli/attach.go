@@ -52,11 +52,9 @@ func newAttachCmd() *cobra.Command {
 		since            string
 		grep             string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "attach <instance>",
-		Aliases: []string{"exec"},
-		Short:   "Open an interactive runtime session against a daemon-managed persistent instance.",
+		Use:   "attach <instance>",
+		Short: "Open an interactive runtime session against a daemon-managed persistent instance.",
 		Long: "Stop the daemon-managed child for <instance>, then exec " +
 			"`<runtime> --resume <session-id>` in your terminal so the conversation " +
 			"continues interactively. On exit, the daemon resumes supervision " +
@@ -108,7 +106,7 @@ func newAttachCmd() *cobra.Command {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team attach: instance is required.")
 				return exitErr(2)
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			return runAttach(cmd, target, args[0], noResume, dryRun, commands, attachCommandOptions{
 				BaseArgs:   []string{"agent-team", "attach"},
 				TargetFlag: "--repo",
@@ -117,7 +115,6 @@ func newAttachCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&noResume, "no-resume", false, "Leave the instance in stopped state when the runtime exits (default: re-dispatch via the daemon).")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the interactive handoff without stopping or resuming the daemon child.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching attach or unmanaged fallback commands. agent-team follow-ups preserve the selected repo scope.")

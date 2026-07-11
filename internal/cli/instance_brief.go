@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/agent-team-project/agent-team/internal/daemon"
@@ -15,7 +14,6 @@ func newInstanceBriefCmd() *cobra.Command {
 		target  string
 		jsonOut bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "brief <name>",
 		Short: "Generate a recoverable catch-up brief for an instance.",
@@ -41,7 +39,6 @@ func newInstanceBriefCmd() *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the generated brief as structured JSON.")
 	return cmd
 }

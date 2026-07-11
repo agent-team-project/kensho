@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,7 +34,6 @@ func newUsageCmd() *cobra.Command {
 		by      string
 		jsonOut bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "usage",
 		Short: "Show runtime token usage rollups.",
@@ -72,7 +70,6 @@ func newUsageCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&since, "since", "", "Only include usage captured since a duration ago (for example 7d, 24h) or an RFC3339 timestamp.")
 	cmd.Flags().StringVar(&by, "by", string(usageByJob), "Group usage by job, instance, agent, runtime, or team.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit usage rollups as JSON.")

@@ -31,7 +31,7 @@ func TestIntakeLinearCreatesPipelineJob(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake linear: %v\nstderr=%s", err, stderr.String())
 	}
@@ -72,7 +72,7 @@ func TestIntakeLinearColumnTransitionDispatches(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake linear column: %v\nstderr=%s", err, stderr.String())
 	}
@@ -105,7 +105,7 @@ func TestIntakeLinearOtherColumnDoesNotDispatch(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake linear other column: %v\nstderr=%s", err, stderr.String())
 	}
@@ -134,7 +134,7 @@ func TestIntakeLinearSelfActorStatusChangeIgnored(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake linear self actor: %v\nstderr=%s", err, stderr.String())
 	}
@@ -174,7 +174,7 @@ func TestIntakeGitHubProjectStatusTransitionDispatches(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake github project status: %v\nstderr=%s", err, stderr.String())
 	}
@@ -207,7 +207,7 @@ func TestIntakeGitHubSelfActorStatusChangeIgnored(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake github self actor: %v\nstderr=%s", err, stderr.String())
 	}
@@ -268,7 +268,7 @@ repo = "widgets"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "community", "--target", target, "--submit-feedback", "--json"})
+	cmd.SetArgs([]string{"intake", "community", "--repo", target, "--submit-feedback", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake community: %v\nstderr=%s", err, stderr.String())
 	}
@@ -314,7 +314,7 @@ func TestIntakeLinearDryRunPreviewResolvesViewerAndIgnoresSelfActor(t *testing.T
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--dry-run", "--preview-triggers", "--json"})
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--dry-run", "--preview-triggers", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake linear self actor dry-run preview: %v\nstderr=%s", err, stderr.String())
 	}
@@ -343,7 +343,7 @@ func TestIntakeLinearColumnDispatchFailsClosedWithoutViewerID(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--dry-run", "--preview-triggers", "--json"})
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--dry-run", "--preview-triggers", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake linear unresolved viewer dry-run preview: %v\nstderr=%s", err, stderr.String())
 	}
@@ -368,7 +368,7 @@ func TestIntakeLinearReentryDefaultNoopForTerminalJob(t *testing.T) {
 	first := NewRootCmd()
 	first.SetOut(&bytes.Buffer{})
 	first.SetErr(&bytes.Buffer{})
-	first.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	first.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--json"})
 	if err := first.Execute(); err != nil {
 		t.Fatalf("first intake: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestIntakeLinearReentryDefaultNoopForTerminalJob(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	second.SetOut(out)
 	second.SetErr(stderr)
-	second.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	second.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--json"})
 	if err := second.Execute(); err != nil {
 		t.Fatalf("second intake: %v\nstderr=%s", err, stderr.String())
 	}
@@ -418,7 +418,7 @@ func TestIntakeLinearReentryRedispatchesTerminalJobWhenEnabled(t *testing.T) {
 	first := NewRootCmd()
 	first.SetOut(&bytes.Buffer{})
 	first.SetErr(&bytes.Buffer{})
-	first.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	first.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--json"})
 	if err := first.Execute(); err != nil {
 		t.Fatalf("first intake: %v", err)
 	}
@@ -440,7 +440,7 @@ func TestIntakeLinearReentryRedispatchesTerminalJobWhenEnabled(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	second.SetOut(out)
 	second.SetErr(stderr)
-	second.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--json"})
+	second.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--json"})
 	if err := second.Execute(); err != nil {
 		t.Fatalf("second intake: %v\nstderr=%s", err, stderr.String())
 	}
@@ -575,7 +575,7 @@ target = "manager"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--dry-run", "--preview-triggers", "--json"})
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--dry-run", "--preview-triggers", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake linear dry-run preview: %v\nstderr=%s", err, stderr.String())
 	}
@@ -606,7 +606,7 @@ target = "manager"
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textCmd.SetOut(textOut)
 	textCmd.SetErr(textErr)
-	textCmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--dry-run", "--preview-triggers"})
+	textCmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--dry-run", "--preview-triggers"})
 	if err := textCmd.Execute(); err != nil {
 		t.Fatalf("intake linear dry-run preview text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -650,7 +650,7 @@ target = "ticket-manager"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--target", target, "--dry-run", "--preview-triggers", "--json"})
+	cmd.SetArgs([]string{"intake", "linear", "--payload", payload, "--repo", target, "--dry-run", "--preview-triggers", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake linear normalized dry-run preview: %v\nstderr=%s", err, stderr.String())
 	}
@@ -760,7 +760,7 @@ func TestIntakeServeLinearPublishes(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "deliveries", "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "deliveries", "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake deliveries: %v\nstderr=%s", err, stderr.String())
 	}
@@ -843,7 +843,7 @@ func TestIntakeServeDryRunCommands(t *testing.T) {
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
-		"intake", "serve", "--target", target, "--dry-run", "--commands",
+		"intake", "serve", "--repo", target, "--dry-run", "--commands",
 		"--addr", "127.0.0.1:9999",
 		"--linear-max-age", "2m",
 		"--github-replay-window", "1h",
@@ -1439,7 +1439,7 @@ func TestIntakeDeliveriesFiltersAndFormat(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "deliveries", "--target", target, "--provider", "github", "--status", "error", "--request-id", "github-delivery-205", "--format", "{{.Provider}} {{.RequestID}} {{.Status}} {{.HTTPStatus}}"})
+	cmd.SetArgs([]string{"intake", "deliveries", "--repo", target, "--provider", "github", "--status", "error", "--request-id", "github-delivery-205", "--format", "{{.Provider}} {{.RequestID}} {{.Status}} {{.HTTPStatus}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake deliveries format: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1451,7 +1451,7 @@ func TestIntakeDeliveriesFiltersAndFormat(t *testing.T) {
 	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jsonCmd.SetOut(jsonOut)
 	jsonCmd.SetErr(jsonErr)
-	jsonCmd.SetArgs([]string{"intake", "deliveries", "--target", target, "--tail", "1", "--json"})
+	jsonCmd.SetArgs([]string{"intake", "deliveries", "--repo", target, "--tail", "1", "--json"})
 	if err := jsonCmd.Execute(); err != nil {
 		t.Fatalf("intake deliveries tail json: %v\nstderr=%s", err, jsonErr.String())
 	}
@@ -1470,7 +1470,7 @@ func TestIntakeDeliveriesFiltersAndFormat(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"intake", "deliveries", "--target", target, "--provider", "github", "--status", "error", "--request-id", "github-delivery-205", "--commands"})
+	commands.SetArgs([]string{"intake", "deliveries", "--repo", target, "--provider", "github", "--status", "error", "--request-id", "github-delivery-205", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("intake deliveries --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -1541,7 +1541,7 @@ func TestIntakeDeliveriesReplayFilters(t *testing.T) {
 	recoveredOut, recoveredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	recovered.SetOut(recoveredOut)
 	recovered.SetErr(recoveredErr)
-	recovered.SetArgs([]string{"intake", "deliveries", "--target", target, "--replay-status", "ok", "--json"})
+	recovered.SetArgs([]string{"intake", "deliveries", "--repo", target, "--replay-status", "ok", "--json"})
 	if err := recovered.Execute(); err != nil {
 		t.Fatalf("intake deliveries replay-status ok: %v\nstderr=%s", err, recoveredErr.String())
 	}
@@ -1557,7 +1557,7 @@ func TestIntakeDeliveriesReplayFilters(t *testing.T) {
 	unresolvedOut, unresolvedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	unresolved.SetOut(unresolvedOut)
 	unresolved.SetErr(unresolvedErr)
-	unresolved.SetArgs([]string{"intake", "deliveries", "--target", target, "--unresolved", "--json"})
+	unresolved.SetArgs([]string{"intake", "deliveries", "--repo", target, "--unresolved", "--json"})
 	if err := unresolved.Execute(); err != nil {
 		t.Fatalf("intake deliveries unresolved: %v\nstderr=%s", err, unresolvedErr.String())
 	}
@@ -1642,7 +1642,7 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "summary", "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "summary", "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake summary json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1671,7 +1671,7 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"intake", "summary", "--target", target})
+	text.SetArgs([]string{"intake", "summary", "--repo", target})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("intake summary text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1685,7 +1685,7 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"intake", "summary", "--target", target, "--commands"})
+	commands.SetArgs([]string{"intake", "summary", "--repo", target, "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("intake summary --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -1705,7 +1705,7 @@ func TestIntakeSummaryReportsRecoveryState(t *testing.T) {
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)
 	filtered.SetErr(filteredErr)
-	filtered.SetArgs([]string{"intake", "summary", "--target", target, "--provider", "github", "--request-id", "github-delivery-221", "--replay-status", "error", "--format", "{{.Deliveries}} {{.ReplayFailed}} {{.LatestErrorID}}"})
+	filtered.SetArgs([]string{"intake", "summary", "--repo", target, "--provider", "github", "--request-id", "github-delivery-221", "--replay-status", "error", "--format", "{{.Deliveries}} {{.ReplayFailed}} {{.LatestErrorID}}"})
 	if err := filtered.Execute(); err != nil {
 		t.Fatalf("intake summary format: %v\nstderr=%s", err, filteredErr.String())
 	}
@@ -1767,7 +1767,7 @@ func TestIntakeDuplicatesListsRequestGroups(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "duplicates", "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "duplicates", "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake duplicates json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1786,7 +1786,7 @@ func TestIntakeDuplicatesListsRequestGroups(t *testing.T) {
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	format.SetOut(formatOut)
 	format.SetErr(formatErr)
-	format.SetArgs([]string{"intake", "duplicates", "--target", target, "--provider", "github", "--request-id", "delivery-dup", "--format", "{{.Provider}} {{.RequestID}} {{.Count}} {{.FirstID}} {{.LastID}}"})
+	format.SetArgs([]string{"intake", "duplicates", "--repo", target, "--provider", "github", "--request-id", "delivery-dup", "--format", "{{.Provider}} {{.RequestID}} {{.Count}} {{.FirstID}} {{.LastID}}"})
 	if err := format.Execute(); err != nil {
 		t.Fatalf("intake duplicates format: %v\nstderr=%s", err, formatErr.String())
 	}
@@ -1798,7 +1798,7 @@ func TestIntakeDuplicatesListsRequestGroups(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"intake", "duplicates", "--target", target, "--commands"})
+	commands.SetArgs([]string{"intake", "duplicates", "--repo", target, "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("intake duplicates --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -1815,7 +1815,7 @@ func TestIntakeDuplicatesListsRequestGroups(t *testing.T) {
 	noneOut, noneErr := &bytes.Buffer{}, &bytes.Buffer{}
 	none.SetOut(noneOut)
 	none.SetErr(noneErr)
-	none.SetArgs([]string{"intake", "duplicates", "--target", target, "--provider", "linear"})
+	none.SetArgs([]string{"intake", "duplicates", "--repo", target, "--provider", "linear"})
 	if err := none.Execute(); err != nil {
 		t.Fatalf("intake duplicates empty: %v\nstderr=%s", err, noneErr.String())
 	}
@@ -1827,7 +1827,7 @@ func TestIntakeDuplicatesListsRequestGroups(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summaryCmd.SetOut(summaryOut)
 	summaryCmd.SetErr(summaryErr)
-	summaryCmd.SetArgs([]string{"intake", "summary", "--target", target, "--json"})
+	summaryCmd.SetArgs([]string{"intake", "summary", "--repo", target, "--json"})
 	if err := summaryCmd.Execute(); err != nil {
 		t.Fatalf("intake summary duplicate count: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -1902,7 +1902,7 @@ func TestIntakeDoctorReportsLedgerFindings(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "doctor", "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "doctor", "--repo", target, "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected intake doctor to fail on ledger problems")
@@ -1934,7 +1934,7 @@ func TestIntakeDoctorReportsLedgerFindings(t *testing.T) {
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	format.SetOut(formatOut)
 	format.SetErr(formatErr)
-	format.SetArgs([]string{"intake", "doctor", "--target", target, "--format", "{{.OK}} {{.Deliveries}} {{len .Problems}} {{len .Warnings}}"})
+	format.SetArgs([]string{"intake", "doctor", "--repo", target, "--format", "{{.OK}} {{.Deliveries}} {{len .Problems}} {{len .Warnings}}"})
 	if err := format.Execute(); err == nil {
 		t.Fatal("expected intake doctor format to fail on ledger problems")
 	}
@@ -1961,7 +1961,7 @@ func TestIntakeDoctorOKWithWarnings(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "doctor", "--target", target})
+	cmd.SetArgs([]string{"intake", "doctor", "--repo", target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake doctor warnings should not fail: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1976,7 +1976,7 @@ func TestIntakeDoctorOKWithWarnings(t *testing.T) {
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	format.SetOut(formatOut)
 	format.SetErr(formatErr)
-	format.SetArgs([]string{"intake", "doctor", "--target", target, "--format", "{{.OK}} {{.Summary.Unresolved}} {{len .Warnings}}"})
+	format.SetArgs([]string{"intake", "doctor", "--repo", target, "--format", "{{.OK}} {{.Summary.Unresolved}} {{len .Warnings}}"})
 	if err := format.Execute(); err != nil {
 		t.Fatalf("intake doctor format warnings should not fail: %v\nstderr=%s", err, formatErr.String())
 	}
@@ -2066,7 +2066,7 @@ func TestIntakePruneFiltersAndRewritesLedger(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"intake", "prune", "--target", target, "--older-than", "24h", "--dry-run", "--json"})
+	dry.SetArgs([]string{"intake", "prune", "--repo", target, "--older-than", "24h", "--dry-run", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("intake prune dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -2089,7 +2089,7 @@ func TestIntakePruneFiltersAndRewritesLedger(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"intake", "prune", "--target", target, "--older-than", "24h", "--dry-run", "--commands"})
+	commands.SetArgs([]string{"intake", "prune", "--repo", target, "--older-than", "24h", "--dry-run", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("intake prune dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -2115,7 +2115,7 @@ func TestIntakePruneFiltersAndRewritesLedger(t *testing.T) {
 	pruneOut, pruneErr := &bytes.Buffer{}, &bytes.Buffer{}
 	prune.SetOut(pruneOut)
 	prune.SetErr(pruneErr)
-	prune.SetArgs([]string{"intake", "prune", "--target", target, "--older-than", "24h", "--format", "{{.ID}} {{.Status}} {{.Dropped}}"})
+	prune.SetArgs([]string{"intake", "prune", "--repo", target, "--older-than", "24h", "--format", "{{.ID}} {{.Status}} {{.Dropped}}"})
 	if err := prune.Execute(); err != nil {
 		t.Fatalf("intake prune: %v\nstderr=%s", err, pruneErr.String())
 	}
@@ -2134,7 +2134,7 @@ func TestIntakePruneFiltersAndRewritesLedger(t *testing.T) {
 	errorOut, errorErr := &bytes.Buffer{}, &bytes.Buffer{}
 	errorPrune.SetOut(errorOut)
 	errorPrune.SetErr(errorErr)
-	errorPrune.SetArgs([]string{"intake", "prune", "--target", target, "--status", "error", "--older-than", "24h", "--json"})
+	errorPrune.SetArgs([]string{"intake", "prune", "--repo", target, "--status", "error", "--older-than", "24h", "--json"})
 	if err := errorPrune.Execute(); err != nil {
 		t.Fatalf("intake prune error: %v\nstderr=%s", err, errorErr.String())
 	}
@@ -2202,7 +2202,7 @@ func TestIntakePruneReplayStatus(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"intake", "prune", "--target", target, "--replay-status", "ok", "--dry-run", "--commands"})
+	commands.SetArgs([]string{"intake", "prune", "--repo", target, "--replay-status", "ok", "--dry-run", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("intake prune replay-status commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -2215,7 +2215,7 @@ func TestIntakePruneReplayStatus(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "prune", "--target", target, "--replay-status", "ok", "--json"})
+	cmd.SetArgs([]string{"intake", "prune", "--repo", target, "--replay-status", "ok", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake prune replay-status: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2275,7 +2275,7 @@ target = "manager"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "replay", "replay-preview", "--target", target, "--dry-run", "--preview-triggers", "--json"})
+	cmd.SetArgs([]string{"intake", "replay", "replay-preview", "--repo", target, "--dry-run", "--preview-triggers", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake replay dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2294,7 +2294,7 @@ target = "manager"
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	format.SetOut(formatOut)
 	format.SetErr(formatErr)
-	format.SetArgs([]string{"intake", "replay", "replay-preview", "--target", target, "--dry-run", "--preview-triggers", "--format", `{{.Event.Type}} {{index .Event.Payload "ticket"}} {{.DryRun}} {{len .Preview.Matched}}`})
+	format.SetArgs([]string{"intake", "replay", "replay-preview", "--repo", target, "--dry-run", "--preview-triggers", "--format", `{{.Event.Type}} {{index .Event.Payload "ticket"}} {{.DryRun}} {{len .Preview.Matched}}`})
 	if err := format.Execute(); err != nil {
 		t.Fatalf("intake replay dry-run format: %v\nstderr=%s", err, formatErr.String())
 	}
@@ -2306,7 +2306,7 @@ target = "manager"
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"intake", "replay", "replay-preview", "--target", target, "--dry-run", "--preview-triggers", "--commands"})
+	commands.SetArgs([]string{"intake", "replay", "replay-preview", "--repo", target, "--dry-run", "--preview-triggers", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("intake replay dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -2351,7 +2351,7 @@ func TestIntakeReplayPublishesDelivery(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "replay", "replay-publish", "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "replay", "replay-publish", "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake replay publish: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2444,7 +2444,7 @@ target = "manager"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "replay", "--all", "--target", target, "--provider", "linear", "--limit", "1", "--dry-run", "--preview-triggers", "--json"})
+	cmd.SetArgs([]string{"intake", "replay", "--all", "--repo", target, "--provider", "linear", "--limit", "1", "--dry-run", "--preview-triggers", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake replay all dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2467,7 +2467,7 @@ target = "manager"
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	format.SetOut(formatOut)
 	format.SetErr(formatErr)
-	format.SetArgs([]string{"intake", "replay", "--all", "--target", target, "--provider", "linear", "--limit", "1", "--dry-run", "--preview-triggers", "--format", "{{.DeliveryID}} {{.OK}} {{.DryRun}} {{len .Preview.Pipelines}}"})
+	format.SetArgs([]string{"intake", "replay", "--all", "--repo", target, "--provider", "linear", "--limit", "1", "--dry-run", "--preview-triggers", "--format", "{{.DeliveryID}} {{.OK}} {{.DryRun}} {{len .Preview.Pipelines}}"})
 	if err := format.Execute(); err != nil {
 		t.Fatalf("intake replay all dry-run format: %v\nstderr=%s", err, formatErr.String())
 	}
@@ -2479,7 +2479,7 @@ target = "manager"
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"intake", "replay", "--all", "--target", target, "--provider", "linear", "--status", "error", "--limit", "1", "--dedupe-request-id", "--dry-run", "--preview-triggers", "--commands"})
+	commands.SetArgs([]string{"intake", "replay", "--all", "--repo", target, "--provider", "linear", "--status", "error", "--limit", "1", "--dedupe-request-id", "--dry-run", "--preview-triggers", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("intake replay all dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -2541,7 +2541,7 @@ func TestIntakeReplayAllDedupeRequestID(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "replay", "--all", "--target", target, "--dedupe-request-id", "--dry-run", "--json"})
+	cmd.SetArgs([]string{"intake", "replay", "--all", "--repo", target, "--dedupe-request-id", "--dry-run", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake replay all dedupe dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2560,7 +2560,7 @@ func TestIntakeReplayAllDedupeRequestID(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"intake", "replay", "--all", "--target", target, "--dedupe-request-id", "--dry-run"})
+	text.SetArgs([]string{"intake", "replay", "--all", "--repo", target, "--dedupe-request-id", "--dry-run"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("intake replay all dedupe text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -2606,7 +2606,7 @@ func TestIntakeReplayAllPublishesDeliveries(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "replay", "--all", "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "replay", "--all", "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake replay all publish: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2648,7 +2648,7 @@ func TestIntakeReplayAllPublishesDeliveries(t *testing.T) {
 	againOut, againErr := &bytes.Buffer{}, &bytes.Buffer{}
 	replayAgain.SetOut(againOut)
 	replayAgain.SetErr(againErr)
-	replayAgain.SetArgs([]string{"intake", "replay", "--all", "--target", target, "--dry-run", "--json"})
+	replayAgain.SetArgs([]string{"intake", "replay", "--all", "--repo", target, "--dry-run", "--json"})
 	if err := replayAgain.Execute(); err != nil {
 		t.Fatalf("intake replay all after recovery: %v\nstderr=%s", err, againErr.String())
 	}
@@ -2801,7 +2801,7 @@ func TestIntakeDoctorWarnsDuplicateProviderRequestID(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "doctor", "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "doctor", "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake doctor duplicate request warning: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2830,7 +2830,7 @@ func TestIntakeDoctorWarnsDuplicateProviderRequestID(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"intake", "doctor", "--target", target})
+	text.SetArgs([]string{"intake", "doctor", "--repo", target})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("intake doctor duplicate text warning: %v\nstderr=%s", err, textErr.String())
 	}
@@ -2842,7 +2842,7 @@ func TestIntakeDoctorWarnsDuplicateProviderRequestID(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"intake", "doctor", "--target", target, "--commands"})
+	commands.SetArgs([]string{"intake", "doctor", "--repo", target, "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("intake doctor --commands duplicate warning: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -2961,7 +2961,7 @@ func TestIntakeGitHubReconcilesOwningJob(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--reconcile-job", "--json"})
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--repo", target, "--reconcile-job", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake github reconcile: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3015,7 +3015,7 @@ func TestIntakeGitHubPRCommentReconcilesOwningJob(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--reconcile-job", "--json"})
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--repo", target, "--reconcile-job", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake github pr comment reconcile: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3069,7 +3069,7 @@ func TestIntakeGitHubDryRunReconcileJobDoesNotMutate(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--dry-run", "--reconcile-job", "--json"})
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--repo", target, "--dry-run", "--reconcile-job", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake github dry-run reconcile: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3154,7 +3154,7 @@ gate = "pr"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--dry-run", "--reconcile-job", "--advance", "--json"})
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--repo", target, "--dry-run", "--reconcile-job", "--advance", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake github dry-run advance: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3183,7 +3183,7 @@ gate = "pr"
 	commands.SetArgs([]string{
 		"intake", "github",
 		"--payload", payload,
-		"--target", target,
+		"--repo", target,
 		"--dry-run",
 		"--reconcile-job",
 		"--advance",
@@ -3244,7 +3244,7 @@ func TestIntakeGitHubAdvanceWaitsForNextStepState(t *testing.T) {
 	cmd.SetArgs([]string{
 		"intake", "github",
 		"--payload", payload,
-		"--target", root,
+		"--repo", root,
 		"--reconcile-job",
 		"--advance",
 		"--workspace", "repo",
@@ -3287,7 +3287,7 @@ func TestIntakeGitHubReconcileDoesNotMutateWhenDaemonDown(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--reconcile-job", "--json"})
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--repo", target, "--reconcile-job", "--json"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatalf("intake github reconcile daemon-down succeeded unexpectedly: stdout=%s", out.String())
 	}
@@ -3407,7 +3407,7 @@ func TestIntakeGitHubVerifyPRDryRunPreview(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--target", target, "--reconcile-job", "--cleanup-merged", "--verify-pr", "--dry-run", "--json"})
+	cmd.SetArgs([]string{"intake", "github", "--payload", payload, "--repo", target, "--reconcile-job", "--cleanup-merged", "--verify-pr", "--dry-run", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake github verify dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3463,7 +3463,7 @@ func TestIntakeSchedulePublishesScheduleEvent(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "schedule", "nightly", "--payload", `{"workspace":"repo"}`, "--target", target, "--json"})
+	cmd.SetArgs([]string{"intake", "schedule", "nightly", "--payload", `{"workspace":"repo"}`, "--repo", target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake schedule: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3486,7 +3486,7 @@ func TestIntakeScheduleWaitsForPipelineJob(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"intake", "schedule", "nightly",
-		"--target", target,
+		"--repo", target,
 		"--payload", `{"ticket":"SQU-620"}`,
 		"--wait",
 		"--wait-next-state", "queued",
@@ -3615,7 +3615,7 @@ func TestIntakeScheduleDryRunPreviewTriggers(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"intake", "schedule", "nightly", "--payload", `{"workspace":"repo"}`, "--target", target, "--dry-run", "--preview-triggers", "--json"})
+	cmd.SetArgs([]string{"intake", "schedule", "nightly", "--payload", `{"workspace":"repo"}`, "--repo", target, "--dry-run", "--preview-triggers", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("intake schedule dry-run preview: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3643,7 +3643,7 @@ func TestIntakeScheduleDryRunPreviewTriggers(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textCmd.SetOut(textOut)
 	textCmd.SetErr(textErr)
-	textCmd.SetArgs([]string{"intake", "schedule", "nightly", "--payload", `{"workspace":"repo"}`, "--target", target, "--dry-run", "--preview-triggers"})
+	textCmd.SetArgs([]string{"intake", "schedule", "nightly", "--payload", `{"workspace":"repo"}`, "--repo", target, "--dry-run", "--preview-triggers"})
 	if err := textCmd.Execute(); err != nil {
 		t.Fatalf("intake schedule dry-run preview text: %v\nstderr=%s", err, textErr.String())
 	}

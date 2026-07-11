@@ -239,10 +239,9 @@ func newFeedbackListCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ls",
-		Aliases: []string{"list"},
-		Short:   "List local feedback items.",
-		Args:    cobra.NoArgs,
+		Use:   "ls",
+		Short: "List local feedback items.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			statusFilter, err := feedback.ParseStatusFilter(statusRaw)
 			if err != nil {

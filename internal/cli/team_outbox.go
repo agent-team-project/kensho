@@ -201,11 +201,10 @@ func newTeamOutboxRetryCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "retry <team> [id]",
-		Aliases: []string{"requeue"},
-		Short:   "Retry outbox events owned by one team.",
-		Long:    "Move one team-owned processed or failed outbox event back to pending by id, or retry a filtered team-owned batch with --all. Batch retries default to failed events.",
-		Args:    cobra.ArbitraryArgs,
+		Use:   "retry <team> [id]",
+		Short: "Retry outbox events owned by one team.",
+		Long:  "Move one team-owned processed or failed outbox event back to pending by id, or retry a filtered team-owned batch with --all. Batch retries default to failed events.",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && !dryRun {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team outbox retry: --commands requires --dry-run.")

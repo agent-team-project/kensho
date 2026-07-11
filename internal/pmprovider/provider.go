@@ -45,23 +45,12 @@ func LoadConfig(teamDir string) (Config, error) {
 		}
 		return Config{}, err
 	}
-	provider, source := ConfiguredProviderNameWithSource(cfg.PM.Provider, cfg.Team.PMTool)
+	provider := NormalizeProviderName(cfg.PM.Provider)
+	source := ""
+	if strings.TrimSpace(cfg.PM.Provider) != "" {
+		source = "pm.provider"
+	}
 	return Config{Provider: provider, Source: source}, nil
-}
-
-func ConfiguredProviderName(pmProvider, teamPMTool string) ProviderName {
-	name, _ := ConfiguredProviderNameWithSource(pmProvider, teamPMTool)
-	return name
-}
-
-func ConfiguredProviderNameWithSource(pmProvider, teamPMTool string) (ProviderName, string) {
-	if raw := strings.TrimSpace(pmProvider); raw != "" {
-		return NormalizeProviderName(raw), "pm.provider"
-	}
-	if raw := strings.TrimSpace(teamPMTool); raw != "" {
-		return NormalizeProviderName(raw), "team.pm_tool"
-	}
-	return ProviderNone, ""
 }
 
 func NormalizeProviderName(raw string) ProviderName {

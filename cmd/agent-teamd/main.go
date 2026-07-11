@@ -35,7 +35,7 @@ func main() {
 func run(argv []string) (err error) {
 	fs := flag.NewFlagSet("agent-teamd", flag.ContinueOnError)
 	cwd, _ := os.Getwd()
-	target := fs.String("target", cwd, "Repo root containing .agent_team/.")
+	repo := fs.String("repo", cwd, "Repo root containing .agent_team/.")
 	httpAddr := fs.String("http-addr", "", "Optional loopback HTTP listen address, e.g. 127.0.0.1:0.")
 	showVersion := fs.Bool("version", false, "Print version and exit.")
 	if err := fs.Parse(argv); err != nil {
@@ -46,9 +46,9 @@ func run(argv []string) (err error) {
 		return nil
 	}
 
-	abs, err := filepath.Abs(*target)
+	abs, err := filepath.Abs(*repo)
 	if err != nil {
-		return fmt.Errorf("resolve target: %w", err)
+		return fmt.Errorf("resolve repo: %w", err)
 	}
 	teamDir := filepath.Join(abs, ".agent_team")
 	st, err := os.Stat(teamDir)

@@ -443,9 +443,8 @@ func newJobRuntimeLsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ls <job-id>",
-		Aliases: []string{"list", "ps"},
-		Short:   "List daemon runtime metadata owned by one job.",
+		Use:   "ls <job-id>",
+		Short: "List daemon runtime metadata owned by one job.",
 		Long: "List raw daemon runtime metadata owned by one durable job. " +
 			"Pipeline jobs can own several stage instances; pass --step to focus one stage.",
 		Args: cobra.ExactArgs(1),
@@ -695,9 +694,8 @@ func newJobStatsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "stats <job-id>",
-		Aliases: []string{"top"},
-		Short:   "Show CPU and memory usage for a job's instances.",
+		Use:   "stats <job-id>",
+		Short: "Show CPU and memory usage for a job's instances.",
 		Long: "Show a one-shot or watchable resource snapshot for daemon-known instances owned by one durable job. " +
 			"Pipeline jobs can own several stage instances; pass --step to focus one stage. With no filters, only running job-owned instances are shown.",
 		Args: cobra.ExactArgs(1),
@@ -829,9 +827,8 @@ func newJobAttachCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "attach <job-id>",
-		Aliases: []string{"exec"},
-		Short:   "Attach to a job's owning instance.",
+		Use:   "attach <job-id>",
+		Short: "Attach to a job's owning instance.",
 		Long: "Attach to the instance recorded on a durable job. By default this opens " +
 			"the owning instance with the normal interactive attach flow. Passing log " +
 			"options such as --tail, --no-follow, --since, or --grep follows the daemon-captured log stream instead.",

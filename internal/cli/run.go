@@ -53,7 +53,6 @@ type runConfig struct {
 
 func newRunCmd() *cobra.Command {
 	var cfg runConfig
-	cwd, _ := os.Getwd()
 
 	cmd := &cobra.Command{
 		Use:   "run <agent> [-- <runtime-args>...]",
@@ -77,7 +76,6 @@ func newRunCmd() *cobra.Command {
 			return runAgent(cmd, cfg, args[0], args[1:])
 		},
 	}
-	cmd.Flags().StringVar(&cfg.target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVarP(&cfg.name, "name", "n", "", "Instance name (defaults to the agent name). State dir: .agent_team/state/<name>/.")
 	cmd.Flags().StringVarP(&cfg.prompt, "prompt", "p", "", "Kickoff message. With this, the runtime runs in one-shot mode when supported; without, interactive.")
 	cmd.Flags().StringVar(&cfg.promptFile, "prompt-file", "", "Read kickoff message from a file, or '-' for stdin.")
@@ -342,7 +340,6 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	}
 	teamEnv = append(teamEnv, daemon.DaemonTokenFileEnv+"="+tokenFile)
 	authorityAllow, authorityEnforce := topologyAuthorityAllowlistForInstance(teamDir, instance, agentName)
-	teamEnv = runtimeshim.WithAuthorityAllowlist(teamEnv, authorityAllow)
 	if daemonURL := daemonURLForRuntimeEnv(teamDir); daemonURL != "" {
 		teamEnv = append(teamEnv, "AGENT_TEAM_DAEMON_URL="+daemonURL)
 	}
@@ -451,7 +448,7 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	if launch.Persistent {
 		shimRoot = stateDir
 	}
-	shimBinDir, err := runtimeshim.InstallWithOptions(shimRoot, skillPaths, runtimeshim.Options{
+	shimBinDir, err := runtimeshim.Install(shimRoot, skillPaths, runtimeshim.Options{
 		EnforceAuthority:   authorityEnforce,
 		AuthorityAllowlist: authorityAllow,
 	})

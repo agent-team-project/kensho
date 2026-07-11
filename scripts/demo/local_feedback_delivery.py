@@ -52,7 +52,7 @@ def main(argv: list[str]) -> int:
         write_target_topology(target)
 
         step("start target daemon")
-        run(binary, "daemon", "start", "--target", target, "--ready-timeout", "5s", "--json", env=env)
+        run(binary, "daemon", "start", "--repo", target, "--ready-timeout", "5s", "--json", env=env)
 
         step("submit source incident feedback to local target route")
         submit_env = env | {
@@ -90,7 +90,7 @@ def main(argv: list[str]) -> int:
         print(f"demo failed: {exc}", file=sys.stderr)
         return 1
     finally:
-        subprocess.run([str(binary), "daemon", "stop", "--target", str(target), "--quiet"], env=env, check=False)
+        subprocess.run([str(binary), "daemon", "stop", "--repo", str(target), "--quiet"], env=env, check=False)
         if args.keep:
             print(f"kept demo root: {root}")
         else:
@@ -114,8 +114,8 @@ def write_repo(root: Path, project_id: str) -> None:
             [pm]
             provider = "none"
 
-            [team]
-            pm_tool = "none"
+            [pm]
+            provider = "none"
 
             [runtime]
             kind = "codex"

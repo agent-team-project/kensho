@@ -45,7 +45,7 @@ func TestInboxRuntimeShimPromptPathCheckAndAckAreOrdered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin, err := InstallWithOptions(filepath.Join(tmp, "runtime"), map[string]string{"inbox": skillDir}, Options{})
+	bin, err := Install(filepath.Join(tmp, "runtime"), map[string]string{"inbox": skillDir}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,28 +248,22 @@ func TestAgentTeamShimDeniesKnownVerbOutsideAllowlist(t *testing.T) {
 	}
 }
 
-// TestAgentTeamShimBakedAllowlistIgnoresHostileEnv is the core tamper-resistance
+// TestAgentTeamShimBakedAllowlistIgnoresLaunchEnv is the core tamper-resistance
 // guarantee: the enforced allowlist is baked into the generated script and never
-// read from the environment. An agent cannot widen its own authority by setting
-// AGENT_TEAM_AUTHORITY_ALLOWLIST=*, grant itself the exact verb, or reach a
-// pass-through branch by unsetting the variable.
-func TestAgentTeamShimBakedAllowlistIgnoresHostileEnv(t *testing.T) {
+// derived from caller-controlled launch environment.
+func TestAgentTeamShimBakedAllowlistIgnoresLaunchEnv(t *testing.T) {
 	shim, _, calls := installEnforcingShim(t, []string{"job.gate.*:own"})
 
-	for _, hostile := range [][]string{
-		{EnvAuthorityAllowlist + "=*"},         // try to self-widen
-		{EnvAuthorityAllowlist + "=job.merge"}, // try to grant the exact verb
-		{},                                     // unset entirely (env -u)
-	} {
-		env := append([]string{"PATH=" + os.Getenv("PATH")}, hostile...)
+	for _, launchEnv := range [][]string{{"UNRELATED_AUTHORITY_HINT=*"}, {}} {
+		env := append([]string{"PATH=" + os.Getenv("PATH")}, launchEnv...)
 		cmd := exec.Command(shim, "job", "merge", "squ-1")
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err == nil {
-			t.Fatalf("hostile env %v bypassed enforcement: out=%s", hostile, out)
+			t.Fatalf("launch env %v bypassed enforcement: out=%s", launchEnv, out)
 		}
 		if !strings.Contains(string(out), "denied verb job.merge") {
-			t.Fatalf("hostile env %v: out=%q, want denial", hostile, out)
+			t.Fatalf("launch env %v: out=%q, want denial", launchEnv, out)
 		}
 	}
 	if _, err := os.Stat(calls); !errors.Is(err, os.ErrNotExist) {
@@ -344,20 +338,6 @@ func TestAgentTeamShimDoesNotAffectDirectBinaryInvocation(t *testing.T) {
 	}
 }
 
-func TestWithAuthorityAllowlistAddsAndPreservesEnv(t *testing.T) {
-	t.Setenv(EnvAuthorityAllowlist, "")
-
-	got := WithAuthorityAllowlist([]string{"AGENT_TEAM_INSTANCE=worker"}, []string{"job.gate.*:own", "", "job.gate.*:own", "feedback.submit"})
-	if !containsString(got, EnvAuthorityAllowlist+"=feedback.submit,job.gate.*:own") {
-		t.Fatalf("env = %#v, want sorted deduped allowlist", got)
-	}
-
-	got = WithAuthorityAllowlist([]string{EnvAuthorityAllowlist + "=existing"}, []string{"job.merge"})
-	if len(got) != 1 || got[0] != EnvAuthorityAllowlist+"=existing" {
-		t.Fatalf("preserved env = %#v", got)
-	}
-}
-
 // installTestAgentTeamShim installs a pass-through shim (no authority declared).
 func installTestAgentTeamShim(t *testing.T) (string, string, string) {
 	t.Helper()
@@ -387,7 +367,7 @@ func installShim(t *testing.T, opts Options) (string, string, string) {
 		t.Fatal(err)
 	}
 	opts.RealAgentTeam = real
-	bin, err := InstallWithOptions(filepath.Join(tmp, "runtime"), nil, opts)
+	bin, err := Install(filepath.Join(tmp, "runtime"), nil, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -85,7 +85,6 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 		jsonOut      bool
 		format       string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "deliveries",
 		Short: "List recent intake server deliveries.",
@@ -147,10 +146,9 @@ func newIntakeDeliveriesCmd() *cobra.Command {
 			})
 			deliveries = tailIntakeDeliveries(deliveries, tailLines)
 			deliveries = withIntakeDeliveryActions(deliveries)
-			return renderIntakeDeliveries(cmd.OutOrStdout(), deliveries, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, "target"))
+			return renderIntakeDeliveries(cmd.OutOrStdout(), deliveries, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&provider, "provider", "", "Only show deliveries for a provider: linear or github.")
 	cmd.Flags().StringVar(&status, "status", "", "Only show deliveries with a status: ok or error.")
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only show deliveries with replay status: ok, error, none, or any.")
@@ -172,7 +170,6 @@ func newIntakeDuplicatesCmd() *cobra.Command {
 		jsonOut   bool
 		format    string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "duplicates",
 		Short: "List duplicate provider request ids in the delivery ledger.",
@@ -211,10 +208,9 @@ func newIntakeDuplicatesCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			rows := duplicateIntakeRequestIDs(deliveries, provider, requestID)
-			return renderIntakeDuplicates(cmd.OutOrStdout(), rows, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, "target"))
+			return renderIntakeDuplicates(cmd.OutOrStdout(), rows, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&provider, "provider", "", "Only show duplicate request ids for a provider: linear or github.")
 	cmd.Flags().StringVar(&requestID, "request-id", "", "Only show this provider request id.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line.")
@@ -237,7 +233,6 @@ func newIntakeReplayCmd() *cobra.Command {
 		jsonOut       bool
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "replay [delivery-id]",
 		Short: "Replay a recorded normalized intake delivery.",
@@ -374,7 +369,6 @@ func newIntakeReplayCmd() *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Replay all matching recorded deliveries.")
 	cmd.Flags().StringVar(&provider, "provider", "", "With --all, only replay deliveries for a provider: linear or github.")
 	cmd.Flags().StringVar(&status, "status", intakeDeliveryStatusError, "With --all, delivery status to replay: ok, error, or all. error skips recovered replays.")
@@ -462,7 +456,6 @@ func newIntakeSummaryCmd() *cobra.Command {
 		jsonOut      bool
 		format       string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "summary",
 		Short: "Summarize recorded intake deliveries.",
@@ -519,10 +512,9 @@ func newIntakeSummaryCmd() *cobra.Command {
 				Unresolved:   unresolved,
 			})
 			summary := summarizeIntakeDeliveries(deliveries)
-			return renderIntakeSummary(cmd.OutOrStdout(), summary, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, "target"))
+			return renderIntakeSummary(cmd.OutOrStdout(), summary, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&provider, "provider", "", "Only summarize deliveries for a provider: linear or github.")
 	cmd.Flags().StringVar(&status, "status", "", "Only summarize deliveries with a status: ok or error.")
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only summarize deliveries with replay status: ok, error, none, or any.")
@@ -545,7 +537,6 @@ func newIntakePruneCmd() *cobra.Command {
 		jsonOut      bool
 		format       string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "prune",
 		Short: "Prune recorded intake deliveries.",
@@ -618,7 +609,6 @@ func newIntakePruneCmd() *cobra.Command {
 			return renderIntakePruneResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&status, "status", intakeDeliveryStatusOK, "Delivery status to prune: ok, error, or all.")
 	cmd.Flags().StringVar(&replayStatus, "replay-status", "", "Only prune deliveries with replay status: ok, error, none, or any. Defaults --status to all when set.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune deliveries older than this duration.")
@@ -1600,7 +1590,7 @@ func appendIntakeRepoArgs(args []string, repoFlag, repo string, repoSet bool) []
 	}
 	flag := strings.TrimSpace(repoFlag)
 	if flag == "" {
-		flag = "target"
+		flag = rootRepoFlagName
 	}
 	return append(args, "--"+flag, repo)
 }
@@ -1612,7 +1602,7 @@ func intakeCommandRepoSet(cmd *cobra.Command) bool {
 	if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
 		return true
 	}
-	return cmd.Flags().Changed("target")
+	return cmd.Flags().Changed(rootRepoFlagName)
 }
 
 func intakeCommandRepoFlag(cmd *cobra.Command) string {

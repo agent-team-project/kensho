@@ -23,9 +23,8 @@ import (
 
 func newOutboxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "outbox",
-		Aliases: []string{"outboxes"},
-		Short:   "Inspect and control sandboxed agent outbox events.",
+		Use:   "outbox",
+		Short: "Inspect and control sandboxed agent outbox events.",
 		Long: "Inspect and control sandboxed agent outbox events under `.agent_team/outbox/`.\n\n" +
 			"Agents write outbox events when daemon socket or loopback HTTP transport is unavailable. " +
 			"`agent-team tick`, `agent-team drain`, and `agent-team outbox drain` publish pending events through the daemon resolver.",
@@ -70,16 +69,11 @@ func newOutboxLsCmd() *cobra.Command {
 		format      string
 		interval    time.Duration
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ls",
-		Aliases: []string{"watch"},
-		Short:   "List sandboxed agent outbox events.",
-		Args:    cobra.NoArgs,
+		Use:   "ls",
+		Short: "List sandboxed agent outbox events.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.CalledAs() == "watch" {
-				watch = true
-			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox ls: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -147,12 +141,11 @@ func newOutboxLsCmd() *cobra.Command {
 				return renderOutboxSummary(cmd.OutOrStdout(), teamDir, filters, jsonOut)
 			}
 			if commands {
-				return runOutboxListCommands(cmd.OutOrStdout(), teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, nil, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return runOutboxListCommands(cmd.OutOrStdout(), teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, nil, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return runOutboxList(cmd.OutOrStdout(), teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by outbox state: pending, processed, or failed.")
 	cmd.Flags().StringSliceVar(&types, "type", nil, "Filter by event type; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&sources, "source", nil, "Filter by source agent/instance; repeat or comma-separate values.")
@@ -176,7 +169,6 @@ func newOutboxShowCmd() *cobra.Command {
 		format   string
 		commands bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "show <id>",
 		Short: "Show one outbox event.",
@@ -208,12 +200,11 @@ func newOutboxShowCmd() *cobra.Command {
 				return outboxReadError(args[0], err)
 			}
 			if commands {
-				return renderOutboxItemCommands(cmd.OutOrStdout(), item, nil, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderOutboxItemCommands(cmd.OutOrStdout(), item, nil, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return renderOutboxItemResult(cmd.OutOrStdout(), item, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the outbox item as JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the outbox item with a Go template, e.g. '{{.ID}} {{.State}}'.")
@@ -228,7 +219,6 @@ func newOutboxDrainCmd() *cobra.Command {
 		jsonOut  bool
 		format   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "drain",
 		Short: "Ask the running daemon to publish pending outbox events.",
@@ -259,7 +249,7 @@ func newOutboxDrainCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			dc, err := newDaemonClient(teamDir)
 			if err != nil {
 				if dryRun && errors.Is(err, errDaemonNotRunning) {
@@ -291,7 +281,6 @@ func newOutboxDrainCmd() *cobra.Command {
 			return renderOutboxDrainCommandResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview pending outbox events without publishing them.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drain command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
@@ -314,13 +303,11 @@ func newOutboxRetryCmd() *cobra.Command {
 		sortBy      string
 		limit       int
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "retry [id]",
-		Aliases: []string{"requeue"},
-		Short:   "Retry one or more processed or failed outbox events.",
-		Long:    "Move one processed or failed outbox event back to pending by id, or retry a filtered batch with --all. Batch retries default to failed events.",
-		Args:    cobra.ArbitraryArgs,
+		Use:   "retry [id]",
+		Short: "Retry one or more processed or failed outbox events.",
+		Long:  "Move one processed or failed outbox event back to pending by id, or retry a filtered batch with --all. Batch retries default to failed events.",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && !dryRun {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox retry: --commands requires --dry-run.")
@@ -370,7 +357,7 @@ func newOutboxRetryCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 				if commands {
 					results, err := outboxRetryAllResults(teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, true)
 					if err != nil {
@@ -405,7 +392,7 @@ func newOutboxRetryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if commands {
 				if _, err := daemon.ReadOutboxItem(teamDir, args[0]); err != nil {
 					return outboxReadError(args[0], err)
@@ -423,7 +410,6 @@ func newOutboxRetryCmd() *cobra.Command {
 			return renderOutboxActionResults(cmd.OutOrStdout(), []outboxActionResult{result}, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&retryAll, "all", false, "Retry all matching outbox events instead of one id.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the retry without moving the event.")
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by outbox state: pending, processed, or failed. Defaults to failed.")
@@ -453,7 +439,6 @@ func newOutboxDropCmd() *cobra.Command {
 		sortBy      string
 		limit       int
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "drop [id]",
 		Short: "Drop one or more outbox events.",
@@ -508,7 +493,7 @@ func newOutboxDropCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 				if commands {
 					results, err := outboxDropAllResults(teamDir, filters, outboxListOptions{Sort: sortMode, Limit: limit}, true)
 					if err != nil {
@@ -543,7 +528,7 @@ func newOutboxDropCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if commands {
 				if _, err := daemon.ReadOutboxItem(teamDir, args[0]); err != nil {
 					return outboxReadError(args[0], err)
@@ -561,7 +546,6 @@ func newOutboxDropCmd() *cobra.Command {
 			return renderOutboxActionResults(cmd.OutOrStdout(), []outboxActionResult{result}, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching outbox events instead of one id.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the drop without removing the event.")
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by outbox state: pending, processed, or failed. Defaults to failed.")
@@ -590,7 +574,6 @@ func newOutboxPruneCmd() *cobra.Command {
 		jobs      []string
 		limit     int
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "prune",
 		Short: "Prune old sandboxed agent outbox events.",
@@ -640,7 +623,7 @@ func newOutboxPruneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if commands {
 				results, err := pruneOutboxItems(teamDir, state, olderThan, time.Now().UTC(), true, filters, limit)
 				if err != nil {
@@ -667,7 +650,6 @@ func newOutboxPruneCmd() *cobra.Command {
 			return renderOutboxPruneResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&stateFlag, "state", daemon.OutboxStateProcessed, "Outbox state to prune: processed, failed, pending, or all.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune items older than this duration based on processed/failed/update/create time.")
 	cmd.Flags().StringSliceVar(&types, "type", nil, "Filter by event type before pruning; repeat or comma-separate values.")

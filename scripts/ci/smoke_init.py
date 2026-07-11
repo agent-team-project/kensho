@@ -125,8 +125,6 @@ def main(argv: list[str]) -> int:
         ticketless_cfg_text = (ticketless_target / ".agent_team" / "config.toml").read_text()
         if 'provider = "none"' not in ticketless_cfg_text:
             problems.append(f"ticketless init did not default pm.provider to none: {ticketless_cfg_text}")
-        if 'pm_tool = "none"' not in ticketless_cfg_text:
-            problems.append(f"ticketless init did not default pm_tool to none: {ticketless_cfg_text}")
         if 'team_id = ""' not in ticketless_cfg_text or 'ticket_prefix = ""' not in ticketless_cfg_text:
             problems.append(f"ticketless init missing empty Linear placeholders: {ticketless_cfg_text}")
         if 'profile = "slim"' not in ticketless_cfg_text:
@@ -149,7 +147,7 @@ def main(argv: list[str]) -> int:
             problems.append(f"ticketless Linear helper did not fail clearly: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
         r = subprocess.run(
-            [str(binary), "doctor", "--strict-daemon", "--target", str(ticketless_target)],
+            [str(binary), "doctor", "--strict-daemon", "--repo", str(ticketless_target)],
             capture_output=True,
             text=True,
         )
@@ -179,8 +177,6 @@ def main(argv: list[str]) -> int:
         cfg_text = (target / ".agent_team" / "config.toml").read_text()
         if 'provider = "linear"' not in cfg_text:
             problems.append(f"--set linear.* did not set pm.provider=linear in config.toml: {cfg_text}")
-        if 'pm_tool = "linear"' not in cfg_text:
-            problems.append(f"--set linear.* did not set legacy team.pm_tool=linear in config.toml: {cfg_text}")
         if 'team_id = "smoke-team-uuid"' not in cfg_text:
             problems.append(f"--set linear.team_id missing from config.toml: {cfg_text}")
         if 'ticket_prefix = "SMK"' not in cfg_text:
@@ -275,7 +271,7 @@ def main(argv: list[str]) -> int:
         # --- --no-input fails clearly when Linear mode is selected but required params are missing ---
         with tempfile.TemporaryDirectory() as tmp2:
             r = subprocess.run(
-                [str(binary), "init", "--target", tmp2, "--set", "team.pm_tool=linear", "--no-input"],
+                [str(binary), "init", "--target", tmp2, "--set", "pm.provider=linear", "--no-input"],
                 capture_output=True, text=True,
             )
             if r.returncode == 0:
@@ -309,7 +305,7 @@ def main(argv: list[str]) -> int:
         # required keys; rewrite a valid one for this check.
         cfg_path.write_text(cfg_text)
         r = subprocess.run(
-            [str(binary), "doctor", "--strict-daemon", "--target", str(target)],
+            [str(binary), "doctor", "--strict-daemon", "--repo", str(target)],
             capture_output=True, text=True,
         )
         if r.returncode != 0:
@@ -317,7 +313,7 @@ def main(argv: list[str]) -> int:
 
         # --- upgrade --check compares .template.lock to the bundled ref ---
         r = subprocess.run(
-            [str(binary), "upgrade", "--check", "--target", str(target)],
+            [str(binary), "upgrade", "--check", "--repo", str(target)],
             capture_output=True, text=True,
         )
         if r.returncode != 0:
@@ -345,7 +341,7 @@ def main(argv: list[str]) -> int:
 def check_bundled_topology_canary(binary: Path, target: Path, problems: list[str]) -> None:
     """Single smoke canary for the bundled template's current topology shape."""
     r = subprocess.run(
-        [str(binary), "plan", "--summary", "--json", "--target", str(target)],
+        [str(binary), "plan", "--summary", "--json", "--repo", str(target)],
         capture_output=True,
         text=True,
     )
@@ -523,9 +519,6 @@ def check_helper_env_loading(target: Path, problems: list[str]) -> None:
     github_cfg = """
 [pm]
 provider = "github"
-
-[team]
-pm_tool = "github"
 
 [github]
 owner = "smoke-owner"
@@ -812,10 +805,10 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
     r = run_captured(
         [str(binary), "--help"],
     )
-    if r.returncode != 0 or "Docker-like shortcuts:" not in r.stdout:
-        problems.append(f"root help missing shortcuts: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
-    elif any(text not in r.stdout for text in ("agent-team up", "agent-team down", "agent-team ls", "agent-team top")):
-        problems.append(f"root help missing shortcut entries: stdout={r.stdout}\nstderr={r.stderr}")
+    if r.returncode != 0:
+        problems.append(f"root help failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
+    elif "Docker-like shortcuts:" in r.stdout:
+        problems.append(f"root help still exposes removed command aliases: stdout={r.stdout}\nstderr={r.stderr}")
 
     # init the smoke target under /tmp so the unix-socket path is short.
     run([
@@ -836,13 +829,13 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
     pid = team_dir / "daemon.pid"
 
     r = run_captured(
-        [str(binary), "daemon", "status", "--target", str(socket_dir)],
+        [str(binary), "daemon", "status", "--repo", str(socket_dir)],
     )
     if "not running" not in r.stdout:
         problems.append(f"daemon status before start: {r.stdout!r}")
 
     r = run_captured(
-        [str(binary), "daemon", "start", "--json", "--ready-timeout", "5s", "--target", str(socket_dir)],
+        [str(binary), "daemon", "start", "--json", "--ready-timeout", "5s", "--repo", str(socket_dir)],
         env=env,
     )
     daemon_start_body = parse_json_result(r, problems, "daemon start --json returned invalid JSON", {})
@@ -858,7 +851,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
     ):
         problems.append(f"daemon start --json failed: rc={r.returncode}\nbody={daemon_start_body}\nstdout={r.stdout}\nstderr={r.stderr}")
     r = run_captured(
-        [str(binary), "daemon", "status", "--wait", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "daemon", "status", "--wait", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
     )
     direct_daemon_status = parse_json_result(
         r,
@@ -872,23 +865,23 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
             f"rc={r.returncode}\nstatus={direct_daemon_status}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = run_captured(
-        [str(binary), "daemon", "status", "--format", "{{.Running}}:{{.Ready}}:{{.Instances}}", "--target", str(socket_dir)],
+        [str(binary), "daemon", "status", "--format", "{{.Running}}:{{.Ready}}:{{.Instances}}", "--repo", str(socket_dir)],
     )
     if r.returncode != 0 or r.stdout.strip() != "true:true:0":
         problems.append(f"daemon status --format after daemon start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
     r = run_captured(
-        [str(binary), "daemon", "start", "--format", "{{.Action}}:{{.Changed}}:{{.AlreadyRunning}}:{{.Status.Ready}}", "--target", str(socket_dir)],
+        [str(binary), "daemon", "start", "--format", "{{.Action}}:{{.Changed}}:{{.AlreadyRunning}}:{{.Status.Ready}}", "--repo", str(socket_dir)],
         env=env,
     )
     if r.returncode != 0 or r.stdout.strip() != "start:false:true:true":
         problems.append(f"daemon start --format already-running probe failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
     r = run_captured(
-        [str(binary), "daemon", "status", "--quiet", "--target", str(socket_dir)],
+        [str(binary), "daemon", "status", "--quiet", "--repo", str(socket_dir)],
     )
     if r.returncode != 0 or r.stdout or r.stderr:
         problems.append(f"daemon status --quiet after daemon start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
     r = run_captured(
-        [str(binary), "daemon", "stop", "--json", "--target", str(socket_dir)],
+        [str(binary), "daemon", "stop", "--json", "--repo", str(socket_dir)],
     )
     daemon_stop_body = parse_json_result(
         r,
@@ -907,7 +900,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
     ):
         problems.append(f"daemon stop --json after direct daemon start failed: rc={r.returncode}\nbody={daemon_stop_body}\nstdout={r.stdout}\nstderr={r.stderr}")
     r = run_captured(
-        [str(binary), "daemon", "status", "--wait", "--down", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "daemon", "status", "--wait", "--down", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
     )
     stopped_daemon_status = parse_json_result(
         r,
@@ -923,13 +916,13 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
     if pid.exists() or sock.exists():
         problems.append(f"daemon runtime files lingered after direct daemon stop: pid={pid.exists()} sock={sock.exists()}")
     r = run_captured(
-        [str(binary), "daemon", "stop", "--format", "{{.Action}}:{{.Changed}}:{{.Message}}:{{.Status.Running}}", "--target", str(socket_dir)],
+        [str(binary), "daemon", "stop", "--format", "{{.Action}}:{{.Changed}}:{{.Message}}:{{.Status.Running}}", "--repo", str(socket_dir)],
     )
     if r.returncode != 0 or r.stdout.strip() != "stop:false:not running:false":
         problems.append(f"daemon stop --format already-stopped probe failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = run_captured(
-        [str(binary), "start", "--dry-run", "--json", "--target", str(socket_dir)],
+        [str(binary), "start", "--dry-run", "--json", "--repo", str(socket_dir)],
         env=env,
     )
     dry_start_rows = parse_json_result(r, problems, "start --dry-run --json before daemon returned invalid JSON", [])
@@ -949,7 +942,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         problems.append(f"start --dry-run created daemon runtime files: sock={sock.exists()} pid={pid.exists()}")
 
     r = subprocess.run(
-        [str(binary), "plan", "--json", "--target", str(socket_dir)],
+        [str(binary), "plan", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -973,7 +966,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         problems.append(f"plan --json before start missing on-demand rows: {plan_before_start}")
 
     r = subprocess.run(
-        [str(binary), "plan", "--format", "{{.Instance}}:{{.Action}}", "--agent", "manager", "--status", "unknown", "--target", str(socket_dir)],
+        [str(binary), "plan", "--format", "{{.Instance}}:{{.Action}}", "--agent", "manager", "--status", "unknown", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_plan_rows = [line.strip() for line in r.stdout.splitlines() if line.strip()]
@@ -987,7 +980,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         encoding="utf-8",
     )
     r = subprocess.run(
-        [str(binary), "plan", "--json", "--phase", "blocked", "--target", str(socket_dir)],
+        [str(binary), "plan", "--json", "--phase", "blocked", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1004,7 +997,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         problems.append(f"plan --phase blocked returned unexpected worker row: {phase_plan_before_start}")
 
     r = subprocess.run(
-        [str(binary), "plan", "--format", "{{.Instance}}:{{.Action}}", "--action", "on_demand", "--target", str(socket_dir)],
+        [str(binary), "plan", "--format", "{{.Instance}}:{{.Action}}", "--action", "on_demand", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_action_plan_rows = [line.strip() for line in r.stdout.splitlines() if line.strip()]
@@ -1012,7 +1005,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         problems.append(f"plan --action on_demand before start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "sync", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--target", str(socket_dir)],
+        [str(binary), "sync", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_sync_dry_run_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -1035,7 +1028,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
             "--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
             "--agent", "manager",
             "--status", "unknown",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1049,7 +1042,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
             "--dry-run",
             "--format", "{{.Instance}}:{{.Action}}:{{.Phase}}",
             "--phase", "blocked",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1064,7 +1057,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
             "--format", "{{.Instance}}:{{.Action}}",
             "--agent", "manager",
             "--action", "start",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1077,7 +1070,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
             str(binary), "plan",
             "--json",
             "--instance", "manager",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1101,7 +1094,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
             "--json",
             "--agent", "manager",
             "--status", "unknown",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1120,7 +1113,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         problems.append(f"filtered plan --json before start returned unexpected rows: {filtered_plan_before_start}")
 
     r = subprocess.run(
-        [str(binary), "start", "--wait", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "start", "--wait", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True, env=env,
     )
     try:
@@ -1147,7 +1140,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         problems.append(f"daemon pidfile missing after start: {pid}")
 
     r = subprocess.run(
-        [str(binary), "daemon", "status", "--json", "--target", str(socket_dir)],
+        [str(binary), "daemon", "status", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1168,7 +1161,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         )
 
     r = subprocess.run(
-        [str(binary), "start", "--dry-run", "--json", "--target", str(socket_dir)],
+        [str(binary), "start", "--dry-run", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True, env=env,
     )
     try:
@@ -1189,7 +1182,7 @@ def _check_daemon_startup_and_planning(ctx: DaemonSmokeContext, problems: list[s
         problems.append(f"start --dry-run with daemon returned unexpected rows: {running_dry_start_rows}")
 
     r = subprocess.run(
-        [str(binary), "plan", "--json", "--target", str(socket_dir)],
+        [str(binary), "plan", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1226,28 +1219,28 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
     with daemon_log.open("a", encoding="utf-8") as f:
         f.write("smoke daemon log sentinel\n")
     r = subprocess.run(
-        [str(binary), "logs", "--daemon", "--tail", "1", "--target", str(socket_dir)],
+        [str(binary), "logs", "--daemon", "--tail", "1", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout != "smoke daemon log sentinel\n":
         problems.append(f"logs --daemon failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "logs", "--daemon", "--tail", "all", "--target", str(socket_dir)],
+        [str(binary), "logs", "--daemon", "--tail", "all", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "smoke daemon log sentinel\n" not in r.stdout:
         problems.append(f"logs --daemon --tail all failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "daemon", "logs", "--tail", "1", "--target", str(socket_dir)],
+        [str(binary), "daemon", "logs", "--tail", "1", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout != "smoke daemon log sentinel\n":
         problems.append(f"daemon logs alias failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "daemon", "logs", "--tail", "all", "--target", str(socket_dir)],
+        [str(binary), "daemon", "logs", "--tail", "all", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "smoke daemon log sentinel\n" not in r.stdout:
@@ -1262,21 +1255,21 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"/v1/instances missing started instances: {r.stdout!r}")
 
     r = subprocess.run(
-        [str(binary), "ps", "--target", str(socket_dir)],
+        [str(binary), "ps", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "running" not in r.stdout or "manager" not in r.stdout:
         problems.append(f"ps after start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "ls", "--target", str(socket_dir)],
+        [str(binary), "ps", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "running" not in r.stdout or "manager" not in r.stdout:
         problems.append(f"ls alias after start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "events", "--tail", "20", "--json", "--target", str(socket_dir)],
+        [str(binary), "events", "--tail", "20", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1289,7 +1282,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"events --json missing startup dispatches: rc={r.returncode}\nevents={event_rows}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "events", "--tail", "20", "--summary", "--json", "--target", str(socket_dir)],
+        [str(binary), "events", "--tail", "20", "--summary", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1322,7 +1315,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
             "--agent", "manager",
             "--status", "running",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1347,7 +1340,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
             "--agent", "manager",
             "--status", "running",
             "--format", "{{.Action}}:{{.Instance}}:{{.Status}}",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1358,21 +1351,21 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"events --format unexpectedly included ticket-manager: stdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "events", "--agent", "  ", "--target", str(socket_dir)],
+        [str(binary), "events", "--agent", "  ", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode == 0 or "non-empty agent" not in r.stderr:
         problems.append(f"events empty --agent validation failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "status", "--target", str(socket_dir)],
+        [str(binary), "status", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "daemon: running" not in r.stdout or "manager" not in r.stdout:
         problems.append(f"status after start failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "status", "--format", "{{.Instance}}:{{.Status}}", "--agent", "manager", "--target", str(socket_dir)],
+        [str(binary), "status", "--format", "{{.Instance}}:{{.Status}}", "--agent", "manager", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_status_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -1380,7 +1373,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"status --format filtered output failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "ps", "-q", "--status", "running", "--agent", "manager", "--target", str(socket_dir)],
+        [str(binary), "ps", "-q", "--status", "running", "--agent", "manager", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     quiet_rows = [line.strip() for line in r.stdout.splitlines() if line.strip()]
@@ -1388,7 +1381,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"ps filtered quiet failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "start", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--agent", "manager", "--status", "running", "--target", str(socket_dir)],
+        [str(binary), "start", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--agent", "manager", "--status", "running", "--repo", str(socket_dir)],
         capture_output=True, text=True, env=env,
     )
     formatted_start_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -1396,7 +1389,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"start --format running manager probe failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "stop", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--agent", "manager", "--status", "running", "--target", str(socket_dir)],
+        [str(binary), "stop", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--agent", "manager", "--status", "running", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_stop_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -1404,21 +1397,21 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"stop --dry-run --format running manager probe failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "start", "--quiet", "--agent", "manager", "--status", "running", "--target", str(socket_dir)],
+        [str(binary), "start", "--quiet", "--agent", "manager", "--status", "running", "--repo", str(socket_dir)],
         capture_output=True, text=True, env=env,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
         problems.append(f"start --quiet running manager probe failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "restart", "--quiet", "--dry-run", "--agent", "manager", "--status", "running", "--target", str(socket_dir)],
+        [str(binary), "restart", "--quiet", "--dry-run", "--agent", "manager", "--status", "running", "--repo", str(socket_dir)],
         capture_output=True, text=True, env=env,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
         problems.append(f"restart --quiet --dry-run running manager probe failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "ps", "--format", "{{.Instance}}:{{.Status}}", "--status", "running", "--agent", "manager", "--target", str(socket_dir)],
+        [str(binary), "ps", "--format", "{{.Instance}}:{{.Status}}", "--status", "running", "--agent", "manager", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_ps_rows = [line.strip() for line in r.stdout.splitlines() if line.strip()]
@@ -1431,7 +1424,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
             "--name", "adhoc",
             "--prompt", "smoke ad-hoc dispatch",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1452,7 +1445,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
             "--detach",
             "--json",
             "--ready-timeout", "5s",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1473,7 +1466,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
             "--detach",
             "--format", "{{.Instance}}:{{.Agent}}:{{.PID}}",
             "--ready-timeout", "5s",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1490,7 +1483,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
                 problems.append(f"run --detach --format returned invalid pid: stdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "stop", "formatted-run", "--rm", "--quiet", "--target", str(socket_dir)],
+        [str(binary), "stop", "formatted-run", "--rm", "--quiet", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
@@ -1505,7 +1498,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
             "--attach",
             "--tail", "all",
             "--ready-timeout", "5s",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
     )
@@ -1533,7 +1526,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
             problems.append(f"run --attach missing dispatch/log output: stdout={run_attach_stdout}\nstderr={run_attach_stderr}")
 
     r = subprocess.run(
-        [str(binary), "stop", "attached-run", "--rm", "--quiet", "--target", str(socket_dir)],
+        [str(binary), "stop", "attached-run", "--rm", "--quiet", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
@@ -1542,7 +1535,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append("cleanup attached-run left state dir behind")
 
     r = subprocess.run(
-        [str(binary), "ps", "--target", str(socket_dir)],
+        [str(binary), "ps", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "adhoc" not in r.stdout or "detached" not in r.stdout:
@@ -1551,7 +1544,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"ps table missing PID column: stdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "ps", "--json", "--target", str(socket_dir)],
+        [str(binary), "ps", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1566,7 +1559,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"ps --json adhoc row missing runtime fields: {adhoc_rows[0]}")
 
     r = subprocess.run(
-        [str(binary), "ps", "--json", "--status", "running", "--agent", "manager", "--target", str(socket_dir)],
+        [str(binary), "ps", "--json", "--status", "running", "--agent", "manager", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1581,7 +1574,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"filtered ps --json returned unexpected rows: {filtered_ps_rows}")
 
     r = subprocess.run(
-        [str(binary), "ps", "--json", "--phase", "unknown", "--target", str(socket_dir)],
+        [str(binary), "ps", "--json", "--phase", "unknown", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1594,7 +1587,7 @@ def _check_daemon_logs_events_and_listing(ctx: DaemonSmokeContext, problems: lis
         problems.append(f"phase-filtered ps --json missing adhoc: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "ps", "--all", "--summary", "--json", "--target", str(socket_dir)],
+        [str(binary), "ps", "--all", "--summary", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1625,7 +1618,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
             "--name", "cleanup-rm",
             "--detach",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1638,7 +1631,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"cleanup daemon run failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "stop", "cleanup-rm", "--rm", "--json", "--target", str(socket_dir)],
+        [str(binary), "stop", "cleanup-rm", "--rm", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1662,7 +1655,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
             "--name", "cleanup-quiet",
             "--detach",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1675,7 +1668,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"cleanup quiet daemon run failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "stop", "cleanup-quiet", "--quiet", "--rm", "--target", str(socket_dir)],
+        [str(binary), "stop", "cleanup-quiet", "--quiet", "--rm", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
@@ -1689,7 +1682,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
             "--name", "cleanup-all",
             "--detach",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1708,7 +1701,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
             "--agent", "worker",
             "--force",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1728,7 +1721,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append("rm --all --agent worker left cleanup-all state dir behind")
 
     r = subprocess.run(
-        [str(binary), "stats", "--json", "--target", str(socket_dir)],
+        [str(binary), "stats", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1745,7 +1738,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"stats --json adhoc row missing process metrics: {stats_adhoc[0]}")
 
     r = subprocess.run(
-        [str(binary), "stats", "--summary", "--json", "--target", str(socket_dir)],
+        [str(binary), "stats", "--summary", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1768,7 +1761,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         )
 
     r = subprocess.run(
-        [str(binary), "stats", "--json", "--instance", "manager,ticket-manager", "--target", str(socket_dir)],
+        [str(binary), "stats", "--json", "--instance", "manager,ticket-manager", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1785,7 +1778,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"stats --instance --json returned non-running rows: {instance_stats_rows}")
 
     r = subprocess.run(
-        [str(binary), "stats", "--json", "--phase", "unknown", "--target", str(socket_dir)],
+        [str(binary), "stats", "--json", "--phase", "unknown", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1800,14 +1793,14 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"stats --phase unknown --json returned non-unknown rows: {phase_stats_rows}")
 
     r = subprocess.run(
-        [str(binary), "stats", "--sort", "phase", "--target", str(socket_dir)],
+        [str(binary), "stats", "--sort", "phase", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "PHASE" not in r.stdout or "adhoc" not in r.stdout:
         problems.append(f"stats --sort phase table missing expected output: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "top", "--json", "--agent", "manager", "--target", str(socket_dir)],
+        [str(binary), "stats", "--json", "--agent", "manager", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1827,7 +1820,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
             "--json",
             "--agent", "manager",
             "--status", "running",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1850,7 +1843,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
             "--format", "{{.Instance}}:{{.Status}}:{{.Measured}}",
             "--agent", "manager",
             "--status", "running",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1861,7 +1854,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"stats --format unexpectedly included ticket-manager: stdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "monitor", "--json", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1880,7 +1873,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"monitor --json missing adhoc stats: {monitor_body}")
 
     r = subprocess.run(
-        [str(binary), "monitor", "--phase", "unknown", "--json", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--phase", "unknown", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1903,7 +1896,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         [
             str(binary), "monitor",
             "--format", "{{.Health.Healthy}}:{{len .Instances}}:{{len .Stats}}",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -1921,7 +1914,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
                 problems.append(f"monitor --format missing running rows: stdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "monitor", "--events", "20", "--json", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--events", "20", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1937,7 +1930,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"monitor --events --json missing startup dispatches: {monitor_events_body}")
 
     r = subprocess.run(
-        [str(binary), "monitor", "--summary", "--json", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--summary", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1956,7 +1949,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"monitor --summary --json missing phase aggregate: {monitor_summary_body}")
 
     r = subprocess.run(
-        [str(binary), "monitor", "--summary", "--latest", "--json", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--summary", "--latest", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -1977,7 +1970,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         )
 
     r = subprocess.run(
-        [str(binary), "monitor", "--plan", "--json", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--plan", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2002,7 +1995,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
         problems.append(f"monitor --plan --json missing on-demand actions: {monitor_plan_body}")
 
     r = subprocess.run(
-        [str(binary), "monitor", "--plan", "--action", "on_demand", "--json", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--plan", "--action", "on_demand", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2025,7 +2018,7 @@ def _check_daemon_cleanup_stats_and_monitor(ctx: DaemonSmokeContext, problems: l
             "--json",
             "--agent", "manager",
             "--status", "running",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -2061,7 +2054,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
             str(binary), "send",
             "--from", "smoke",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
             "adhoc", "hello from smoke",
         ],
         capture_output=True, text=True,
@@ -2086,9 +2079,8 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         [
             str(binary), "send",
             "--from", "smoke-declared",
-            "--allow-missing",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
             "harness-reviewer", "queued for declared instance",
         ],
         capture_output=True, text=True,
@@ -2103,7 +2095,6 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         or not declared_send_body.get("delivered")
         or declared_send_body.get("to") != "harness-reviewer"
         or declared_send_body.get("note") != "declared but not running; queued for next spawn/resume"
-        or "--allow-missing is deprecated" not in r.stderr
     ):
         problems.append(f"send declared stopped failed: rc={r.returncode}\nbody={declared_send_body}\nstdout={r.stdout}\nstderr={r.stderr}")
     declared_mailbox = team_dir / "daemon" / "harness-reviewer" / "mailbox.jsonl"
@@ -2119,14 +2110,13 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         [
             str(binary), "send",
             "--from", "smoke-typo",
-            "--allow-missing",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
             "manger", "typo should fail",
         ],
         capture_output=True, text=True,
     )
-    if r.returncode == 0 or "did you mean \"manager\"?" not in r.stderr or "--allow-missing is deprecated" not in r.stderr:
+    if r.returncode == 0 or "did you mean \"manager\"?" not in r.stderr:
         problems.append(f"send typo did not fail helpfully: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
@@ -2134,7 +2124,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
             str(binary), "send",
             "--from", "smoke-format",
             "--format", "{{.To}}:{{.From}}:{{.Delivered}}",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
             "adhoc", "hello from formatted smoke",
         ],
         capture_output=True, text=True,
@@ -2149,7 +2139,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
             "--status", "running",
             "--from", "smoke-broadcast",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
             "hello manager fleet",
         ],
         capture_output=True, text=True,
@@ -2187,7 +2177,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
             "--phase", "idle",
             "--from", "smoke-phase",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
             "hello idle fleet",
         ],
         capture_output=True, text=True,
@@ -2217,7 +2207,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
             "--phase", "idle",
             "--dry-run",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -2237,7 +2227,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"stop --phase idle --dry-run returned unexpected row: {dry_stop_phase_rows}")
 
     r = subprocess.run(
-        [str(binary), "status", "--json", "--target", str(socket_dir)],
+        [str(binary), "status", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2253,7 +2243,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"status --json missing running adhoc row: {status_body}")
 
     r = subprocess.run(
-        [str(binary), "status", "--summary", "--json", "--target", str(socket_dir)],
+        [str(binary), "status", "--summary", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2272,7 +2262,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"status --summary --json missing phase aggregate: {status_summary_body}")
 
     r = subprocess.run(
-        [str(binary), "status", "--summary", "--latest", "--json", "--target", str(socket_dir)],
+        [str(binary), "status", "--summary", "--latest", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2293,7 +2283,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         )
 
     r = subprocess.run(
-        [str(binary), "status", "--json", "--agent", "manager", "--status", "running", "--target", str(socket_dir)],
+        [str(binary), "status", "--json", "--agent", "manager", "--status", "running", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2313,7 +2303,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"filtered status --json returned unexpected rows: {filtered_status_body}")
 
     r = subprocess.run(
-        [str(binary), "status", "--json", "--instance", "manager", "--target", str(socket_dir)],
+        [str(binary), "status", "--json", "--instance", "manager", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2330,7 +2320,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"status --instance --json manager row was not running: {instance_status_body}")
 
     r = subprocess.run(
-        [str(binary), "health", "--json", "--target", str(socket_dir)],
+        [str(binary), "health", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2342,7 +2332,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"health --json was not healthy: rc={r.returncode}\nbody={health_body}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "health", "--agent", "manager", "--status", "running", "--phase", "unknown", "--json", "--target", str(socket_dir)],
+        [str(binary), "health", "--agent", "manager", "--status", "running", "--phase", "unknown", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2359,14 +2349,14 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"filtered health --agent manager --status running --phase unknown --json unexpectedly included ticket-manager: {health_agent_body}")
 
     r = subprocess.run(
-        [str(binary), "health", "--quiet", "--agent", "manager", "--status", "running", "--phase", "unknown", "--target", str(socket_dir)],
+        [str(binary), "health", "--quiet", "--agent", "manager", "--status", "running", "--phase", "unknown", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
         problems.append(f"health --quiet filtered probe failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "health", "--instance", "manager", "--json", "--target", str(socket_dir)],
+        [str(binary), "health", "--instance", "manager", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2384,7 +2374,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"health --instance manager --json returned unexpected declared counts: {health_instance_body}")
 
     r = subprocess.run(
-        [str(binary), "monitor", "--json", "--plan", "--instance", "manager", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--json", "--plan", "--instance", "manager", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2408,7 +2398,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"monitor --instance manager returned unfiltered health summary: {monitor_instance_body}")
 
     r = subprocess.run(
-        [str(binary), "health", "--wait", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "health", "--wait", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2420,7 +2410,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
         problems.append(f"health --wait --json was not healthy: rc={r.returncode}\nbody={wait_health_body}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "health", "--format", "{{.Healthy}}:{{.Daemon.Running}}:{{.Summary.Running}}", "--target", str(socket_dir)],
+        [str(binary), "health", "--format", "{{.Healthy}}:{{.Daemon.Running}}:{{.Summary.Running}}", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_health_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -2433,7 +2423,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
             "--wait",
             "--timeout", "5s",
             "--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -2451,7 +2441,7 @@ def _check_daemon_messaging_status_and_health(ctx: DaemonSmokeContext, problems:
             "--wait",
             "--timeout", "5s",
             "--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -2473,7 +2463,7 @@ def _check_daemon_watch_commands(ctx: DaemonSmokeContext, problems: list[str]) -
     pid = ctx.pid
 
     proc = subprocess.Popen(
-        [str(binary), "status", "--watch", "--json", "--interval", "50ms", "--target", str(socket_dir)],
+        [str(binary), "status", "--watch", "--json", "--interval", "50ms", "--repo", str(socket_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     time.sleep(0.2)
@@ -2501,7 +2491,7 @@ def _check_daemon_watch_commands(ctx: DaemonSmokeContext, problems: list[str]) -
             problems.append(f"status --watch --json missing running daemon: {watch_status}")
 
     proc = subprocess.Popen(
-        [str(binary), "watch", "--summary", "--json", "--interval", "50ms", "--target", str(socket_dir)],
+        [str(binary), "watch", "--summary", "--json", "--interval", "50ms", "--repo", str(socket_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     time.sleep(0.2)
@@ -2531,7 +2521,7 @@ def _check_daemon_watch_commands(ctx: DaemonSmokeContext, problems: list[str]) -
             problems.append(f"watch --summary --json missing healthy running daemon: {watch_summary}")
 
     proc = subprocess.Popen(
-        [str(binary), "watch", "--events", "20", "--json", "--interval", "50ms", "--target", str(socket_dir)],
+        [str(binary), "watch", "--events", "20", "--json", "--interval", "50ms", "--repo", str(socket_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     time.sleep(0.2)
@@ -2563,7 +2553,7 @@ def _check_daemon_watch_commands(ctx: DaemonSmokeContext, problems: list[str]) -
             problems.append(f"watch --events --json missing startup dispatches: {watch_events_body}")
 
     proc = subprocess.Popen(
-        [str(binary), "watch", "--phase", "unknown", "--json", "--interval", "50ms", "--target", str(socket_dir)],
+        [str(binary), "watch", "--phase", "unknown", "--json", "--interval", "50ms", "--repo", str(socket_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     time.sleep(0.2)
@@ -2604,7 +2594,7 @@ def _check_daemon_watch_commands(ctx: DaemonSmokeContext, problems: list[str]) -
             str(binary), "watch",
             "--format", "{{.Health.Healthy}}:{{len .Instances}}:{{len .Stats}}",
             "--interval", "50ms",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
@@ -2642,7 +2632,7 @@ def _check_daemon_watch_commands(ctx: DaemonSmokeContext, problems: list[str]) -
                     problems.append(f"watch --format returned too few live rows: {first!r}\nstdout={watch_format_stdout}")
 
     proc = subprocess.Popen(
-        [str(binary), "health", "--watch", "--no-clear", "--interval", "50ms", "--target", str(socket_dir)],
+        [str(binary), "health", "--watch", "--no-clear", "--interval", "50ms", "--repo", str(socket_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     time.sleep(0.2)
@@ -2674,7 +2664,7 @@ def _check_daemon_watch_commands(ctx: DaemonSmokeContext, problems: list[str]) -
             )
 
     proc = subprocess.Popen(
-        [str(binary), "watch", "--interval", "50ms", "--target", str(socket_dir)],
+        [str(binary), "watch", "--interval", "50ms", "--repo", str(socket_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     time.sleep(0.2)
@@ -2694,7 +2684,7 @@ def _check_daemon_watch_commands(ctx: DaemonSmokeContext, problems: list[str]) -
             problems.append(f"watch text missing monitor content\nstdout={watch_text_stdout}\nstderr={watch_text_stderr}")
 
     proc = subprocess.Popen(
-        [str(binary), "watch", "--no-clear", "--interval", "50ms", "--target", str(socket_dir)],
+        [str(binary), "watch", "--no-clear", "--interval", "50ms", "--repo", str(socket_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     time.sleep(0.2)
@@ -2731,7 +2721,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
     pid = ctx.pid
 
     r = subprocess.run(
-        [str(binary), "inspect", "adhoc", "--target", str(socket_dir)],
+        [str(binary), "inspect", "adhoc", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
@@ -2741,7 +2731,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
             problems.append(f"inspect adhoc missing {needle!r}: {r.stdout!r}")
 
     r = subprocess.run(
-        [str(binary), "inspect", "adhoc", "--json", "--target", str(socket_dir)],
+        [str(binary), "inspect", "adhoc", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2756,14 +2746,14 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         problems.append(f"inspect --json adhoc missing runtime fields: {inspect_body}")
 
     r = subprocess.run(
-        [str(binary), "inspect", "adhoc", "--format", "{{.Instance}}:{{if .Runtime}}{{.Runtime.Agent}}:{{.Runtime.Lifecycle}}{{end}}", "--target", str(socket_dir)],
+        [str(binary), "inspect", "adhoc", "--format", "{{.Instance}}:{{if .Runtime}}{{.Runtime.Agent}}:{{.Runtime.Lifecycle}}{{end}}", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout.strip() != "adhoc:manager:running":
         problems.append(f"inspect --format adhoc failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "inspect", "--all", "--json", "--target", str(socket_dir)],
+        [str(binary), "inspect", "--all", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2778,7 +2768,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         problems.append(f"inspect --all --json adhoc row missing running runtime: {inspect_all_by_name['adhoc']}")
 
     r = subprocess.run(
-        [str(binary), "inspect", "--agent", "manager", "--status", "running", "--json", "--target", str(socket_dir)],
+        [str(binary), "inspect", "--agent", "manager", "--status", "running", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2795,7 +2785,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         problems.append(f"inspect filtered --json returned non-manager runtime: {inspect_filtered}")
 
     r = subprocess.run(
-        [str(binary), "kill", "adhoc", "--dry-run", "--json", "--timeout", "1s", "--target", str(socket_dir)],
+        [str(binary), "kill", "adhoc", "--dry-run", "--json", "--timeout", "1s", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2817,7 +2807,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
             "--wait-timeout", "5s",
             "--json",
             "--timeout", "1s",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -2834,7 +2824,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         problems.append(f"kill --wait --json missing stopped wait_status: {kill_rows[0]}")
 
     r = subprocess.run(
-        [str(binary), "wait", "adhoc", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "wait", "adhoc", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -2854,7 +2844,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
             "--status", "stopped",
             "--json",
             "--ready-timeout", "5s",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True, env=env,
     )
@@ -2886,7 +2876,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
             "--wait",
             "--wait-timeout",
             "5s",
-            "--target",
+            "--repo",
             str(socket_dir),
         ],
         capture_output=True, text=True, env=env,
@@ -2915,7 +2905,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
     last_logs = subprocess.CompletedProcess([], 1, "", "")
     for _ in range(20):
         last_logs = subprocess.run(
-            [str(binary), "logs", "manager", "--tail", "5", "--target", str(socket_dir)],
+            [str(binary), "logs", "manager", "--tail", "5", "--repo", str(socket_dir)],
             capture_output=True, text=True,
         )
         if last_logs.returncode == 0 and last_logs.stdout.strip():
@@ -2928,14 +2918,14 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         )
 
     r = subprocess.run(
-        [str(binary), "attach", "manager", "--no-follow", "--tail", "all", "--target", str(socket_dir)],
+        [str(binary), "attach", "manager", "--no-follow", "--tail", "all", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "fake claude invoked:" not in r.stdout:
         problems.append(f"attach manager --no-follow --tail all failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "attach", "--last", "1", "--no-follow", "--tail", "all", "--target", str(socket_dir)],
+        [str(binary), "attach", "--last", "1", "--no-follow", "--tail", "all", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "fake claude invoked:" not in r.stdout:
@@ -2949,7 +2939,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
             "--phase", "unknown",
             "--no-follow",
             "--tail", "all",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -2957,7 +2947,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         problems.append(f"attach --agent manager --status running --phase unknown --no-follow failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     proc = subprocess.Popen(
-        [str(binary), "start", "manager", "--attach", "--tail", "all", "--target", str(socket_dir)],
+        [str(binary), "start", "manager", "--attach", "--tail", "all", "--repo", str(socket_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     time.sleep(0.2)
@@ -2979,7 +2969,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
             problems.append(f"start --attach missing followed manager log: stdout={start_attach_stdout}\nstderr={start_attach_stderr}")
 
     proc = subprocess.Popen(
-        [str(binary), "restart", "manager", "--attach", "--tail", "all", "--timeout", "5s", "--target", str(socket_dir)],
+        [str(binary), "restart", "manager", "--attach", "--tail", "all", "--timeout", "5s", "--repo", str(socket_dir)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
     )
     time.sleep(0.2)
@@ -3001,21 +2991,21 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
             problems.append(f"restart --attach missing followed manager log: stdout={restart_attach_stdout}\nstderr={restart_attach_stderr}")
 
     r = subprocess.run(
-        [str(binary), "logs", "--all", "--tail", "1", "--target", str(socket_dir)],
+        [str(binary), "logs", "--all", "--tail", "1", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "manager" not in r.stdout or " | fake claude invoked:" not in r.stdout:
         problems.append(f"logs --all failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "logs", "--all", "--no-prefix", "--tail", "1", "--target", str(socket_dir)],
+        [str(binary), "logs", "--all", "--no-prefix", "--tail", "1", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "fake claude invoked:" not in r.stdout or " | fake claude invoked:" in r.stdout:
         problems.append(f"logs --all --no-prefix failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "logs", "--agent", "manager", "--status", "running", "--phase", "unknown", "--tail", "1", "--target", str(socket_dir)],
+        [str(binary), "logs", "--agent", "manager", "--status", "running", "--phase", "unknown", "--tail", "1", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
@@ -3026,7 +3016,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         problems.append(f"logs --agent manager --phase unknown unexpectedly included ticket-manager: stdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "logs", "--list", "--json", "--target", str(socket_dir)],
+        [str(binary), "logs", "--list", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3045,7 +3035,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         problems.append(f"logs --list --json missing log paths: {log_rows}")
 
     r = subprocess.run(
-        [str(binary), "logs", "--list", "--format", "{{.Instance}}:{{.Agent}}:{{.Status}}:{{.Exists}}", "--target", str(socket_dir)],
+        [str(binary), "logs", "--list", "--format", "{{.Instance}}:{{.Agent}}:{{.Status}}:{{.Exists}}", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_log_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -3053,7 +3043,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         problems.append(f"logs --list --format missing manager row: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "logs", "--list", "--json", "--status", "running", "--agent", "manager", "--target", str(socket_dir)],
+        [str(binary), "logs", "--list", "--json", "--status", "running", "--agent", "manager", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3074,7 +3064,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
             "--json",
             "--status", "running,stopped",
             "--agent", "manager,ticket-manager",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -3092,7 +3082,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
         problems.append(f"comma-filtered logs --list --json unexpectedly included worker: {comma_filtered_log_rows}")
 
     r = subprocess.run(
-        [str(binary), "restart", "manager", "--ready-timeout", "5s", "--target", str(socket_dir)],
+        [str(binary), "restart", "manager", "--ready-timeout", "5s", "--repo", str(socket_dir)],
         capture_output=True, text=True, env=env,
     )
     if r.returncode != 0 or "restart manager" not in r.stdout:
@@ -3114,7 +3104,7 @@ def _check_daemon_inspect_kill_attach_and_logs(ctx: DaemonSmokeContext, problems
             "--wait",
             "--wait-timeout",
             "5s",
-            "--target",
+            "--repo",
             str(socket_dir),
         ],
         capture_output=True, text=True, env=env,
@@ -3148,7 +3138,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
     pid = ctx.pid
 
     r = subprocess.run(
-        [str(binary), "daemon", "restart", "--json", "--ready-timeout", "5s", "--target", str(socket_dir)],
+        [str(binary), "daemon", "restart", "--json", "--ready-timeout", "5s", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3170,7 +3160,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"daemon restart --json failed: rc={r.returncode}\nbody={daemon_restart_body}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "daemon", "status", "--json", "--target", str(socket_dir)],
+        [str(binary), "daemon", "status", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3184,7 +3174,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"daemon status --json missing paths: {daemon_status}")
 
     r = subprocess.run(
-        [str(binary), "daemon", "reconcile", "--json", "--target", str(socket_dir)],
+        [str(binary), "daemon", "reconcile", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3200,7 +3190,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
     elif not {"adhoc", "manager", "ticket-manager"}.issubset(reconcile_instances):
         problems.append(f"daemon reconcile --json missing expected instances: {reconcile_body}")
     r = subprocess.run(
-        [str(binary), "daemon", "reconcile", "--format", "{{.Reconciled}}:{{.Changed}}:{{len .Instances}}", "--target", str(socket_dir)],
+        [str(binary), "daemon", "reconcile", "--format", "{{.Reconciled}}:{{.Changed}}:{{len .Instances}}", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     reconcile_format_parts = r.stdout.strip().split(":")
@@ -3217,7 +3207,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"daemon reconcile --format failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "reload", "--json", "--target", str(socket_dir)],
+        [str(binary), "reload", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3240,7 +3230,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
     elif not {"adhoc", "manager", "ticket-manager"}.issubset(reload_reconcile_instances):
         problems.append(f"reload --json missing expected reconciled instances: {reload_body}")
     r = subprocess.run(
-        [str(binary), "reload", "--format", "{{len .Topology.Instances}}:{{.Reconcile.Changed}}:{{len .Reconcile.Instances}}", "--target", str(socket_dir)],
+        [str(binary), "reload", "--format", "{{len .Topology.Instances}}:{{.Reconcile.Changed}}:{{len .Reconcile.Instances}}", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     reload_format_parts = r.stdout.strip().split(":")
@@ -3259,7 +3249,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"reload --format failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "ps", "--json", "--target", str(socket_dir)],
+        [str(binary), "ps", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3274,7 +3264,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"daemon restart did not reconcile running instances: {post_restart_rows}")
 
     r = subprocess.run(
-        [str(binary), "stop", "--agent", "ticket-manager", "--status", "running", "--dry-run", "--json", "--target", str(socket_dir)],
+        [str(binary), "stop", "--agent", "ticket-manager", "--status", "running", "--dry-run", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3298,7 +3288,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
             "--wait-timeout", "5s",
             "--timeout", "1s",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -3315,7 +3305,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"stop --agent ticket-manager did not wait for stopped status: {stop_agent_rows}")
 
     r = subprocess.run(
-        [str(binary), "wait", "--agent", "ticket-manager", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "wait", "--agent", "ticket-manager", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3336,7 +3326,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
             "--until", "stopped",
             "--timeout", "5s",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -3351,7 +3341,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"wait --agent ticket-manager --status stopped returned unexpected row: {wait_status_rows}")
 
     r = subprocess.run(
-        [str(binary), "sync", "--wait", "--timeout", "5s", "--ready-timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "sync", "--wait", "--timeout", "5s", "--ready-timeout", "5s", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True, env=env,
     )
     try:
@@ -3374,14 +3364,14 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"sync --wait should skip already-running manager: {sync_body}")
 
     r = subprocess.run(
-        [str(binary), "sync", "--quiet", "--wait", "--timeout", "5s", "--ready-timeout", "5s", "--target", str(socket_dir)],
+        [str(binary), "sync", "--quiet", "--wait", "--timeout", "5s", "--ready-timeout", "5s", "--repo", str(socket_dir)],
         capture_output=True, text=True, env=env,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
         problems.append(f"sync --quiet --wait failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "sync", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--ready-timeout", "5s", "--target", str(socket_dir)],
+        [str(binary), "sync", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--ready-timeout", "5s", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_sync_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -3389,7 +3379,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"sync --format failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "wait", "ticket-manager", "--until", "running", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "wait", "ticket-manager", "--until", "running", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3410,7 +3400,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
     )
 
     r = subprocess.run(
-        [str(binary), "wait", "ticket-manager", "--until-phase", "idle", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "wait", "ticket-manager", "--until-phase", "idle", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3428,7 +3418,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"wait ticket-manager --until-phase idle returned unexpected row: {wait_phase_rows}")
 
     r = subprocess.run(
-        [str(binary), "wait", "--phase", "idle", "--until", "running", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "wait", "--phase", "idle", "--until", "running", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3445,7 +3435,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"wait --phase idle --until running returned unexpected row: {wait_phase_filter_rows}")
 
     r = subprocess.run(
-        [str(binary), "wait", "ticket-manager", "--until", "running", "--timeout", "5s", "--format", "{{.Instance}}:{{.Status}}", "--target", str(socket_dir)],
+        [str(binary), "wait", "ticket-manager", "--until", "running", "--timeout", "5s", "--format", "{{.Instance}}:{{.Status}}", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_wait_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -3453,14 +3443,14 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"wait ticket-manager --format --until running failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "wait", "ticket-manager", "--quiet", "--until", "running", "--timeout", "5s", "--target", str(socket_dir)],
+        [str(binary), "wait", "ticket-manager", "--quiet", "--until", "running", "--timeout", "5s", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
         problems.append(f"wait ticket-manager --quiet --until running failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "stop", "--all", "--json", "--target", str(socket_dir)],
+        [str(binary), "stop", "--all", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3477,7 +3467,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
             problems.append(f"stop --all --json missing stopped {name}: {stop_rows}")
 
     r = subprocess.run(
-        [str(binary), "wait", "--all", "--timeout", "5s", "--json", "--target", str(socket_dir)],
+        [str(binary), "wait", "--all", "--timeout", "5s", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3492,7 +3482,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"wait --all returned non-terminal rows: {wait_all_rows}")
 
     r = subprocess.run(
-        [str(binary), "monitor", "--all", "--json", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--all", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3508,7 +3498,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"monitor --all --json returned unexpected stopped rows: {monitor_all_stats}")
 
     r = subprocess.run(
-        [str(binary), "prune", "--json", "--target", str(socket_dir)],
+        [str(binary), "prune", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3520,7 +3510,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"agent-team prune failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "prune", "--agent", "manager", "--json", "--target", str(socket_dir)],
+        [str(binary), "prune", "--agent", "manager", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3532,7 +3522,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"agent-team prune --agent failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "prune", "--quiet", "--target", str(socket_dir)],
+        [str(binary), "prune", "--quiet", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
@@ -3541,7 +3531,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
     format_rm_state = team_dir / "state" / "format-rm"
     format_rm_state.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(
-        [str(binary), "rm", "format-rm", "--force", "--format", "{{.Instance}}:{{.Path}}", "--target", str(socket_dir)],
+        [str(binary), "rm", "format-rm", "--force", "--format", "{{.Instance}}:{{.Path}}", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     formatted_rm_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -3553,7 +3543,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
     quiet_rm_state = team_dir / "state" / "quiet-rm"
     quiet_rm_state.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(
-        [str(binary), "rm", "quiet-rm", "--force", "--quiet", "--target", str(socket_dir)],
+        [str(binary), "rm", "quiet-rm", "--force", "--quiet", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or r.stdout or r.stderr:
@@ -3568,7 +3558,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
             "--status", "stopped",
             "--force",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -3583,7 +3573,7 @@ def _check_daemon_reconcile_wait_and_cleanup(ctx: DaemonSmokeContext, problems: 
         problems.append(f"rm --agent ticket-manager --status stopped returned unexpected row: {rm_status_rows}")
 
     r = subprocess.run(
-        [str(binary), "rm", "adhoc", "--force", "--json", "--target", str(socket_dir)],
+        [str(binary), "rm", "adhoc", "--force", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3606,20 +3596,20 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
     pid = ctx.pid
 
     r = subprocess.run(
-        [str(binary), "ps", "--target", str(socket_dir)],
+        [str(binary), "ps", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "adhoc" in r.stdout:
         problems.append(f"ps after rm adhoc failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
 
     r = subprocess.run(
-        [str(binary), "daemon", "stop", "--target", str(socket_dir)],
+        [str(binary), "daemon", "stop", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
         problems.append(f"daemon stop failed: {r.stderr}")
     r = subprocess.run(
-        [str(binary), "ps", "--json", "--target", str(socket_dir)],
+        [str(binary), "ps", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3634,7 +3624,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nrows={stopped_ps_rows}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "start", "--dry-run", "--json", "--target", str(socket_dir)],
+        [str(binary), "start", "--dry-run", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3653,7 +3643,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nrows={stopped_start_dry_rows}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "restart", "manager", "--dry-run", "--json", "--target", str(socket_dir)],
+        [str(binary), "restart", "manager", "--dry-run", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3673,7 +3663,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nrows={stopped_restart_dry_rows}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "stop", "manager", "--dry-run", "--json", "--target", str(socket_dir)],
+        [str(binary), "stop", "manager", "--dry-run", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3693,7 +3683,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nrows={stopped_stop_dry_rows}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "wait", "manager", "--until", "stopped", "--json", "--target", str(socket_dir)],
+        [str(binary), "wait", "manager", "--until", "stopped", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3712,7 +3702,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nrows={stopped_wait_rows}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "stats", "--all", "--json", "--target", str(socket_dir)],
+        [str(binary), "stats", "--all", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3727,13 +3717,13 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nrows={stopped_stats_rows}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "logs", "manager", "--tail", "1", "--target", str(socket_dir)],
+        [str(binary), "logs", "manager", "--tail", "1", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "fake claude invoked:" not in r.stdout:
         problems.append(f"logs manager local fallback after daemon stop failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
     r = subprocess.run(
-        [str(binary), "send", "manager", "offline smoke message", "--json", "--target", str(socket_dir)],
+        [str(binary), "send", "manager", "offline smoke message", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3754,19 +3744,19 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nbody={stopped_send_body}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "channel", "publish", "#offline", "daemon down broadcast", "--target", str(socket_dir)],
+        [str(binary), "channel", "publish", "#offline", "daemon down broadcast", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "published seq=1" not in r.stdout:
         problems.append(f"channel publish local fallback after daemon stop failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
     r = subprocess.run(
-        [str(binary), "channels", "--target", str(socket_dir)],
+        [str(binary), "channels", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     if r.returncode != 0 or "#offline" not in r.stdout:
         problems.append(f"channels local fallback after daemon stop failed: rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}")
     r = subprocess.run(
-        [str(binary), "logs", "--list", "--json", "--target", str(socket_dir)],
+        [str(binary), "logs", "--list", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3781,7 +3771,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nrows={stopped_log_rows}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "inspect", "manager", "--json", "--target", str(socket_dir)],
+        [str(binary), "inspect", "manager", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3796,7 +3786,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nbody={stopped_inspect_body}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "events", "--format", "{{.Action}}:{{.Instance}}", "--target", str(socket_dir)],
+        [str(binary), "events", "--format", "{{.Action}}:{{.Instance}}", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     stopped_event_rows = {line.strip() for line in r.stdout.splitlines() if line.strip()}
@@ -3806,7 +3796,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "monitor", "--events", "200", "--json", "--target", str(socket_dir)],
+        [str(binary), "monitor", "--events", "200", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3842,7 +3832,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             "--agent", "worker",
             "--force",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -3890,7 +3880,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             "--agent", "worker",
             "--force",
             "--json",
-            "--target", str(socket_dir),
+            "--repo", str(socket_dir),
         ],
         capture_output=True, text=True,
     )
@@ -3932,7 +3922,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
         "status": "exited",
     }) + "\n")
     r = subprocess.run(
-        [str(binary), "prune", "--status", "crashed", "--json", "--target", str(socket_dir)],
+        [str(binary), "prune", "--status", "crashed", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3955,7 +3945,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nrows={stopped_prune_status_rows}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "prune", "--status", "exited", "--json", "--target", str(socket_dir)],
+        [str(binary), "prune", "--status", "exited", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -3995,7 +3985,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
         "status": "exited",
     }) + "\n")
     r = subprocess.run(
-        [str(binary), "prune", "--phase", "done", "--json", "--target", str(socket_dir)],
+        [str(binary), "prune", "--phase", "done", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:
@@ -4016,7 +4006,7 @@ def _check_daemon_offline_fallbacks(ctx: DaemonSmokeContext, problems: list[str]
             f"rc={r.returncode}\nrows={stopped_prune_phase_rows}\nstdout={r.stdout}\nstderr={r.stderr}"
         )
     r = subprocess.run(
-        [str(binary), "prune", "--json", "--target", str(socket_dir)],
+        [str(binary), "prune", "--json", "--repo", str(socket_dir)],
         capture_output=True, text=True,
     )
     try:

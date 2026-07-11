@@ -24,7 +24,7 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -85,7 +85,7 @@ func TestOverviewReportsAttentionAndActions(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"overview", "--target", root, "--commands"})
+	commands.SetArgs([]string{"overview", "--repo", root, "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("overview --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -123,7 +123,7 @@ func TestOverviewActionSelectionFlags(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--source", "schedules", "--reason", "due", "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--source", "schedules", "--reason", "due", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview filtered json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -145,7 +145,7 @@ func TestOverviewActionSelectionFlags(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"overview", "--target", root, "--source", "queue", "--reason", "queue_dead_letter", "--sort", "command", "--limit", "1", "--commands"})
+	commands.SetArgs([]string{"overview", "--repo", root, "--source", "queue", "--reason", "queue_dead_letter", "--sort", "command", "--limit", "1", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("overview filtered commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -324,7 +324,7 @@ func TestOverviewReportsUnreadInboxActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview unread inbox json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -346,7 +346,7 @@ func TestOverviewReportsUnreadInboxActions(t *testing.T) {
 	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	next.SetOut(nextOut)
 	next.SetErr(nextErr)
-	next.SetArgs([]string{"next", "--target", root, "--source", "inbox", "--json"})
+	next.SetArgs([]string{"next", "--repo", root, "--source", "inbox", "--json"})
 	if err := next.Execute(); err != nil {
 		t.Fatalf("next unread inbox json: %v\nstderr=%s", err, nextErr.String())
 	}
@@ -395,7 +395,7 @@ func TestOverviewReportsOutboxActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview outbox json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -429,7 +429,7 @@ func TestOverviewReportsOutboxActions(t *testing.T) {
 	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	next.SetOut(nextOut)
 	next.SetErr(nextErr)
-	next.SetArgs([]string{"next", "--target", root, "--source", "outbox", "--json"})
+	next.SetArgs([]string{"next", "--repo", root, "--source", "outbox", "--json"})
 	if err := next.Execute(); err != nil {
 		t.Fatalf("next outbox json: %v\nstderr=%s", err, nextErr.String())
 	}
@@ -499,7 +499,7 @@ func TestOverviewPrefersJobScopedOutboxActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview job outbox json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -528,7 +528,7 @@ func TestOverviewPrefersJobScopedOutboxActions(t *testing.T) {
 	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	next.SetOut(nextOut)
 	next.SetErr(nextErr)
-	next.SetArgs([]string{"next", "--target", root, "--source", "outbox", "--json"})
+	next.SetArgs([]string{"next", "--repo", root, "--source", "outbox", "--json"})
 	if err := next.Execute(); err != nil {
 		t.Fatalf("next job outbox json: %v\nstderr=%s", err, nextErr.String())
 	}
@@ -577,7 +577,7 @@ func TestOverviewReportsOutboxQuarantineActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview outbox quarantine json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -605,7 +605,7 @@ func TestOverviewReportsOutboxQuarantineActions(t *testing.T) {
 	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	next.SetOut(nextOut)
 	next.SetErr(nextErr)
-	next.SetArgs([]string{"next", "--target", root, "--source", "outbox", "--reason", "quarantined", "--json"})
+	next.SetArgs([]string{"next", "--repo", root, "--source", "outbox", "--reason", "quarantined", "--json"})
 	if err := next.Execute(); err != nil {
 		t.Fatalf("next outbox quarantine json: %v\nstderr=%s", err, nextErr.String())
 	}
@@ -630,7 +630,7 @@ func TestOverviewReportsOutboxQuarantineActions(t *testing.T) {
 	nextAliasOut, nextAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
 	nextAlias.SetOut(nextAliasOut)
 	nextAlias.SetErr(nextAliasErr)
-	nextAlias.SetArgs([]string{"next", "--target", root, "--reason", "outbox_quarantined", "--json"})
+	nextAlias.SetArgs([]string{"next", "--repo", root, "--reason", "outbox_quarantined", "--json"})
 	if err := nextAlias.Execute(); err != nil {
 		t.Fatalf("next outbox quarantine alias json: %v\nstderr=%s", err, nextAliasErr.String())
 	}
@@ -663,7 +663,7 @@ func TestOverviewReportsOutboxQuarantineActions(t *testing.T) {
 	queueAliasOut, queueAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
 	queueAlias.SetOut(queueAliasOut)
 	queueAlias.SetErr(queueAliasErr)
-	queueAlias.SetArgs([]string{"next", "--target", root, "--reason", "queue_quarantined", "--json"})
+	queueAlias.SetArgs([]string{"next", "--repo", root, "--reason", "queue_quarantined", "--json"})
 	if err := queueAlias.Execute(); err != nil {
 		t.Fatalf("next queue quarantine alias on outbox fixture: %v\nstderr=%s", err, queueAliasErr.String())
 	}
@@ -679,7 +679,7 @@ func TestOverviewReportsOutboxQuarantineActions(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"overview", "--target", root})
+	text.SetArgs([]string{"overview", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("overview outbox quarantine text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -948,7 +948,7 @@ func TestOverviewRecommendsParallelReadyFanout(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview parallel ready: %v\nstderr=%s", err, stderr.String())
 	}
@@ -963,7 +963,7 @@ func TestOverviewRecommendsParallelReadyFanout(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"overview", "--target", root})
+	text.SetArgs([]string{"overview", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("overview parallel text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -995,7 +995,7 @@ func TestOverviewRecommendsStaleRunningJobTimeoutRepair(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview stale running json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1014,7 +1014,7 @@ func TestOverviewRecommendsStaleRunningJobTimeoutRepair(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"overview", "--target", root})
+	text.SetArgs([]string{"overview", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("overview stale running text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1046,7 +1046,7 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview runtime json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1074,7 +1074,7 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	lastMessageOut, lastMessageErr := &bytes.Buffer{}, &bytes.Buffer{}
 	lastMessage.SetOut(lastMessageOut)
 	lastMessage.SetErr(lastMessageErr)
-	lastMessage.SetArgs([]string{"overview", "--target", root, "--last-message", "--json"})
+	lastMessage.SetArgs([]string{"overview", "--repo", root, "--last-message", "--json"})
 	if err := lastMessage.Execute(); err != nil {
 		t.Fatalf("overview runtime last-message json: %v\nstderr=%s", err, lastMessageErr.String())
 	}
@@ -1094,7 +1094,7 @@ func TestOverviewReportsRuntimeResumePlanActions(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"overview", "--target", root})
+	text.SetArgs([]string{"overview", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("overview runtime text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1155,7 +1155,7 @@ func TestOverviewReportsPipelineRuntimeResumePlanActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview pipeline runtime json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1180,7 +1180,7 @@ func TestOverviewReportsPipelineRuntimeResumePlanActions(t *testing.T) {
 	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	next.SetOut(nextOut)
 	next.SetErr(nextErr)
-	next.SetArgs([]string{"next", "--target", root, "--source", "runtime", "--json"})
+	next.SetArgs([]string{"next", "--repo", root, "--source", "runtime", "--json"})
 	if err := next.Execute(); err != nil {
 		t.Fatalf("next pipeline runtime json: %v\nstderr=%s", err, nextErr.String())
 	}
@@ -1214,7 +1214,7 @@ func TestOverviewReportsStaleRuntimeResumePlanActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview stale runtime json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1239,7 +1239,7 @@ func TestOverviewReportsStaleRuntimeResumePlanActions(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"overview", "--target", root})
+	text.SetArgs([]string{"overview", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("overview stale runtime text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1280,7 +1280,7 @@ func TestOverviewReportsQueuedOnCapacityRuntime(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview queued runtime json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1299,7 +1299,7 @@ func TestOverviewReportsQueuedOnCapacityRuntime(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"overview", "--target", root})
+	text.SetArgs([]string{"overview", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("overview queued runtime text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1322,7 +1322,7 @@ func TestOverviewRuntimeIdleZeroQueuedIsDistinct(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root})
+	cmd.SetArgs([]string{"overview", "--repo", root})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview idle runtime text: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1346,7 +1346,7 @@ func TestOverviewReportsPipelineStaleRuntimeResumePlanActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview pipeline stale runtime json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1368,7 +1368,7 @@ func TestOverviewReportsPipelineStaleRuntimeResumePlanActions(t *testing.T) {
 	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	next.SetOut(nextOut)
 	next.SetErr(nextErr)
-	next.SetArgs([]string{"next", "--target", root, "--source", "runtime", "--reason", "stale", "--json"})
+	next.SetArgs([]string{"next", "--repo", root, "--source", "runtime", "--reason", "stale", "--json"})
 	if err := next.Execute(); err != nil {
 		t.Fatalf("next pipeline stale runtime json: %v\nstderr=%s", err, nextErr.String())
 	}
@@ -1388,7 +1388,7 @@ func TestOverviewTextRendersOperatorSummary(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root})
+	cmd.SetArgs([]string{"overview", "--repo", root})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview text: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1424,7 +1424,7 @@ func TestOverviewJobSummarySeparatesActiveAndTerminalJobs(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root})
+	cmd.SetArgs([]string{"overview", "--repo", root})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview text: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1440,7 +1440,7 @@ func TestOverviewJobSummarySeparatesActiveAndTerminalJobs(t *testing.T) {
 	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jsonCmd.SetOut(jsonOut)
 	jsonCmd.SetErr(jsonErr)
-	jsonCmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	jsonCmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := jsonCmd.Execute(); err != nil {
 		t.Fatalf("overview json: %v\nstderr=%s", err, jsonErr.String())
 	}
@@ -1463,7 +1463,7 @@ func TestOverviewJobSummaryRendersTerminalOnlyAsZeroActive(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root})
+	cmd.SetArgs([]string{"overview", "--repo", root})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview text: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1479,7 +1479,7 @@ func TestOverviewJobSummaryRendersTerminalOnlyAsZeroActive(t *testing.T) {
 	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jsonCmd.SetOut(jsonOut)
 	jsonCmd.SetErr(jsonErr)
-	jsonCmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	jsonCmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := jsonCmd.Execute(); err != nil {
 		t.Fatalf("overview terminal-only json: %v\nstderr=%s", err, jsonErr.String())
 	}
@@ -1499,7 +1499,7 @@ func TestOverviewCommandFormat(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--format", "{{.State}} {{.Jobs.Summary.Total}} {{.Queue.Dead}} {{len .Actions}}"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--format", "{{.State}} {{.Jobs.Summary.Total}} {{.Queue.Dead}} {{len .Actions}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview format: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1515,7 +1515,7 @@ func TestOverviewReportsIntakeErrors(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview intake json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1576,7 +1576,7 @@ func TestOverviewReportsIntakeDuplicateRequestIDs(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview duplicate intake json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1609,7 +1609,7 @@ func TestOverviewRecommendsBatchCleanupReadyJobs(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview cleanup json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1634,7 +1634,7 @@ func TestOverviewRecommendsBatchCleanupReadyJobs(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"overview", "--target", root})
+	text.SetArgs([]string{"overview", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("overview cleanup text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1655,7 +1655,7 @@ func TestOverviewRecommendsExpiredHoldRelease(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview expired holds: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1677,7 +1677,7 @@ func TestOverviewRecommendsExpiredHoldRelease(t *testing.T) {
 	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	next.SetOut(nextOut)
 	next.SetErr(nextErr)
-	next.SetArgs([]string{"next", "--target", root, "--reason", "expired_holds", "--json"})
+	next.SetArgs([]string{"next", "--repo", root, "--reason", "expired_holds", "--json"})
 	if err := next.Execute(); err != nil {
 		t.Fatalf("next expired holds: %v\nstderr=%s", err, nextErr.String())
 	}
@@ -1720,7 +1720,7 @@ func TestOverviewRecommendsIntakeDoctorForLedgerParseErrors(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview corrupt intake json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1743,7 +1743,7 @@ func TestOverviewRecommendsQueueDoctorForQueueParseErrors(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview corrupt queue json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1771,7 +1771,7 @@ func TestOverviewReportsQueueQuarantineInventory(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview quarantine json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1790,7 +1790,7 @@ func TestOverviewReportsQueueQuarantineInventory(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"overview", "--target", root})
+	text.SetArgs([]string{"overview", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("overview quarantine text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1811,7 +1811,7 @@ func TestOverviewReportsJobQuarantineInventory(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview job quarantine json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1830,7 +1830,7 @@ func TestOverviewReportsJobQuarantineInventory(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"overview", "--target", root})
+	text.SetArgs([]string{"overview", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("overview job quarantine text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1871,7 +1871,7 @@ func TestOverviewIgnoresRecoveredIntakeErrors(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"overview", "--target", root, "--json"})
+	cmd.SetArgs([]string{"overview", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("overview recovered intake json: %v\nstderr=%s", err, stderr.String())
 	}

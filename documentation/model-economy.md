@@ -271,7 +271,7 @@ separately), so Kai classifies from the findings file it already receives via
   total attempts per ticket regardless of tier (existing re-dispatch discipline).
 - Escalated re-dispatch is a **new job targeting the heavier instance** (`worker-heavy`),
   carrying prior findings in kickoff. Mechanism note: `job bounce --advance` re-runs the
-  same step on the same instance today; escalation needs either a `--target` on bounce or
+  same step on the same instance today; escalation needs either a `--repo` on bounce or
   manager-driven fresh dispatch — small mechanism delta, §9.
 
 ### 6.4 De-escalation — the loop must run both ways

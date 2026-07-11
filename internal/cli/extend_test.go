@@ -41,7 +41,7 @@ func TestExtendCommandUpdatesRuntimeMetadataAndRenderers(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"extend", "worker-squ-69", "--by", "5s", "--target", env.target, "--json"})
+	cmd.SetArgs([]string{"extend", "worker-squ-69", "--by", "5s", "--repo", env.target, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("extend: %v\nstderr=%s", err, stderr.String())
 	}
@@ -72,7 +72,7 @@ func TestExtendCommandUpdatesRuntimeMetadataAndRenderers(t *testing.T) {
 	inspectOut, inspectErr := &bytes.Buffer{}, &bytes.Buffer{}
 	inspect.SetOut(inspectOut)
 	inspect.SetErr(inspectErr)
-	inspect.SetArgs([]string{"inspect", "worker-squ-69", "--target", env.target, "--json"})
+	inspect.SetArgs([]string{"inspect", "worker-squ-69", "--repo", env.target, "--json"})
 	if err := inspect.Execute(); err != nil {
 		t.Fatalf("inspect: %v\nstderr=%s", err, inspectErr.String())
 	}

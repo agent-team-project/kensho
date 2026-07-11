@@ -1146,7 +1146,8 @@ func TestHTTP_OutboxDrain(t *testing.T) {
 }
 
 func TestHTTP_ReconcileMarksDeadRunningProcessExited(t *testing.T) {
-	root := t.TempDir()
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	root := DaemonRoot(teamDir)
 	restorePIDLiveCheck := SetPidLiveCheckForTest(func(pid int) bool { return false })
 	defer restorePIDLiveCheck()
 
@@ -1161,7 +1162,8 @@ func TestHTTP_ReconcileMarksDeadRunningProcessExited(t *testing.T) {
 	}
 
 	m := NewInstanceManager(root, nil)
-	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	events := NewEventResolver(m, teamDir, nil)
+	srv := httptest.NewServer(Handler(m, nil, events, teamDir))
 	defer srv.Close()
 
 	resp := mustPost(t, srv.URL+"/v1/reconcile", `{}`)
@@ -1184,6 +1186,17 @@ func TestHTTP_ReconcileMarksDeadRunningProcessExited(t *testing.T) {
 	list := m.List()
 	if len(list) != 1 || list[0].Status != StatusExited {
 		t.Fatalf("manager list = %+v, want reconciled exited metadata", list)
+	}
+}
+
+func TestHTTP_ReconcileRequiresTopologyResolver(t *testing.T) {
+	m := NewInstanceManager(t.TempDir(), nil)
+	srv := httptest.NewServer(Handler(m, nil, nil, ""))
+	defer srv.Close()
+
+	resp := mustPost(t, srv.URL+"/v1/reconcile", `{}`)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("reconcile status: got %d want %d body=%s", resp.StatusCode, http.StatusServiceUnavailable, readBody(t, resp))
 	}
 }
 

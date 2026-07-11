@@ -541,8 +541,8 @@ func TestTemplateSmokeCommandsKeepsRepoAndScopesFollowUps(t *testing.T) {
 
 	tmplDir := t.TempDir()
 	writeTinyTemplateFiles(t, tmplDir, "runtime-smoke", "0.0.1", map[string]string{
-		"config.toml": `[team]
-pm_tool = "none"
+		"config.toml": `[pm]
+provider = "none"
 `,
 		"agents/worker/agent.md": `---
 description: Worker.
@@ -629,7 +629,7 @@ func TestTemplateSmokeLinearMissingRequiredParameters(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"template", "smoke", "--set", "team.pm_tool=linear", "--json"})
+	cmd.SetArgs([]string{"template", "smoke", "--set", "pm.provider=linear", "--json"})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || int(code) != 1 {
@@ -669,8 +669,8 @@ func TestTemplateSmokeStrictRuntimePromotesNestedDoctorWarnings(t *testing.T) {
 
 	tmplDir := t.TempDir()
 	writeTinyTemplateFiles(t, tmplDir, "runtime-smoke", "0.0.1", map[string]string{
-		"config.toml": `[team]
-pm_tool = "none"
+		"config.toml": `[pm]
+provider = "none"
 `,
 		"agents/worker/agent.md": `---
 description: Worker.
@@ -783,8 +783,8 @@ func TestTemplateSmokeStrictEnablesStrictRuntime(t *testing.T) {
 
 	tmplDir := t.TempDir()
 	writeTinyTemplateFiles(t, tmplDir, "strict-smoke", "0.0.1", map[string]string{
-		"config.toml": `[team]
-pm_tool = "none"
+		"config.toml": `[pm]
+provider = "none"
 `,
 		"agents/worker/agent.md": `---
 description: Worker.

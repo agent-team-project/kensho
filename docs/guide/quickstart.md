@@ -9,7 +9,7 @@ mkdir my-app && cd my-app
 git init
 git config user.name "Agent Team Demo"
 git config user.email agent-team-demo@example.com
-agent-team init --minimal --set pm.provider=none --set team.pm_tool=none --no-input
+agent-team init --minimal --set pm.provider=none --no-input
 git add .agent_team
 git commit -m "Add agent team"
 agent-team doctor --commands
@@ -30,9 +30,8 @@ agent-team job show gs-probe --events all
 agent-team job logs gs-probe --tail 80 --clean
 ```
 
-`agent-team init` writes `.agent_team/` and the explicit settings above keep
-both `[pm].provider` and legacy `[team].pm_tool` in ticketless mode. In that
-mode, the durable job kickoff is the work item. The generated
+`agent-team init` writes `.agent_team/`; in ticketless mode, the durable job
+kickoff is the work item. The generated
 `.agent_team/config.toml` starts with a first-run checklist showing the selected
 template profile, PM provider, provider keys required now, and optional sections
 that can stay blank. `--minimal` makes the slim consumer profile explicit, and
@@ -52,16 +51,13 @@ To use Linear-backed tickets, opt in explicitly:
 ```sh
 agent-team init \
   --set pm.provider=linear \
-  --set team.pm_tool=linear \
   --set linear.team_id=<your-team-uuid> \
   --set linear.ticket_prefix=APP \
   --set linear.agent_column="Ready for Agent"
 ```
 
 When `pm.provider = "linear"`, `linear.team_id` and `linear.ticket_prefix` are
-required and validated during init. `team.pm_tool` is a deprecated
-compatibility alias; setting it alongside `pm.provider` keeps older scripts and
-generated configs aligned.
+required and validated during init.
 
 ## GitHub Opt-In
 
@@ -70,7 +66,6 @@ To use GitHub Issues and GitHub Projects as the PM provider, opt in explicitly:
 ```sh
 agent-team init \
   --set pm.provider=github \
-  --set team.pm_tool=github \
   --set github.owner=<owner-or-org> \
   --set github.repo=<repo> \
   --set github.agent_column="Ready for Agent"

@@ -89,7 +89,7 @@ cd /tmp/agent-team-demo
 git init
 git config user.name "Agent Team Demo"
 git config user.email agent-team-demo@example.com
-agent-team init --minimal --set pm.provider=none --set team.pm_tool=none --no-input
+agent-team init --minimal --set pm.provider=none --no-input
 git add .agent_team
 git commit -m "Add agent team"
 ```
@@ -260,7 +260,6 @@ cd /tmp/agent-team-linear
 git init
 agent-team init \
   --set pm.provider=linear \
-  --set team.pm_tool=linear \
   --set linear.team_id=00000000-0000-0000-0000-000000000000 \
   --set linear.ticket_prefix=APP \
   --set linear.agent_column="Ready for Agent" \
@@ -279,7 +278,6 @@ cd /tmp/agent-team-github
 git init
 agent-team init \
   --set pm.provider=github \
-  --set team.pm_tool=github \
   --set github.owner=acme \
   --set github.repo=demo \
   --set github.agent_column="Ready for Agent" \

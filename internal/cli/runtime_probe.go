@@ -53,11 +53,9 @@ func newRuntimeProbeCmd() *cobra.Command {
 		format           string
 		commands         bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "probe",
-		Aliases: []string{"doctor", "check"},
-		Short:   "Probe runtime, daemon, and Codex environment health.",
+		Use:   "probe",
+		Short: "Probe runtime, daemon, and Codex environment health.",
 		Long: "Probe the selected runtime and repo daemon health. For the Codex runtime, " +
 			"the probe also runs `codex doctor --json` so provider reachability, auth, " +
 			"and sandbox issues are captured before dispatching work. Pass --exec to also " +
@@ -170,7 +168,7 @@ func newRuntimeProbeCmd() *cobra.Command {
 					return err
 				}
 			} else if commands {
-				if err := renderRuntimeProbeCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, target, "target")); err != nil {
+				if err := renderRuntimeProbeCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)); err != nil {
 					return err
 				}
 			} else if tmpl != nil {
@@ -186,7 +184,6 @@ func newRuntimeProbeCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the probe result with a Go template, e.g. '{{.OK}} {{len .Issues}}'.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line. agent-team follow-ups preserve the selected repo scope.")

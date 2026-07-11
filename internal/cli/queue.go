@@ -24,10 +24,9 @@ import (
 
 func newQueueCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "queue",
-		Aliases: []string{"queues"},
-		Short:   "Inspect and control persisted daemon event queue items.",
-		Long:    "Inspect and control persisted daemon event queue items under `.agent_team/daemon/queue/`.",
+		Use:   "queue",
+		Short: "Inspect and control persisted daemon event queue items.",
+		Long:  "Inspect and control persisted daemon event queue items under `.agent_team/daemon/queue/`.",
 	}
 	cmd.AddCommand(newQueueLsCmd())
 	cmd.AddCommand(newQueueShowCmd())
@@ -60,16 +59,11 @@ func newQueueLsCmd() *cobra.Command {
 		format      string
 		interval    time.Duration
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ls",
-		Aliases: []string{"watch"},
-		Short:   "List persisted queue items.",
-		Args:    cobra.NoArgs,
+		Use:   "ls",
+		Short: "List persisted queue items.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.CalledAs() == "watch" {
-				watch = true
-			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue ls: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -143,12 +137,11 @@ func newQueueLsCmd() *cobra.Command {
 				return runQueueSummary(cmd.OutOrStdout(), teamDir, filters, jsonOut)
 			}
 			if commands {
-				return runQueueListCommands(cmd.OutOrStdout(), teamDir, filters, queueListOptions{Sort: sortMode, Limit: limit}, nil, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return runQueueListCommands(cmd.OutOrStdout(), teamDir, filters, queueListOptions{Sort: sortMode, Limit: limit}, nil, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return runQueueList(cmd.OutOrStdout(), teamDir, filters, queueListOptions{Sort: sortMode, Limit: limit}, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Filter by target instance name; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
@@ -175,7 +168,6 @@ func newQueueShowCmd() *cobra.Command {
 		format   string
 		commands bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "show <id>",
 		Short: "Show one persisted queue item.",
@@ -203,12 +195,11 @@ func newQueueShowCmd() *cobra.Command {
 				return err
 			}
 			if commands {
-				return renderQueueItemCommands(cmd.OutOrStdout(), item, nil, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderQueueItemCommands(cmd.OutOrStdout(), item, nil, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return renderQueueItemResult(cmd.OutOrStdout(), item, jsonOut, tmpl, queueRuntimeMap(teamDir))
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the queue item as JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the queue item with a Go template, e.g. '{{.ID}} {{.State}}'.")
@@ -232,7 +223,6 @@ func newQueueDropCmd() *cobra.Command {
 		sortBy      string
 		limit       int
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "drop <id>",
 		Short: "Drop pending or dead-letter queue items.",
@@ -264,7 +254,7 @@ func newQueueDropCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if dropAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue drop: --all cannot be combined with an id.")
@@ -384,7 +374,6 @@ func newQueueDropCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each drop result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching queue items instead of one id.")
@@ -418,7 +407,6 @@ func newQueueRetryCmd() *cobra.Command {
 		sortBy      string
 		limit       int
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "retry <id>",
 		Short: "Retry pending or dead-letter queue items.",
@@ -450,7 +438,7 @@ func newQueueRetryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if retryAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue retry: --all cannot be combined with an id.")
@@ -592,7 +580,6 @@ func newQueueRetryCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each retry result with a Go template, e.g. '{{.ID}} {{.Action}}'.")
 	cmd.Flags().BoolVar(&retryAll, "all", false, "Retry all matching queue items instead of one id.")
@@ -617,7 +604,6 @@ func newQueueDrainCmd() *cobra.Command {
 		jsonOut  bool
 		format   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "drain",
 		Short: "Ask the running daemon to dispatch ready pending queue items.",
@@ -648,7 +634,7 @@ func newQueueDrainCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if dryRun {
 				if dc, err := newDaemonClient(teamDir); err == nil {
 					result, err := dc.QueueDrain(true)
@@ -689,7 +675,6 @@ func newQueueDrainCmd() *cobra.Command {
 			return renderQueueDrainResult(cmd.OutOrStdout(), result, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview ready queue items without dispatching them.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the matching drain command when the preview has actionable work. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
@@ -713,7 +698,6 @@ func newQueuePruneCmd() *cobra.Command {
 		readyOnly  bool
 		limit      int
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "prune",
 		Short: "Prune persisted queue items.",
@@ -763,7 +747,7 @@ func newQueuePruneCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			results, err := pruneQueueItems(teamDir, state, olderThan, time.Now().UTC(), dryRun, filters, limit)
 			if err != nil {
 				return err
@@ -788,7 +772,6 @@ func newQueuePruneCmd() *cobra.Command {
 			return renderQueuePruneResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&stateFlag, "state", daemon.QueueStateDead, "Queue state to prune: dead, pending, or all.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune items older than this duration based on retry/dead-letter/update time.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Filter by target instance name before pruning; repeat or comma-separate values.")

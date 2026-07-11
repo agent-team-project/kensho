@@ -137,7 +137,7 @@ Run Codex work.
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	formatted.SetOut(formatOut)
 	formatted.SetErr(formatErr)
-	formatted.SetArgs([]string{"--repo", root, "agents", "ls", "--format", "{{.Name}}:{{.Runtime}}:{{.RuntimeBin}}"})
+	formatted.SetArgs([]string{"--repo", root, "agent", "ls", "--format", "{{.Name}}:{{.Runtime}}:{{.RuntimeBin}}"})
 	if err := formatted.Execute(); err != nil {
 		t.Fatalf("agents ls runtime format: %v\nstderr=%s", err, formatErr.String())
 	}
@@ -365,7 +365,7 @@ func TestAgentsAliasSupportsFormattedList(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"--repo", root, "agents", "ls", "--format", "{{.Name}}:{{len .Skills}}"})
+	cmd.SetArgs([]string{"--repo", root, "agent", "ls", "--format", "{{.Name}}:{{len .Skills}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("agents ls --format: %v\nstderr=%s", err, stderr.String())
 	}

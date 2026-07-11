@@ -37,7 +37,7 @@ func TestRuntimeCommand_DefaultText(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", t.TempDir()})
+	cmd.SetArgs([]string{"runtime", "--repo", t.TempDir()})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -71,7 +71,7 @@ func TestRuntimeCommand_CodexJSON(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", t.TempDir(), "--json"})
+	cmd.SetArgs([]string{"runtime", "--repo", t.TempDir(), "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime --json failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -104,7 +104,7 @@ func TestRuntimeCommand_Format(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", t.TempDir(), "--format", "{{.Runtime}} {{.Binary}} {{.Available}} {{.DirectResume}} {{.ManagedResume}} {{.Resume}}"})
+	cmd.SetArgs([]string{"runtime", "--repo", t.TempDir(), "--format", "{{.Runtime}} {{.Binary}} {{.Available}} {{.DirectResume}} {{.ManagedResume}} {{.Resume}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime --format failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -118,7 +118,7 @@ func TestRuntimeCommand_FormatRejectsJSON(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", t.TempDir(), "--json", "--format", "{{.Runtime}}"})
+	cmd.SetArgs([]string{"runtime", "--repo", t.TempDir(), "--json", "--format", "{{.Runtime}}"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime --json --format succeeded")
@@ -146,7 +146,7 @@ func TestRuntimeProfileCommand_CodexJSON(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "profile", "--target", t.TempDir(), "--json"})
+	cmd.SetArgs([]string{"runtime", "profile", "--repo", t.TempDir(), "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime profile --json failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -167,7 +167,7 @@ func TestRuntimeProfileCommand_FormatRejectsJSON(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "profile", "--target", t.TempDir(), "--json", "--format", "{{.Runtime}}"})
+	cmd.SetArgs([]string{"runtime", "profile", "--repo", t.TempDir(), "--json", "--format", "{{.Runtime}}"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime profile --json --format succeeded")
@@ -207,7 +207,7 @@ status_stale_after = "10m"
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "set", "codex", "--target", tmp, "--runtime-bin", "codex-dev", "--json"})
+	cmd.SetArgs([]string{"runtime", "set", "codex", "--repo", tmp, "--runtime-bin", "codex-dev", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime set failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -258,7 +258,7 @@ func TestRuntimeSetDryRunDoesNotWriteConfig(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "set", "codex", "--target", tmp, "--dry-run", "--format", "{{.Runtime}} {{.Binary}} {{.Changed}} {{.DryRun}} {{len .Notes}}"})
+	cmd.SetArgs([]string{"runtime", "set", "codex", "--repo", tmp, "--dry-run", "--format", "{{.Runtime}} {{.Binary}} {{.Changed}} {{.DryRun}} {{len .Notes}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime set --dry-run failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -289,7 +289,7 @@ func TestRuntimeSetDryRunCommands(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "set", "--target", tmp, "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
+	cmd.SetArgs([]string{"runtime", "set", "--repo", tmp, "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime set --dry-run --commands failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -325,7 +325,7 @@ func TestRuntimeSetDryRunCommands(t *testing.T) {
 	noopOut, noopErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noop.SetOut(noopOut)
 	noop.SetErr(noopErr)
-	noop.SetArgs([]string{"runtime", "set", "--target", tmp, "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
+	noop.SetArgs([]string{"runtime", "set", "--repo", tmp, "codex", "--runtime-bin", "codex-dev", "--dry-run", "--commands"})
 	if err := noop.Execute(); err != nil {
 		t.Fatalf("runtime set no-op --dry-run --commands failed: %v\nstderr: %s", err, noopErr.String())
 	}
@@ -342,7 +342,7 @@ func TestRuntimeSetRejectsInvalidRuntime(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "set", "llama", "--target", tmp})
+	cmd.SetArgs([]string{"runtime", "set", "llama", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime set llama succeeded")
@@ -380,7 +380,7 @@ status_stale_after = "10m"
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "unset", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"runtime", "unset", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime unset failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -457,7 +457,7 @@ extra = "kept"
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "unset", "--target", tmp, "--dry-run", "--format", "{{.Changed}} {{.DryRun}} {{len .Notes}}"})
+	cmd.SetArgs([]string{"runtime", "unset", "--repo", tmp, "--dry-run", "--format", "{{.Changed}} {{.DryRun}} {{len .Notes}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime unset --dry-run failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -560,7 +560,7 @@ func TestRuntimeLsJSONListsSupportedRuntimes(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "ls", "--target", t.TempDir(), "--json"})
+	cmd.SetArgs([]string{"runtime", "ls", "--repo", t.TempDir(), "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime ls --json failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -608,7 +608,7 @@ func TestRuntimeLsUsesRepoSelectedBinary(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "ls", "--target", tmp, "--format", "{{.Runtime}} {{.Selected}} {{.Binary}}"})
+	cmd.SetArgs([]string{"runtime", "ls", "--repo", tmp, "--format", "{{.Runtime}} {{.Selected}} {{.Binary}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime ls --format failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -721,7 +721,7 @@ func TestRuntimeMetadataLsFiltersSummaryAndFormat(t *testing.T) {
 	codexOut, codexErr := &bytes.Buffer{}, &bytes.Buffer{}
 	codex.SetOut(codexOut)
 	codex.SetErr(codexErr)
-	codex.SetArgs([]string{"runtime", "metadata", "ls", "--target", tmp, "--runtime", "codex", "--json"})
+	codex.SetArgs([]string{"runtime", "metadata", "ls", "--repo", tmp, "--runtime", "codex", "--json"})
 	if err := codex.Execute(); err != nil {
 		t.Fatalf("runtime metadata ls json: %v\nstderr=%s", err, codexErr.String())
 	}
@@ -750,7 +750,7 @@ func TestRuntimeMetadataLsFiltersSummaryAndFormat(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"runtime", "metadata", "ls", "--target", tmp, "--runtime", "codex", "--summary", "--json"})
+	summary.SetArgs([]string{"runtime", "metadata", "ls", "--repo", tmp, "--runtime", "codex", "--summary", "--json"})
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("runtime metadata summary: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -766,7 +766,7 @@ func TestRuntimeMetadataLsFiltersSummaryAndFormat(t *testing.T) {
 	instanceOut, instanceErr := &bytes.Buffer{}, &bytes.Buffer{}
 	instance.SetOut(instanceOut)
 	instance.SetErr(instanceErr)
-	instance.SetArgs([]string{"runtime", "metadata", "ls", "worker-squ-130", "--target", tmp, "--json"})
+	instance.SetArgs([]string{"runtime", "metadata", "ls", "worker-squ-130", "--repo", tmp, "--json"})
 	if err := instance.Execute(); err != nil {
 		t.Fatalf("runtime metadata positional filter: %v\nstderr=%s", err, instanceErr.String())
 	}
@@ -782,7 +782,7 @@ func TestRuntimeMetadataLsFiltersSummaryAndFormat(t *testing.T) {
 	latestOut, latestErr := &bytes.Buffer{}, &bytes.Buffer{}
 	latest.SetOut(latestOut)
 	latest.SetErr(latestErr)
-	latest.SetArgs([]string{"runtime", "metadata", "ls", "--target", tmp, "--latest", "--json"})
+	latest.SetArgs([]string{"runtime", "metadata", "ls", "--repo", tmp, "--latest", "--json"})
 	if err := latest.Execute(); err != nil {
 		t.Fatalf("runtime metadata latest: %v\nstderr=%s", err, latestErr.String())
 	}
@@ -798,7 +798,7 @@ func TestRuntimeMetadataLsFiltersSummaryAndFormat(t *testing.T) {
 	formattedOut, formattedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	formatted.SetOut(formattedOut)
 	formatted.SetErr(formattedErr)
-	formatted.SetArgs([]string{"runtime", "metadata", "ls", "--target", tmp, "--last", "2", "--sort", "started", "--format", "{{.Instance}} {{.Runtime}}"})
+	formatted.SetArgs([]string{"runtime", "metadata", "ls", "--repo", tmp, "--last", "2", "--sort", "started", "--format", "{{.Instance}} {{.Runtime}}"})
 	if err := formatted.Execute(); err != nil {
 		t.Fatalf("runtime metadata format: %v\nstderr=%s", err, formattedErr.String())
 	}
@@ -826,7 +826,7 @@ func TestRuntimeMetadataLsFiltersSummaryAndFormat(t *testing.T) {
 	unhealthyOut, unhealthyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	unhealthy.SetOut(unhealthyOut)
 	unhealthy.SetErr(unhealthyErr)
-	unhealthy.SetArgs([]string{"runtime", "metadata", "ls", "--target", tmp, "--unhealthy", "--format", "{{.Instance}} {{.Unhealthy}}"})
+	unhealthy.SetArgs([]string{"runtime", "metadata", "ls", "--repo", tmp, "--unhealthy", "--format", "{{.Instance}} {{.Unhealthy}}"})
 	if err := unhealthy.Execute(); err != nil {
 		t.Fatalf("runtime metadata unhealthy: %v\nstderr=%s", err, unhealthyErr.String())
 	}
@@ -844,47 +844,47 @@ func TestRuntimeMetadataLsRejectsInvalidModes(t *testing.T) {
 	}{
 		{
 			name: "format json",
-			args: []string{"runtime", "metadata", "ls", "--target", tmp, "--format", "{{.Instance}}", "--json"},
+			args: []string{"runtime", "metadata", "ls", "--repo", tmp, "--format", "{{.Instance}}", "--json"},
 			want: "--format cannot be combined",
 		},
 		{
 			name: "commands json",
-			args: []string{"runtime", "metadata", "ls", "--target", tmp, "--commands", "--json"},
+			args: []string{"runtime", "metadata", "ls", "--repo", tmp, "--commands", "--json"},
 			want: "--commands cannot be combined",
 		},
 		{
 			name: "commands summary",
-			args: []string{"runtime", "metadata", "ls", "--target", tmp, "--commands", "--summary"},
+			args: []string{"runtime", "metadata", "ls", "--repo", tmp, "--commands", "--summary"},
 			want: "--commands cannot be combined",
 		},
 		{
 			name: "commands format",
-			args: []string{"runtime", "metadata", "ls", "--target", tmp, "--commands", "--format", "{{.Instance}}"},
+			args: []string{"runtime", "metadata", "ls", "--repo", tmp, "--commands", "--format", "{{.Instance}}"},
 			want: "--commands cannot be combined",
 		},
 		{
 			name: "format summary",
-			args: []string{"runtime", "metadata", "ls", "--target", tmp, "--format", "{{.Instance}}", "--summary"},
+			args: []string{"runtime", "metadata", "ls", "--repo", tmp, "--format", "{{.Instance}}", "--summary"},
 			want: "--format cannot be combined",
 		},
 		{
 			name: "negative last",
-			args: []string{"runtime", "metadata", "ls", "--target", tmp, "--last", "-1"},
+			args: []string{"runtime", "metadata", "ls", "--repo", tmp, "--last", "-1"},
 			want: "--last must be >= 0",
 		},
 		{
 			name: "latest last",
-			args: []string{"runtime", "metadata", "ls", "--target", tmp, "--latest", "--last", "2"},
+			args: []string{"runtime", "metadata", "ls", "--repo", tmp, "--latest", "--last", "2"},
 			want: "choose one of --latest or --last",
 		},
 		{
 			name: "bad sort",
-			args: []string{"runtime", "metadata", "ls", "--target", tmp, "--sort", "age"},
+			args: []string{"runtime", "metadata", "ls", "--repo", tmp, "--sort", "age"},
 			want: "unknown --sort",
 		},
 		{
 			name: "empty instance",
-			args: []string{"runtime", "metadata", "ls", " ", "--target", tmp},
+			args: []string{"runtime", "metadata", "ls", " ", "--repo", tmp},
 			want: "instance names must be non-empty",
 		},
 	} {
@@ -951,7 +951,7 @@ func TestRuntimeMetadataShowEnrichesAndRenders(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"runtime", "metadata", "show", "worker-squ-131", "--target", tmp})
+	text.SetArgs([]string{"runtime", "metadata", "show", "worker-squ-131", "--repo", tmp})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("runtime metadata show text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -987,7 +987,7 @@ func TestRuntimeMetadataShowEnrichesAndRenders(t *testing.T) {
 	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jsonCmd.SetOut(jsonOut)
 	jsonCmd.SetErr(jsonErr)
-	jsonCmd.SetArgs([]string{"runtime", "metadata", "show", "worker-squ-131", "--target", tmp, "--json"})
+	jsonCmd.SetArgs([]string{"runtime", "metadata", "show", "worker-squ-131", "--repo", tmp, "--json"})
 	if err := jsonCmd.Execute(); err != nil {
 		t.Fatalf("runtime metadata show json: %v\nstderr=%s", err, jsonErr.String())
 	}
@@ -1003,7 +1003,7 @@ func TestRuntimeMetadataShowEnrichesAndRenders(t *testing.T) {
 	formattedOut, formattedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	formatted.SetOut(formattedOut)
 	formatted.SetErr(formattedErr)
-	formatted.SetArgs([]string{"runtime", "metadata", "show", "worker-squ-131", "--target", tmp, "--format", "{{.Instance}} {{.Ticket}} {{.Unhealthy}}"})
+	formatted.SetArgs([]string{"runtime", "metadata", "show", "worker-squ-131", "--repo", tmp, "--format", "{{.Instance}} {{.Ticket}} {{.Unhealthy}}"})
 	if err := formatted.Execute(); err != nil {
 		t.Fatalf("runtime metadata show format: %v\nstderr=%s", err, formattedErr.String())
 	}
@@ -1040,27 +1040,27 @@ func TestRuntimeMetadataShowRejectsInvalidModesAndMissingRecords(t *testing.T) {
 	}{
 		{
 			name: "format json",
-			args: []string{"runtime", "metadata", "show", "worker", "--target", tmp, "--format", "{{.Instance}}", "--json"},
+			args: []string{"runtime", "metadata", "show", "worker", "--repo", tmp, "--format", "{{.Instance}}", "--json"},
 			want: "--format cannot be combined with --json",
 		},
 		{
 			name: "commands json",
-			args: []string{"runtime", "metadata", "show", "worker", "--target", tmp, "--commands", "--json"},
+			args: []string{"runtime", "metadata", "show", "worker", "--repo", tmp, "--commands", "--json"},
 			want: "--commands cannot be combined",
 		},
 		{
 			name: "commands format",
-			args: []string{"runtime", "metadata", "show", "worker", "--target", tmp, "--commands", "--format", "{{.Instance}}"},
+			args: []string{"runtime", "metadata", "show", "worker", "--repo", tmp, "--commands", "--format", "{{.Instance}}"},
 			want: "--commands cannot be combined",
 		},
 		{
 			name: "empty instance",
-			args: []string{"runtime", "metadata", "show", " ", "--target", tmp},
+			args: []string{"runtime", "metadata", "show", " ", "--repo", tmp},
 			want: "instance name must be non-empty",
 		},
 		{
 			name: "missing record",
-			args: []string{"runtime", "metadata", "show", "missing", "--target", tmp},
+			args: []string{"runtime", "metadata", "show", "missing", "--repo", tmp},
 			want: `metadata for instance "missing" not found`,
 		},
 	} {
@@ -1116,7 +1116,7 @@ func TestRuntimeCommand_RepoConfigCodexJSON(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"runtime", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime --json failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -1143,7 +1143,7 @@ func TestRuntimeCommand_RuntimeFlagOverridesEnvRuntimeAndBinary(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", t.TempDir(), "--runtime", "codex", "--json"})
+	cmd.SetArgs([]string{"runtime", "--repo", t.TempDir(), "--runtime", "codex", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime --runtime codex failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -1173,7 +1173,7 @@ func TestRuntimeCommand_RuntimeBinFlagOverridesSelectedRuntimeBinary(t *testing.
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", tmp, "--runtime-bin", "codex-dev", "--json"})
+	cmd.SetArgs([]string{"runtime", "--repo", tmp, "--runtime-bin", "codex-dev", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime --runtime-bin failed: %v\nstderr: %s", err, errOut.String())
 	}
@@ -1183,42 +1183,6 @@ func TestRuntimeCommand_RuntimeBinFlagOverridesSelectedRuntimeBinary(t *testing.
 	}
 	if info.Runtime != "codex" || info.Binary != "codex-dev" {
 		t.Fatalf("info = %+v, want config kind with explicit binary", info)
-	}
-}
-
-func TestRuntimeCommand_RepoFlagOverridesTarget(t *testing.T) {
-	t.Setenv(runtimebin.EnvRuntime, "")
-	t.Setenv(runtimebin.EnvBinary, "")
-	tmp := t.TempDir()
-	initInto(t, tmp)
-	appendRuntimeConfigForRuntimeTest(t, tmp, "codex", "codex-wrapper")
-	badTarget := t.TempDir()
-	withRuntimeLookPath(t, func(bin string) (string, error) {
-		if bin != "codex-wrapper" {
-			t.Fatalf("look path bin = %q, want codex-wrapper", bin)
-		}
-		return "/usr/local/bin/codex-wrapper", nil
-	})
-
-	cmd := NewRootCmd()
-	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
-	cmd.SetOut(out)
-	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"--repo", tmp, "runtime", "--target", badTarget, "--json"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("runtime with --repo override: %v\nstderr: %s", err, errOut.String())
-	}
-	var info runtimeInfo
-	if err := json.Unmarshal(out.Bytes(), &info); err != nil {
-		t.Fatalf("json: %v\n%s", err, out.String())
-	}
-	wantRoot := tmp
-	if eval, err := filepath.EvalSymlinks(wantRoot); err == nil {
-		wantRoot = eval
-	}
-	wantConfig := filepath.ToSlash(filepath.Join(wantRoot, ".agent_team", "config.toml"))
-	if info.Binary != "codex-wrapper" || info.ConfigPath != wantConfig {
-		t.Fatalf("info = %+v, want config from --repo %s", info, wantConfig)
 	}
 }
 
@@ -1244,7 +1208,7 @@ func TestRuntimeResumePlanClaudeText(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan: %v\nstderr=%s", err, errOut.String())
 	}
@@ -1317,7 +1281,7 @@ func TestRuntimeResumePlanMarksStaleRunningMetadata(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan json: %v\nstderr=%s", err, errOut.String())
 	}
@@ -1345,7 +1309,7 @@ func TestRuntimeResumePlanMarksStaleRunningMetadata(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"runtime", "resume-plan", "stale-manager", "--target", tmp})
+	text.SetArgs([]string{"runtime", "resume-plan", "stale-manager", "--repo", tmp})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1358,7 +1322,7 @@ func TestRuntimeResumePlanMarksStaleRunningMetadata(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--summary", "--json"})
+	summary.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--summary", "--json"})
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan summary: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -1390,7 +1354,7 @@ func TestRuntimeResumePlanMarksStaleRunningMetadata(t *testing.T) {
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)
 	filtered.SetErr(filteredErr)
-	filtered.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--action", "start", "--stale", "--format", "{{.Instance}} {{.Stale}} {{.RecommendedCommand}}"})
+	filtered.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--action", "start", "--stale", "--format", "{{.Instance}} {{.Stale}} {{.RecommendedCommand}}"})
 	if err := filtered.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan stale action filter: %v\nstderr=%s", err, filteredErr.String())
 	}
@@ -1402,7 +1366,7 @@ func TestRuntimeResumePlanMarksStaleRunningMetadata(t *testing.T) {
 	staleSummaryOut, staleSummaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	staleSummary.SetOut(staleSummaryOut)
 	staleSummary.SetErr(staleSummaryErr)
-	staleSummary.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--runtime-stale", "--summary", "--json"})
+	staleSummary.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--runtime-stale", "--summary", "--json"})
 	if err := staleSummary.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan runtime-stale summary: %v\nstderr=%s", err, staleSummaryErr.String())
 	}
@@ -1497,7 +1461,7 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--unhealthy", "--format", "{{.Instance}} {{.RecommendedAction}} {{.Stale}}"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--unhealthy", "--format", "{{.Instance}} {{.RecommendedAction}} {{.Stale}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan unhealthy filter: %v\nstderr=%s", err, errOut.String())
 	}
@@ -1514,7 +1478,7 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 	sortedOut, sortedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	sorted.SetOut(sortedOut)
 	sorted.SetErr(sortedErr)
-	sorted.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--unhealthy", "--sort", "stale", "--format", "{{.Instance}} {{.RecommendedAction}} {{.Stale}}"})
+	sorted.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--unhealthy", "--sort", "stale", "--format", "{{.Instance}} {{.RecommendedAction}} {{.Stale}}"})
 	if err := sorted.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan unhealthy sort: %v\nstderr=%s", err, sortedErr.String())
 	}
@@ -1530,7 +1494,7 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 	limitedOut, limitedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	limited.SetOut(limitedOut)
 	limited.SetErr(limitedErr)
-	limited.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--unhealthy", "--sort", "stale", "--limit", "1", "--format", "{{.Instance}} {{.RecommendedAction}} {{.Stale}}"})
+	limited.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--unhealthy", "--sort", "stale", "--limit", "1", "--format", "{{.Instance}} {{.RecommendedAction}} {{.Stale}}"})
 	if err := limited.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan unhealthy limit: %v\nstderr=%s", err, limitedErr.String())
 	}
@@ -1542,7 +1506,7 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--unhealthy", "--sort", "stale", "--commands"})
+	commands.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--unhealthy", "--sort", "stale", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan unhealthy commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -1558,7 +1522,7 @@ func TestRuntimeResumePlanUnhealthyFilter(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--unhealthy", "--summary", "--json"})
+	summary.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--unhealthy", "--summary", "--json"})
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan unhealthy summary: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -1605,7 +1569,7 @@ func TestRuntimeResumePlanCodexJobJSON(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--job", "SQU-42", "--json"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--job", "SQU-42", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --job --json: %v\nstderr=%s", err, errOut.String())
 	}
@@ -1766,7 +1730,7 @@ func TestRuntimeResumePlanJobStepFilter(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--job", "SQU-43", "--step", "review"})
+	text.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--job", "SQU-43", "--step", "review"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --job --step text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1826,7 +1790,7 @@ func TestRuntimeResumePlanFormatAndFilters(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--runtime", "codex", "--status", "exited", "--format", "{{.Instance}} {{.Runtime}} {{.RecommendedCommand}}"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--runtime", "codex", "--status", "exited", "--format", "{{.Instance}} {{.Runtime}} {{.RecommendedCommand}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --format: %v\nstderr=%s", err, errOut.String())
 	}
@@ -1891,7 +1855,7 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--action", "resume,logs", "--format", "{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--action", "resume,logs", "--format", "{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --action: %v\nstderr=%s", err, errOut.String())
 	}
@@ -1907,7 +1871,7 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	lastMessageOut, lastMessageErr := &bytes.Buffer{}, &bytes.Buffer{}
 	lastMessage.SetOut(lastMessageOut)
 	lastMessage.SetErr(lastMessageErr)
-	lastMessage.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--action", "logs", "--last-message", "--format", "{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}"})
+	lastMessage.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--action", "logs", "--last-message", "--format", "{{.Instance}} {{.RecommendedAction}} {{.RecommendedCommand}}"})
 	if err := lastMessage.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --last-message: %v\nstderr=%s", err, lastMessageErr.String())
 	}
@@ -1919,7 +1883,7 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--summary", "--json"})
+	summary.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--summary", "--json"})
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --summary: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -1935,7 +1899,7 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	managedOut, managedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	managed.SetOut(managedOut)
 	managed.SetErr(managedErr)
-	managed.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--managed", "--format", "{{.Instance}} {{.ManagedResume}} {{.CanManagedResume}} {{.DirectResume}}"})
+	managed.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--managed", "--format", "{{.Instance}} {{.ManagedResume}} {{.CanManagedResume}} {{.DirectResume}}"})
 	if err := managed.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --managed: %v\nstderr=%s", err, managedErr.String())
 	}
@@ -1952,7 +1916,7 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	canManagedOut, canManagedErr := &bytes.Buffer{}, &bytes.Buffer{}
 	canManaged.SetOut(canManagedOut)
 	canManaged.SetErr(canManagedErr)
-	canManaged.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--can-managed", "--summary", "--json"})
+	canManaged.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--can-managed", "--summary", "--json"})
 	if err := canManaged.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --can-managed summary: %v\nstderr=%s", err, canManagedErr.String())
 	}
@@ -1968,7 +1932,7 @@ func TestRuntimeResumePlanActionFilter(t *testing.T) {
 	directOut, directErr := &bytes.Buffer{}, &bytes.Buffer{}
 	direct.SetOut(directOut)
 	direct.SetErr(directErr)
-	direct.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--runtime", "codex", "--direct", "--action", "start", "--format", "{{.Instance}} {{.DirectResume}} {{.RecommendedAction}}"})
+	direct.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--runtime", "codex", "--direct", "--action", "start", "--format", "{{.Instance}} {{.DirectResume}} {{.RecommendedAction}}"})
 	if err := direct.Execute(); err != nil {
 		t.Fatalf("runtime resume-plan --direct --action resume: %v\nstderr=%s", err, directErr.String())
 	}
@@ -1982,7 +1946,7 @@ func TestRuntimeResumePlanRejectsJSONFormat(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", t.TempDir(), "--json", "--format", "{{.Instance}}"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", t.TempDir(), "--json", "--format", "{{.Instance}}"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime resume-plan --json --format succeeded")
@@ -2004,17 +1968,17 @@ func TestRuntimeResumePlanRejectsCommandsWithStructuredRenderers(t *testing.T) {
 	}{
 		{
 			name: "json",
-			args: []string{"runtime", "resume-plan", "--target", t.TempDir(), "--commands", "--json"},
+			args: []string{"runtime", "resume-plan", "--repo", t.TempDir(), "--commands", "--json"},
 			want: wantCommandsModeConflict("--json"),
 		},
 		{
 			name: "format",
-			args: []string{"runtime", "resume-plan", "--target", t.TempDir(), "--commands", "--format", "{{.RecommendedCommand}}"},
+			args: []string{"runtime", "resume-plan", "--repo", t.TempDir(), "--commands", "--format", "{{.RecommendedCommand}}"},
 			want: wantCommandsModeConflict("--format"),
 		},
 		{
 			name: "summary",
-			args: []string{"runtime", "resume-plan", "--target", t.TempDir(), "--commands", "--summary"},
+			args: []string{"runtime", "resume-plan", "--repo", t.TempDir(), "--commands", "--summary"},
 			want: "--summary cannot be combined with --commands",
 		},
 	} {
@@ -2044,7 +2008,7 @@ func TestRuntimeResumePlanRejectsSummaryFormat(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", t.TempDir(), "--summary", "--format", "{{.Total}}"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", t.TempDir(), "--summary", "--format", "{{.Total}}"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime resume-plan --summary --format succeeded")
@@ -2065,7 +2029,7 @@ func TestRuntimeResumePlanRejectsInvalidAction(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--action", "restart"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--action", "restart"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime resume-plan --action restart succeeded")
@@ -2086,7 +2050,7 @@ func TestRuntimeResumePlanRejectsInvalidSort(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--sort", "age"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--sort", "age"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime resume-plan --sort age succeeded")
@@ -2108,7 +2072,7 @@ func TestRuntimeResumePlanRejectsInvalidLimit(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--limit", "-1"})
+	cmd.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--limit", "-1"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime resume-plan --limit -1 succeeded")
@@ -2125,7 +2089,7 @@ func TestRuntimeResumePlanRejectsInvalidLimit(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"runtime", "resume-plan", "--target", tmp, "--summary", "--limit", "1"})
+	summary.SetArgs([]string{"runtime", "resume-plan", "--repo", tmp, "--summary", "--limit", "1"})
 	err = summary.Execute()
 	if err == nil {
 		t.Fatal("runtime resume-plan --summary --limit 1 succeeded")
@@ -2153,7 +2117,7 @@ func TestRuntimeResumePlanFallbacksRequireCommands(t *testing.T) {
 	initInto(t, tmp)
 
 	for _, args := range [][]string{
-		{"runtime", "resume-plan", "--target", tmp, "--fallbacks"},
+		{"runtime", "resume-plan", "--repo", tmp, "--fallbacks"},
 		{"job", "resume-plan", "SQU-1", "--repo", tmp, "--fallbacks"},
 		{"pipeline", "resume-plan", "--repo", tmp, "--fallbacks"},
 		{"team", "resume-plan", "delivery", "--repo", tmp, "--fallbacks"},
@@ -2194,7 +2158,7 @@ func TestRuntimeCommand_MissingBinaryExitsOne(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", t.TempDir()})
+	cmd.SetArgs([]string{"runtime", "--repo", t.TempDir()})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime succeeded with missing binary, want exit 1")
@@ -2215,7 +2179,7 @@ func TestRuntimeCommand_InvalidRuntimeExitsTwo(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", t.TempDir()})
+	cmd.SetArgs([]string{"runtime", "--repo", t.TempDir()})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime succeeded with invalid env, want exit 2")
@@ -2236,7 +2200,7 @@ func TestRuntimeCommand_InvalidRuntimeFlagExitsTwo(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"runtime", "--target", t.TempDir(), "--runtime", "bad-runtime"})
+	cmd.SetArgs([]string{"runtime", "--repo", t.TempDir(), "--runtime", "bad-runtime"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime succeeded with invalid flag, want exit 2")

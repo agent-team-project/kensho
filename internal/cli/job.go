@@ -37,9 +37,8 @@ import (
 
 func newJobCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "job",
-		Aliases: []string{"jobs"},
-		Short:   "Manage durable work units.",
+		Use:   "job",
+		Short: "Manage durable work units.",
 		Long: "Manage durable work units backed by `.agent_team/jobs/<job-id>.toml`. " +
 			"Jobs track ticket ownership, target agent, lifecycle state, instance, branch, worktree, and PR metadata.",
 	}
@@ -1131,10 +1130,9 @@ func newJobShowCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "show <job-id>",
-		Aliases: []string{"inspect"},
-		Short:   "Show one durable job.",
-		Args:    cobra.ExactArgs(1),
+		Use:   "show <job-id>",
+		Short: "Show one durable job.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			includeEvents := cmd.Flags().Changed("events")
 			if format != "" && jsonOut {
@@ -1642,7 +1640,6 @@ func newJobSendCmd() *cobra.Command {
 			if dryRun {
 				if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, instance, body, sendOptions{
 					From:           from,
-					AllowMissing:   allowMissing,
 					DryRun:         true,
 					SkipValidation: allowMissing,
 				}); err != nil {
@@ -1672,7 +1669,6 @@ func newJobSendCmd() *cobra.Command {
 			}
 			if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, instance, body, sendOptions{
 				From:           from,
-				AllowMissing:   allowMissing,
 				SkipValidation: allowMissing,
 			}); err != nil {
 				return err
@@ -2007,7 +2003,6 @@ func newJobUnblockCmd() *cobra.Command {
 			}
 			if err := runSendWithClient(io.Discard, cmd.ErrOrStderr(), client, instance, body, sendOptions{
 				From:           fromLabel,
-				AllowMissing:   allowMissing,
 				DryRun:         dryRun,
 				SkipValidation: allowMissing,
 			}); err != nil {
@@ -3647,9 +3642,8 @@ func newJobHoldCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "hold <job-id>|--all [reason...]",
-		Aliases: []string{"pause"},
-		Short:   "Hold a job so pipeline automation will not advance it.",
+		Use:   "hold <job-id>|--all [reason...]",
+		Short: "Hold a job so pipeline automation will not advance it.",
 		Long: "Hold a durable job without changing its lifecycle status. " +
 			"Held jobs remain visible in status views, but next-step readiness reports held and automatic advance loops skip them until release. Use --all to hold matching jobs in a batch.",
 		Args: cobra.ArbitraryArgs,
@@ -3925,9 +3919,8 @@ func newJobReleaseCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "release <job-id>|--all [message...]",
-		Aliases: []string{"resume", "unpause"},
-		Short:   "Release a held job so pipeline automation can advance it.",
+		Use:   "release <job-id>|--all [message...]",
+		Short: "Release a held job so pipeline automation can advance it.",
 		Long: "Release a held durable job without changing its lifecycle status. " +
 			"After release, ready and advance commands evaluate the job's pipeline steps normally. Use --all to release matching held jobs in a batch.",
 		Args: cobra.ArbitraryArgs,
@@ -4249,9 +4242,8 @@ func newJobReopenCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "reopen <job-id>",
-		Aliases: []string{"retry"},
-		Short:   "Reopen a durable job for another attempt.",
+		Use:   "reopen <job-id>",
+		Short: "Reopen a durable job for another attempt.",
 		Long: "Reopen a durable job by resetting its lifecycle status to queued or blocked. " +
 			"Running jobs are refused unless --force is set. Pass --dispatch to immediately send the reopened job to its target, " +
 			"and --wait to block until the retried job reaches a status or event.",
@@ -4532,17 +4524,7 @@ func newJobReopenCmd() *cobra.Command {
 	return cmd
 }
 
-func jobReopenCommandName(cmd *cobra.Command) string {
-	if cmd == nil {
-		return "reopen"
-	}
-	name := strings.TrimSpace(cmd.CalledAs())
-	if name == "" {
-		name = strings.TrimSpace(cmd.Name())
-	}
-	if name == "retry" {
-		return "retry"
-	}
+func jobReopenCommandName(_ *cobra.Command) string {
 	return "reopen"
 }
 
@@ -5179,9 +5161,8 @@ func newJobRmCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "rm <job-id> [<job-id>...]",
-		Aliases: []string{"remove"},
-		Short:   "Remove job files and their event logs.",
+		Use:   "rm <job-id> [<job-id>...]",
+		Short: "Remove job files and their event logs.",
 		Long: "Remove durable job TOML files and their sibling event logs. " +
 			"Queued, running, and blocked jobs are refused unless --force is set.",
 		Args: cobra.MinimumNArgs(1),
@@ -5419,16 +5400,12 @@ func newJobExplainCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "explain <job-id>",
-		Aliases: []string{"watch"},
-		Short:   "Explain pipeline step readiness for one job.",
+		Use:   "explain <job-id>",
+		Short: "Explain pipeline step readiness for one job.",
 		Long: "Explain one job's pipeline state from the durable job file, including every step, " +
 			"dependency blockers, gates, ready/running/failed state, and suggested next actions.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.CalledAs() == "watch" {
-				watch = true
-			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team job explain: --format cannot be combined with --json.")
 				return exitErr(2)

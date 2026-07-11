@@ -3,7 +3,6 @@
 package loader
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,23 +15,8 @@ import (
 // TeamDirName is the conventional directory name vendored into a consumer repo.
 const TeamDirName = ".agent_team"
 
-// AgentLoadError is returned for any agent / skill resolution failure.
-// It mirrors the Python `AgentLoadError(RuntimeError)` — callers can use
-// `errors.Is(err, ErrAgentLoad)` to detect it.
-type AgentLoadError struct {
-	Msg string
-}
-
-func (e *AgentLoadError) Error() string { return e.Msg }
-func (e *AgentLoadError) Is(target error) bool {
-	return target == ErrAgentLoad
-}
-
-// ErrAgentLoad is a sentinel for `errors.Is` checks.
-var ErrAgentLoad = errors.New("agent load error")
-
 func newLoadErr(format string, args ...any) error {
-	return &AgentLoadError{Msg: fmt.Sprintf(format, args...)}
+	return fmt.Errorf(format, args...)
 }
 
 // Agent is one loaded agent definition.
@@ -69,7 +53,7 @@ func LoadAgent(agentDir, teamDir string) (*Agent, error) {
 	if err != nil {
 		return nil, newLoadErr("%s: %v", mdPath, err)
 	}
-	fm, body := ParseFrontmatterRich(string(raw))
+	fm, body := ParseFrontmatter(string(raw))
 	desc := strings.TrimSpace(fm.Scalars["description"])
 	if desc == "" {
 		return nil, newLoadErr("%s has no `description` in frontmatter", mdPath)

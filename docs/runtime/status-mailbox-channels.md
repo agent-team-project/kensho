@@ -87,7 +87,7 @@ agent-team send manager "Stop and handle this before continuing." --interrupt
 
 `agent-team inbox` is the human-facing read side of the mailbox:
 
-- `inbox ls` summarizes total and unread messages per instance, including mailboxes created for future instances with `send --allow-missing`.
+- `inbox ls` summarizes total and unread messages per known instance mailbox.
 - `inbox ls --team <team>` narrows the summary to declared team instances and their daemon-known ephemeral children.
 - `inbox check [instance]` lists unread message IDs, senders, and bodies. With no instance argument, it reads `AGENT_TEAM_INSTANCE`.
 - `inbox ack [instance] MESSAGE_ID` acknowledges only the next unread message and refuses to skip earlier unread messages; `--all` marks every current unread message read after you have handled them. Use `--dry-run` before changing the cursor.

@@ -38,7 +38,6 @@ func newIntakeDoctorCmd() *cobra.Command {
 		format   string
 		commands bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Validate the recorded intake delivery ledger.",
@@ -70,7 +69,7 @@ func newIntakeDoctorCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team intake doctor: %v\n", err)
 				return exitErr(1)
 			}
-			if err := renderIntakeDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, "target")); err != nil {
+			if err := renderIntakeDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)); err != nil {
 				return err
 			}
 			if !result.OK {
@@ -79,7 +78,6 @@ func newIntakeDoctorCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit ledger doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the intake doctor result with a Go template, e.g. '{{.OK}} {{len .Problems}}'.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, one per line.")

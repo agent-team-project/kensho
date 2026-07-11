@@ -87,7 +87,7 @@ func TestDispatchCommandJSON(t *testing.T) {
 		"dispatch", "worker", "SQU-42", "fix", "the", "thing",
 		"--workspace", "repo",
 		"--json",
-		"--target", target,
+		"--repo", target,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("dispatch --json: %v\nstderr=%s", err, stderr.String())
@@ -128,7 +128,7 @@ func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"dispatch", "worker", "SQU-242", "preview", "dispatch",
-		"--target", target,
+		"--repo", target,
 		"--dry-run",
 		"--json",
 		"--runtime", "codex",
@@ -161,7 +161,7 @@ func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	textCmd.SetOut(textOut)
 	textCmd.SetErr(textErr)
-	textCmd.SetArgs([]string{"dispatch", "worker", "SQU-243", "--target", target, "--dry-run"})
+	textCmd.SetArgs([]string{"dispatch", "worker", "SQU-243", "--repo", target, "--dry-run"})
 	if err := textCmd.Execute(); err != nil {
 		t.Fatalf("dispatch --dry-run text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -177,7 +177,7 @@ func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
 	commands.SetErr(commandsErr)
 	commands.SetArgs([]string{
 		"dispatch", "worker", "SQU-244",
-		"--target", target,
+		"--repo", target,
 		"--source", "manager",
 		"--workspace", "repo",
 		"--runtime", "codex",
@@ -228,7 +228,7 @@ func TestDispatchCommandDryRunPreviewsRoutesWithoutDaemon(t *testing.T) {
 	noRouteOut, noRouteErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noRoute.SetOut(noRouteOut)
 	noRoute.SetErr(noRouteErr)
-	noRoute.SetArgs([]string{"dispatch", "reviewer", "SQU-246", "--target", target, "--dry-run", "--commands"})
+	noRoute.SetArgs([]string{"dispatch", "reviewer", "SQU-246", "--repo", target, "--dry-run", "--commands"})
 	if err := noRoute.Execute(); err != nil {
 		t.Fatalf("dispatch no-route --dry-run --commands: %v\nstderr=%s", err, noRouteErr.String())
 	}
@@ -280,7 +280,7 @@ func TestDispatchCommandDuplicateSuggestsSend(t *testing.T) {
 	first.SetArgs([]string{
 		"dispatch", "worker", "SQU-42", "first",
 		"--workspace", "repo",
-		"--target", target,
+		"--repo", target,
 	})
 	if err := first.Execute(); err != nil {
 		t.Fatalf("first dispatch: %v\nstderr=%s", err, firstErr.String())
@@ -293,7 +293,7 @@ func TestDispatchCommandDuplicateSuggestsSend(t *testing.T) {
 	second.SetArgs([]string{
 		"dispatch", "worker", "SQU-42", "follow-up",
 		"--workspace", "repo",
-		"--target", target,
+		"--repo", target,
 	})
 	if err := second.Execute(); err != nil {
 		t.Fatalf("second dispatch: %v\nstderr=%s", err, stderr.String())

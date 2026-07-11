@@ -117,7 +117,7 @@ if not cfg_path.exists():
     )
 
 cfg = tomllib.loads(cfg_path.read_text())
-pm_provider = cfg.get("pm", {}).get("provider") or cfg.get("team", {}).get("pm_tool", "none")
+pm_provider = (cfg.get("pm", {}).get("provider") or "none")
 if pm_provider != "linear":
     sys.exit(
         "linear-graphql.sh: Linear not configured for this repo. "

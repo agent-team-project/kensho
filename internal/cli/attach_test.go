@@ -131,7 +131,7 @@ func TestAttach_StopsAndResumes(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"attach", "manager", "--target", env.target})
+	cmd.SetArgs([]string{"attach", "manager", "--repo", env.target})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestAttach_NoResume(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"attach", "manager", "--target", env.target, "--no-resume"})
+	cmd.SetArgs([]string{"attach", "manager", "--repo", env.target, "--no-resume"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --no-resume: %v", err)
 	}
@@ -239,7 +239,7 @@ ephemeral = true
 	errOut := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"attach", "worker", "--target", env.target})
+	cmd.SetArgs([]string{"attach", "worker", "--repo", env.target})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for ephemeral instance")
@@ -273,7 +273,7 @@ func TestAttach_DaemonNotRunning(t *testing.T) {
 	errOut := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"attach", "manager", "--target", target})
+	cmd.SetArgs([]string{"attach", "manager", "--repo", target})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error when daemon is not running")
@@ -299,7 +299,7 @@ func TestAttach_InstanceUnknownToDaemon(t *testing.T) {
 	errOut := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"attach", "ghost", "--target", env.target})
+	cmd.SetArgs([]string{"attach", "ghost", "--repo", env.target})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown instance")
@@ -330,7 +330,7 @@ func TestAttach_AlreadyStoppedSkipsStop(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"attach", "manager", "--target", env.target, "--no-resume"})
+	cmd.SetArgs([]string{"attach", "manager", "--repo", env.target, "--no-resume"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach against already-stopped: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestAttach_DryRunDoesNotStopOrExec(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"attach", "manager", "--target", env.target, "--dry-run"})
+	cmd.SetArgs([]string{"attach", "manager", "--repo", env.target, "--dry-run"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --dry-run: %v\nstderr=%s", err, errOut.String())
 	}
@@ -383,7 +383,7 @@ func TestAttach_DryRunDoesNotStopOrExec(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"attach", "manager", "--target", env.target, "--dry-run", "--commands"})
+	commands.SetArgs([]string{"attach", "manager", "--repo", env.target, "--dry-run", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("attach --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -420,7 +420,7 @@ func TestAttach_DryRunNoResumePreview(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"attach", "manager", "--target", env.target, "--dry-run", "--no-resume"})
+	cmd.SetArgs([]string{"attach", "manager", "--repo", env.target, "--dry-run", "--no-resume"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach --dry-run --no-resume: %v\nstderr=%s", err, errOut.String())
 	}
@@ -468,7 +468,7 @@ func TestAttach_DryRunCodexShowsManagedResume(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"attach", "codex-worker", "--target", env.target, "--dry-run"})
+	cmd.SetArgs([]string{"attach", "codex-worker", "--repo", env.target, "--dry-run"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach codex --dry-run: %v\nstderr=%s", err, errOut.String())
 	}
@@ -495,7 +495,7 @@ func TestAttach_DryRunCodexShowsManagedResume(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"attach", "codex-worker", "--target", env.target, "--dry-run", "--commands"})
+	commands.SetArgs([]string{"attach", "codex-worker", "--repo", env.target, "--dry-run", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("attach codex --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -592,7 +592,7 @@ func TestAttach_CodexExecsInteractiveResume(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"attach", "codex-worker", "--target", env.target, "--no-resume"})
+	cmd.SetArgs([]string{"attach", "codex-worker", "--repo", env.target, "--no-resume"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach codex: %v\nstderr=%s", err, errOut.String())
 	}
@@ -625,7 +625,7 @@ func TestAttach_ClaudeExitCodeIsPropagated(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"attach", "manager", "--target", env.target, "--no-resume"})
+	cmd.SetArgs([]string{"attach", "manager", "--repo", env.target, "--no-resume"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected non-zero exit when claude returns non-zero")
@@ -664,7 +664,7 @@ func TestAttach_StateDirSurvivesTransfer(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"attach", "manager", "--target", env.target, "--no-resume"})
+	cmd.SetArgs([]string{"attach", "manager", "--repo", env.target, "--no-resume"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("attach: %v", err)
 	}

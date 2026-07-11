@@ -50,7 +50,7 @@ If the kickoff preamble, topology event payload (`kind` or `profile`), or `AGENT
 
 ## Critical Rules
 
-1. **Never work without a concrete work item.** If `[pm].provider = "linear"` (or legacy `[team].pm_tool = "linear"`), you must receive a Linear ticket identifier (e.g. `SQU-14`) or Linear URL. If `[pm].provider = "github"` (or legacy `[team].pm_tool = "github"`), you must receive a GitHub issue URL, issue number, or owner/repo#number reference. If the PM provider is `"none"`, a durable job id plus kickoff text is the work item; do not require or invent a ticket.
+1. **Never work without a concrete work item.** If `[pm].provider = "linear"`, you must receive a Linear ticket identifier (e.g. `SQU-14`) or Linear URL. If `[pm].provider = "github"`, you must receive a GitHub issue URL, issue number, or owner/repo#number reference. If the PM provider is `"none"`, a durable job id plus kickoff text is the work item; do not require or invent a ticket.
 2. **Never push to `main` directly.** Always work on the branch your isolated worktree is on. Daemon-created branches are named `<ticket>-<tag>` (e.g. `squ-14-a1b2c3d4`); legacy Agent-tool worktrees use `worktree-<slug>`. Either is fine — just never main.
 3. **Run the repo's validation gates before marking a PR as reviewable.** Use the repo's orientation docs for the exact commands (lint, test, type check). Fix any failures.
 4. **Never commit `.env`, credentials, or secrets.**
@@ -59,7 +59,7 @@ If the kickoff preamble, topology event payload (`kind` or `profile`), or `AGENT
 
 ## Startup Sequence
 
-Read `.agent_team/config.toml` first and check `[pm].provider`, falling back to legacy `[team].pm_tool` when `[pm].provider` is absent.
+Read `.agent_team/config.toml` first and check `[pm].provider`.
 
 - If it is `"linear"`, extract the ticket identifier from your prompt (e.g. `SQU-14` — the consumer's ticket prefix lives under `linear.ticket_prefix`).
 - If it is `"github"`, extract the GitHub issue URL, issue number, or owner/repo#number from your prompt/job context. Use `[github].owner` and `[github].repo` as defaults for bare issue numbers.

@@ -25,7 +25,7 @@ func TestSyncDryRunJSONUsesPlanAndDoesNotStartDaemon(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -58,7 +58,7 @@ func TestSyncDryRunSummaryJSONUsesPlanAndDoesNotStartDaemon(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--dry-run", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--dry-run", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --summary --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -91,7 +91,7 @@ func TestSyncDryRunFormatUsesPlanAndDoesNotStartDaemon(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--dry-run", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -131,7 +131,7 @@ func TestSyncDryRunFiltersPlanRowsAndDoesNotStartDaemon(t *testing.T) {
 		"--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
 		"--agent", "manager",
 		"--status", "unknown",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run filtered: %v\nstderr: %s", err, stderr.String())
@@ -167,7 +167,7 @@ description = "ready"
 		"--dry-run",
 		"--format", "{{.Instance}}:{{.Action}}:{{.Phase}}",
 		"--phase", "blocked",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --phase blocked: %v\nstderr: %s", err, stderr.String())
@@ -204,7 +204,7 @@ func TestSyncDryRunFiltersPlanRowsByRuntime(t *testing.T) {
 		"--dry-run",
 		"--format", "{{.Instance}}:{{.Action}}:{{.Runtime}}",
 		"--runtime", "codex",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --runtime codex: %v\nstderr: %s", err, stderr.String())
@@ -220,7 +220,7 @@ func TestSyncDryRunFiltersPlanRowsByRuntime(t *testing.T) {
 	invalidOut, invalidErr := &bytes.Buffer{}, &bytes.Buffer{}
 	invalid.SetOut(invalidOut)
 	invalid.SetErr(invalidErr)
-	invalid.SetArgs([]string{"sync", "--dry-run", "--runtime", "llama", "--target", tmp})
+	invalid.SetArgs([]string{"sync", "--dry-run", "--runtime", "llama", "--repo", tmp})
 	if err := invalid.Execute(); err == nil {
 		t.Fatalf("sync --runtime llama succeeded\nstdout=%s\nstderr=%s", invalidOut.String(), invalidErr.String())
 	}
@@ -245,7 +245,7 @@ func TestSyncDryRunFiltersPlanRowsByAction(t *testing.T) {
 		"--format", "{{.Instance}}:{{.Action}}",
 		"--agent", "manager",
 		"--action", "start",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --action start: %v\nstderr: %s", err, stderr.String())
@@ -275,7 +275,7 @@ func TestSyncDryRunStopExtrasMarksRunningExtra(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--dry-run", "--stop-extras", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--dry-run", "--stop-extras", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --stop-extras --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -311,7 +311,7 @@ func TestSyncDryRunCommandsPrintsApplyCommand(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--target", tmp, "--dry-run", "--stop-extras", "--runtime", "codex", "--action", "stop", "--commands"})
+	cmd.SetArgs([]string{"sync", "--repo", tmp, "--dry-run", "--stop-extras", "--runtime", "codex", "--action", "stop", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --commands: %v\nstderr: %s", err, stderr.String())
 	}
@@ -327,7 +327,7 @@ func TestSyncDryRunCommandsPrintsApplyCommand(t *testing.T) {
 	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noAction.SetOut(noActionOut)
 	noAction.SetErr(noActionErr)
-	noAction.SetArgs([]string{"sync", "--target", tmp, "--dry-run", "--action", "keep", "--commands"})
+	noAction.SetArgs([]string{"sync", "--repo", tmp, "--dry-run", "--action", "keep", "--commands"})
 	if err := noAction.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --commands no actionable rows: %v\nstderr: %s", err, noActionErr.String())
 	}
@@ -357,7 +357,7 @@ func TestSyncQuietDryRunSuppressesOutput(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--dry-run", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--dry-run", "--quiet", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --quiet: %v\nstderr: %s", err, stderr.String())
 	}
@@ -405,7 +405,7 @@ func TestSyncFormatPrintsActionRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -462,7 +462,7 @@ func TestSyncReportsUnsupportedCodexResumeWithoutCallingDaemonStart(t *testing.T
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--action", "unsupported", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}:{{.Detail}}", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--action", "unsupported", "--format", "{{.Instance}}:{{.Action}}:{{.Status}}:{{.Detail}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --action unsupported --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -526,7 +526,7 @@ func TestSyncFormatHonorsAgentFilter(t *testing.T) {
 		"sync",
 		"--agent", "manager",
 		"--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --agent manager --format: %v\nstderr: %s", err, stderr.String())
@@ -579,7 +579,7 @@ description = "ready"
 		"sync",
 		"--phase", "blocked",
 		"--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --phase blocked --format: %v\nstderr: %s", err, stderr.String())
@@ -623,7 +623,7 @@ func TestSyncFormatHonorsActionFilter(t *testing.T) {
 		"sync",
 		"--action", "keep",
 		"--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --action keep --format: %v\nstderr: %s", err, stderr.String())
@@ -669,7 +669,7 @@ func TestSyncWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 		"--wait",
 		"--timeout", "50ms",
 		"--json",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --agent manager --wait --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
@@ -736,7 +736,7 @@ description = "stale work"
 		"--wait",
 		"--timeout", "5ms",
 		"--json",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	err = cmd.Execute()
 	var code ExitCode
@@ -791,7 +791,7 @@ func TestSyncStopExtrasJSONStopsUndeclaredRunningInstances(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--stop-extras", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--stop-extras", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --stop-extras --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -866,7 +866,7 @@ func TestSyncStopExtrasSummaryJSONCountsActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--stop-extras", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--stop-extras", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --stop-extras --summary --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -925,7 +925,7 @@ func TestSyncStopExtrasHonorsAgentFilter(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--stop-extras", "--agent", "manager", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--stop-extras", "--agent", "manager", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --stop-extras --agent manager --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -1010,7 +1010,7 @@ description = "ready"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--stop-extras", "--phase", "blocked", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--stop-extras", "--phase", "blocked", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --stop-extras --phase blocked --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -1071,7 +1071,7 @@ func TestSyncStopExtrasHonorsActionFilter(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--stop-extras", "--action", "keep", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--stop-extras", "--action", "keep", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --stop-extras --action keep --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -1131,7 +1131,7 @@ func TestSyncWaitFormatPrintsActionRowsAfterHealthWait(t *testing.T) {
 		"--wait",
 		"--timeout", "2s",
 		"--format", "{{.Instance}}:{{.Action}}:{{.Status}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --wait --format: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())

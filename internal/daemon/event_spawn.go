@@ -577,7 +577,7 @@ func (r *EventResolver) prepareEphemeralAgentArgs(inst *topology.Instance, agent
 		}
 	}
 	authorityAllow, authorityEnforce, authorityStrict := r.runtimeAuthorityForInstance(agentName, instance, payload)
-	shimBinDir, err := runtimeshim.InstallWithOptions(launchRoot, skillPaths, runtimeshim.Options{
+	shimBinDir, err := runtimeshim.Install(launchRoot, skillPaths, runtimeshim.Options{
 		EnforceAuthority:   authorityEnforce,
 		AuthorityAllowlist: authorityAllow,
 		StrictAuthority:    authorityStrict,

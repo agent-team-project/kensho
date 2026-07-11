@@ -44,7 +44,7 @@ func TestInboxLsJSONIncludesMetadataAndBareMailbox(t *testing.T) {
 		t.Fatalf("append future message: %v", err)
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "ls", "--target", tmp, "--json")
+	stdout, stderr, err := executeInboxCommand("inbox", "ls", "--repo", tmp, "--json")
 	if err != nil {
 		t.Fatalf("inbox ls: %v\nstderr=%s", err, stderr)
 	}
@@ -115,7 +115,7 @@ func TestInboxLsSortAndLimit(t *testing.T) {
 		}
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "ls", "--target", tmp, "--sort", "unread", "--limit", "2", "--format", "{{.Instance}} {{.Unread}}")
+	stdout, stderr, err := executeInboxCommand("inbox", "ls", "--repo", tmp, "--sort", "unread", "--limit", "2", "--format", "{{.Instance}} {{.Unread}}")
 	if err != nil {
 		t.Fatalf("inbox ls sort unread: %v\nstderr=%s", err, stderr)
 	}
@@ -123,7 +123,7 @@ func TestInboxLsSortAndLimit(t *testing.T) {
 		t.Fatalf("inbox ls sort unread = %q, want %q", got, want)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "ls", "--target", tmp, "--sort", "latest", "--limit", "2", "--format", "{{.Instance}} {{.LatestID}}")
+	stdout, stderr, err = executeInboxCommand("inbox", "ls", "--repo", tmp, "--sort", "latest", "--limit", "2", "--format", "{{.Instance}} {{.LatestID}}")
 	if err != nil {
 		t.Fatalf("inbox ls sort latest: %v\nstderr=%s", err, stderr)
 	}
@@ -131,7 +131,7 @@ func TestInboxLsSortAndLimit(t *testing.T) {
 		t.Fatalf("inbox ls sort latest = %q, want %q", got, want)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "ls", "--target", tmp, "--sort", "unread", "--limit", "1", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "ls", "--repo", tmp, "--sort", "unread", "--limit", "1", "--commands")
 	if err != nil {
 		t.Fatalf("inbox ls sorted commands: %v\nstderr=%s", err, stderr)
 	}
@@ -152,22 +152,22 @@ func TestInboxLsCommandsValidation(t *testing.T) {
 	}{
 		{
 			name: "rejects json",
-			args: []string{"inbox", "ls", "--target", tmp, "--commands", "--json"},
+			args: []string{"inbox", "ls", "--repo", tmp, "--commands", "--json"},
 			want: wantCommandsModeConflict("--json"),
 		},
 		{
 			name: "rejects format",
-			args: []string{"inbox", "ls", "--target", tmp, "--commands", "--format", "{{.Instance}}"},
+			args: []string{"inbox", "ls", "--repo", tmp, "--commands", "--format", "{{.Instance}}"},
 			want: wantCommandsModeConflict("--format"),
 		},
 		{
 			name: "rejects negative limit",
-			args: []string{"inbox", "ls", "--target", tmp, "--limit", "-1"},
+			args: []string{"inbox", "ls", "--repo", tmp, "--limit", "-1"},
 			want: "--limit must be >= 0",
 		},
 		{
 			name: "rejects unknown sort",
-			args: []string{"inbox", "ls", "--target", tmp, "--sort", "status"},
+			args: []string{"inbox", "ls", "--repo", tmp, "--sort", "status"},
 			want: "--sort must be instance, unread, latest, or total",
 		},
 	}
@@ -203,7 +203,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 		t.Fatalf("write cursor: %v", err)
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--json")
+	stdout, stderr, err := executeInboxCommand("inbox", "show", "worker", "--repo", tmp, "--unread", "--json")
 	if err != nil {
 		t.Fatalf("inbox show unread: %v\nstderr=%s", err, stderr)
 	}
@@ -215,7 +215,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 		t.Fatalf("unread messages = %+v", messages)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread")
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--repo", tmp, "--unread")
 	if err != nil {
 		t.Fatalf("inbox show unread table: %v\nstderr=%s", err, stderr)
 	}
@@ -223,7 +223,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 		t.Fatalf("inbox show table = %q, want reply target", stdout)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--repo", tmp, "--unread", "--commands")
 	if err != nil {
 		t.Fatalf("inbox show unread commands: %v\nstderr=%s", err, stderr)
 	}
@@ -232,7 +232,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 		t.Fatalf("inbox show unread commands = %q, want %q", got, wantCommand)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-2", "--target", tmp, "--dry-run", "--json")
+	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-2", "--repo", tmp, "--dry-run", "--json")
 	if err != nil {
 		t.Fatalf("inbox ack dry-run: %v\nstderr=%s", err, stderr)
 	}
@@ -251,7 +251,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 		t.Fatalf("cursor after dry-run = %q, want msg-1", cursor)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-2", "--target", tmp, "--dry-run", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-2", "--repo", tmp, "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("inbox ack dry-run commands: %v\nstderr=%s", err, stderr)
 	}
@@ -269,7 +269,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 		t.Fatalf("inbox ack --repo dry-run commands = %q, want %q", got, wantCommand)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-2", "--target", tmp, "--json")
+	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-2", "--repo", tmp, "--json")
 	if err != nil {
 		t.Fatalf("inbox ack: %v\nstderr=%s", err, stderr)
 	}
@@ -288,7 +288,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 		t.Fatalf("cursor after ack = %q, want msg-2", cursor)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--json")
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--repo", tmp, "--unread", "--json")
 	if err != nil {
 		t.Fatalf("inbox show after ack: %v\nstderr=%s", err, stderr)
 	}
@@ -299,7 +299,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 		t.Fatalf("unread after ack = %+v, want none", messages)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-2", "--target", tmp, "--dry-run", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-2", "--repo", tmp, "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("inbox ack no-op dry-run commands: %v\nstderr=%s", err, stderr)
 	}
@@ -307,7 +307,7 @@ func TestInboxShowUnreadAndAckCursor(t *testing.T) {
 		t.Fatalf("inbox ack no-op dry-run commands = %q, want empty", got)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--repo", tmp, "--unread", "--commands")
 	if err != nil {
 		t.Fatalf("inbox show no-op commands: %v\nstderr=%s", err, stderr)
 	}
@@ -331,7 +331,7 @@ func TestInboxCheckDefaultsToSelfAndSuggestsOldestUnreadAck(t *testing.T) {
 	}
 	t.Setenv("AGENT_TEAM_INSTANCE", "worker")
 
-	stdout, stderr, err := executeInboxCommand("inbox", "check", "--target", tmp, "--json")
+	stdout, stderr, err := executeInboxCommand("inbox", "check", "--repo", tmp, "--json")
 	if err != nil {
 		t.Fatalf("inbox check self: %v\nstderr=%s", err, stderr)
 	}
@@ -343,7 +343,7 @@ func TestInboxCheckDefaultsToSelfAndSuggestsOldestUnreadAck(t *testing.T) {
 		t.Fatalf("check messages = %+v", messages)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "check", "--self", "--target", tmp, "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "check", "--self", "--repo", tmp, "--commands")
 	if err != nil {
 		t.Fatalf("inbox check commands: %v\nstderr=%s", err, stderr)
 	}
@@ -352,7 +352,7 @@ func TestInboxCheckDefaultsToSelfAndSuggestsOldestUnreadAck(t *testing.T) {
 		t.Fatalf("inbox check commands = %q, want %q", got, wantCommand)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--tail", "1", "--json")
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--repo", tmp, "--unread", "--tail", "1", "--json")
 	if err != nil {
 		t.Fatalf("inbox show tail json: %v\nstderr=%s", err, stderr)
 	}
@@ -364,7 +364,7 @@ func TestInboxCheckDefaultsToSelfAndSuggestsOldestUnreadAck(t *testing.T) {
 		t.Fatalf("tailed show messages = %+v, want only msg-2 displayed", messages)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--target", tmp, "--unread", "--tail", "1", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "show", "worker", "--repo", tmp, "--unread", "--tail", "1", "--commands")
 	if err != nil {
 		t.Fatalf("inbox show tail commands: %v\nstderr=%s", err, stderr)
 	}
@@ -372,7 +372,7 @@ func TestInboxCheckDefaultsToSelfAndSuggestsOldestUnreadAck(t *testing.T) {
 		t.Fatalf("inbox show tail commands = %q, want %q", got, wantCommand)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "check", "worker", "--target", tmp, "--tail", "1", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "check", "worker", "--repo", tmp, "--tail", "1", "--commands")
 	if err != nil {
 		t.Fatalf("inbox check tail commands: %v\nstderr=%s", err, stderr)
 	}
@@ -380,7 +380,7 @@ func TestInboxCheckDefaultsToSelfAndSuggestsOldestUnreadAck(t *testing.T) {
 		t.Fatalf("inbox check tail commands = %q, want %q", got, wantCommand)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-1", "--target", tmp)
+	stdout, stderr, err = executeInboxCommand("inbox", "ack", "worker", "msg-1", "--repo", tmp)
 	if err != nil {
 		t.Fatalf("inbox ack oldest command target: %v\nstderr=%s", err, stderr)
 	}
@@ -395,7 +395,7 @@ func TestInboxCheckMissingInboxUsesCheckErrorPrefix(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 
-	_, stderr, err := executeInboxCommand("inbox", "check", "missing", "--target", tmp)
+	_, stderr, err := executeInboxCommand("inbox", "check", "missing", "--repo", tmp)
 	var code ExitCode
 	if !errors.As(err, &code) || code != 2 {
 		t.Fatalf("err = %v, want exit 2", err)
@@ -416,7 +416,7 @@ func TestInboxAckByIDRequiresNextUnreadMessage(t *testing.T) {
 	}
 	t.Setenv("AGENT_TEAM_INSTANCE", "worker")
 
-	_, stderr, err := executeInboxCommand("inbox", "ack", "msg-2", "--target", tmp)
+	_, stderr, err := executeInboxCommand("inbox", "ack", "msg-2", "--repo", tmp)
 	var code ExitCode
 	if !errors.As(err, &code) || code != 2 {
 		t.Fatalf("err = %v, want exit 2", err)
@@ -432,7 +432,7 @@ func TestInboxAckByIDRequiresNextUnreadMessage(t *testing.T) {
 		t.Fatalf("cursor after rejected ack = %q, want empty", cursor)
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "ack", "msg-1", "--target", tmp, "--json")
+	stdout, stderr, err := executeInboxCommand("inbox", "ack", "msg-1", "--repo", tmp, "--json")
 	if err != nil {
 		t.Fatalf("inbox ack next unread: %v\nstderr=%s", err, stderr)
 	}
@@ -444,7 +444,7 @@ func TestInboxAckByIDRequiresNextUnreadMessage(t *testing.T) {
 		t.Fatalf("ack msg-1 = %+v", ack)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "ack", "--all", "--self", "--target", tmp, "--json")
+	stdout, stderr, err = executeInboxCommand("inbox", "ack", "--all", "--self", "--repo", tmp, "--json")
 	if err != nil {
 		t.Fatalf("inbox ack all: %v\nstderr=%s", err, stderr)
 	}
@@ -468,7 +468,7 @@ func TestInboxSendDirectMessage(t *testing.T) {
 		t.Fatalf("write metadata: %v", err)
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "send", "manager", "hello", "--target", tmp, "--json")
+	stdout, stderr, err := executeInboxCommand("inbox", "send", "manager", "hello", "--repo", tmp, "--json")
 	if err != nil {
 		t.Fatalf("inbox send: %v\nstderr=%s", err, stderr)
 	}
@@ -487,7 +487,7 @@ func TestInboxSendDirectMessage(t *testing.T) {
 		t.Fatalf("messages = %+v", messages)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "send", "manager", "preview", "--target", tmp, "--dry-run", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "send", "manager", "preview", "--repo", tmp, "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("inbox send commands: %v\nstderr=%s", err, stderr)
 	}
@@ -505,7 +505,7 @@ func TestInboxAckMissingMessageReturnsUsageError(t *testing.T) {
 		t.Fatalf("append message: %v", err)
 	}
 
-	_, stderr, err := executeInboxCommand("inbox", "ack", "worker", "missing", "--target", tmp)
+	_, stderr, err := executeInboxCommand("inbox", "ack", "worker", "missing", "--repo", tmp)
 	var code ExitCode
 	if !errors.As(err, &code) || code != 2 {
 		t.Fatalf("err = %v, want exit 2", err)
@@ -530,17 +530,17 @@ func TestInboxAckCommandsValidation(t *testing.T) {
 	}{
 		{
 			name: "requires dry run",
-			args: []string{"inbox", "ack", "worker", "msg-1", "--target", tmp, "--commands"},
+			args: []string{"inbox", "ack", "worker", "msg-1", "--repo", tmp, "--commands"},
 			want: wantCommandsModeRequiresDryRun(),
 		},
 		{
 			name: "rejects json",
-			args: []string{"inbox", "ack", "worker", "msg-1", "--target", tmp, "--dry-run", "--commands", "--json"},
+			args: []string{"inbox", "ack", "worker", "msg-1", "--repo", tmp, "--dry-run", "--commands", "--json"},
 			want: wantCommandsModeConflict("--json"),
 		},
 		{
 			name: "rejects format",
-			args: []string{"inbox", "ack", "worker", "msg-1", "--target", tmp, "--dry-run", "--commands", "--format", "{{.Acked}}"},
+			args: []string{"inbox", "ack", "worker", "msg-1", "--repo", tmp, "--dry-run", "--commands", "--format", "{{.Acked}}"},
 			want: wantCommandsModeConflict("--format"),
 		},
 	}
@@ -573,12 +573,12 @@ func TestInboxShowCommandsValidation(t *testing.T) {
 	}{
 		{
 			name: "rejects json",
-			args: []string{"inbox", "show", "worker", "--target", tmp, "--commands", "--json"},
+			args: []string{"inbox", "show", "worker", "--repo", tmp, "--commands", "--json"},
 			want: wantCommandsModeConflict("--json"),
 		},
 		{
 			name: "rejects format",
-			args: []string{"inbox", "show", "worker", "--target", tmp, "--commands", "--format", "{{.ID}}"},
+			args: []string{"inbox", "show", "worker", "--repo", tmp, "--commands", "--format", "{{.ID}}"},
 			want: wantCommandsModeConflict("--format"),
 		},
 	}
@@ -615,7 +615,7 @@ func TestInboxPruneCompactsAcknowledgedMessages(t *testing.T) {
 		t.Fatalf("write cursor: %v", err)
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--dry-run", "--json")
+	stdout, stderr, err := executeInboxCommand("inbox", "prune", "worker", "--repo", tmp, "--dry-run", "--json")
 	if err != nil {
 		t.Fatalf("inbox prune dry-run: %v\nstderr=%s", err, stderr)
 	}
@@ -634,7 +634,7 @@ func TestInboxPruneCompactsAcknowledgedMessages(t *testing.T) {
 		t.Fatalf("dry-run rewrote messages: got %d want 4", len(messages))
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--dry-run", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--repo", tmp, "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("inbox prune commands: %v\nstderr=%s", err, stderr)
 	}
@@ -643,7 +643,7 @@ func TestInboxPruneCompactsAcknowledgedMessages(t *testing.T) {
 		t.Fatalf("inbox prune commands = %q, want %q", got, wantCommand)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--format", "{{.Instance}} {{.Dropped}} {{.Action}}")
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--repo", tmp, "--format", "{{.Instance}} {{.Dropped}} {{.Action}}")
 	if err != nil {
 		t.Fatalf("inbox prune: %v\nstderr=%s", err, stderr)
 	}
@@ -669,7 +669,7 @@ func TestInboxPruneCompactsAcknowledgedMessages(t *testing.T) {
 		t.Fatalf("unread after prune = %+v", unread)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--dry-run", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--repo", tmp, "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("inbox prune no-op commands: %v\nstderr=%s", err, stderr)
 	}
@@ -697,7 +697,7 @@ func TestInboxPruneOlderThanKeepsRecentAcknowledgedMessages(t *testing.T) {
 		t.Fatalf("write cursor: %v", err)
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--older-than", "24h", "--json")
+	stdout, stderr, err := executeInboxCommand("inbox", "prune", "worker", "--repo", tmp, "--older-than", "24h", "--json")
 	if err != nil {
 		t.Fatalf("inbox prune older-than: %v\nstderr=%s", err, stderr)
 	}
@@ -734,7 +734,7 @@ func TestInboxPruneLimitBoundsDroppedMessagesPerInbox(t *testing.T) {
 		t.Fatalf("write cursor: %v", err)
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--limit", "2", "--dry-run", "--commands")
+	stdout, stderr, err := executeInboxCommand("inbox", "prune", "worker", "--repo", tmp, "--limit", "2", "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("inbox prune limit commands: %v\nstderr=%s", err, stderr)
 	}
@@ -743,7 +743,7 @@ func TestInboxPruneLimitBoundsDroppedMessagesPerInbox(t *testing.T) {
 		t.Fatalf("inbox prune limit commands = %q, want %q", got, wantCommand)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--target", tmp, "--limit", "2", "--json")
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "worker", "--repo", tmp, "--limit", "2", "--json")
 	if err != nil {
 		t.Fatalf("inbox prune limit: %v\nstderr=%s", err, stderr)
 	}
@@ -800,7 +800,7 @@ instances = ["manager", "worker"]
 		}
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "prune", "--target", tmp, "--all", "--team", "delivery", "--dry-run", "--commands")
+	stdout, stderr, err := executeInboxCommand("inbox", "prune", "--repo", tmp, "--all", "--team", "delivery", "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("team prune commands: %v\nstderr=%s", err, stderr)
 	}
@@ -809,7 +809,7 @@ instances = ["manager", "worker"]
 		t.Fatalf("team prune commands = %q, want %q", got, wantCommand)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "prune", "--target", tmp, "--all", "--team", "delivery", "--json")
+	stdout, stderr, err = executeInboxCommand("inbox", "prune", "--repo", tmp, "--all", "--team", "delivery", "--json")
 	if err != nil {
 		t.Fatalf("team prune: %v\nstderr=%s", err, stderr)
 	}
@@ -844,42 +844,42 @@ func TestInboxPruneValidation(t *testing.T) {
 	}{
 		{
 			name: "requires target",
-			args: []string{"inbox", "prune", "--target", tmp},
+			args: []string{"inbox", "prune", "--repo", tmp},
 			want: "instance or --all is required",
 		},
 		{
 			name: "all rejects instances",
-			args: []string{"inbox", "prune", "worker", "--target", tmp, "--all"},
+			args: []string{"inbox", "prune", "worker", "--repo", tmp, "--all"},
 			want: "--all cannot be combined with explicit instances",
 		},
 		{
 			name: "team requires all",
-			args: []string{"inbox", "prune", "worker", "--target", tmp, "--team", "delivery"},
+			args: []string{"inbox", "prune", "worker", "--repo", tmp, "--team", "delivery"},
 			want: "--team requires --all",
 		},
 		{
 			name: "commands require dry run",
-			args: []string{"inbox", "prune", "worker", "--target", tmp, "--commands"},
+			args: []string{"inbox", "prune", "worker", "--repo", tmp, "--commands"},
 			want: wantCommandsModeRequiresDryRun(),
 		},
 		{
 			name: "commands reject json",
-			args: []string{"inbox", "prune", "worker", "--target", tmp, "--dry-run", "--commands", "--json"},
+			args: []string{"inbox", "prune", "worker", "--repo", tmp, "--dry-run", "--commands", "--json"},
 			want: wantCommandsModeConflict("--json"),
 		},
 		{
 			name: "commands reject format",
-			args: []string{"inbox", "prune", "worker", "--target", tmp, "--dry-run", "--commands", "--format", "{{.Instance}}"},
+			args: []string{"inbox", "prune", "worker", "--repo", tmp, "--dry-run", "--commands", "--format", "{{.Instance}}"},
 			want: wantCommandsModeConflict("--format"),
 		},
 		{
 			name: "rejects negative older-than",
-			args: []string{"inbox", "prune", "worker", "--target", tmp, "--older-than", "-1s"},
+			args: []string{"inbox", "prune", "worker", "--repo", tmp, "--older-than", "-1s"},
 			want: "--older-than must be >= 0",
 		},
 		{
 			name: "rejects negative limit",
-			args: []string{"inbox", "prune", "worker", "--target", tmp, "--limit", "-1"},
+			args: []string{"inbox", "prune", "worker", "--repo", tmp, "--limit", "-1"},
 			want: "--limit must be >= 0",
 		},
 	}
@@ -928,7 +928,7 @@ instances = ["manager", "worker"]
 		}
 	}
 
-	stdout, stderr, err := executeInboxCommand("inbox", "ls", "--target", tmp, "--team", "delivery", "--unread", "--json")
+	stdout, stderr, err := executeInboxCommand("inbox", "ls", "--repo", tmp, "--team", "delivery", "--unread", "--json")
 	if err != nil {
 		t.Fatalf("inbox ls --team: %v\nstderr=%s", err, stderr)
 	}
@@ -940,7 +940,7 @@ instances = ["manager", "worker"]
 		t.Fatalf("team inbox rows = %+v", rows)
 	}
 
-	stdout, stderr, err = executeInboxCommand("inbox", "ls", "--target", tmp, "--team", "delivery", "--commands")
+	stdout, stderr, err = executeInboxCommand("inbox", "ls", "--repo", tmp, "--team", "delivery", "--commands")
 	if err != nil {
 		t.Fatalf("inbox ls --team --commands: %v\nstderr=%s", err, stderr)
 	}

@@ -157,7 +157,7 @@ func TestSendAdvisorDefaultCLISenderRequiresDurableReply(t *testing.T) {
 	cmd.SetOut(&bytes.Buffer{})
 	stderr := &bytes.Buffer{}
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "advisor", "--target", tmp, "--message", "which path should we take"})
+	cmd.SetArgs([]string{"send", "advisor", "--repo", tmp, "--message", "which path should we take"})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 2 {
@@ -186,7 +186,7 @@ func TestSendAdvisorReplyToDurableMailbox(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "advisor", "--target", tmp, "--reply-to", "manager", "--message", "which path should we take", "--json"})
+	cmd.SetArgs([]string{"send", "advisor", "--repo", tmp, "--reply-to", "manager", "--message", "which path should we take", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send advisor --reply-to: %v\nstderr=%s", err, stderr.String())
 	}
@@ -258,7 +258,7 @@ func TestSendInterruptRequiresRunningDaemon(t *testing.T) {
 	cmd.SetOut(&bytes.Buffer{})
 	stderr := &bytes.Buffer{}
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "manager", "wake up", "--interrupt", "--target", tmp})
+	cmd.SetArgs([]string{"send", "manager", "wake up", "--interrupt", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("send --interrupt without daemon succeeded")
@@ -288,7 +288,7 @@ func TestSendInterruptDryRunCommands(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "manager", "--target", tmp, "--from", "ops", "--message", "wake up", "--interrupt", "--force", "--dry-run", "--commands"})
+	cmd.SetArgs([]string{"send", "manager", "--repo", tmp, "--from", "ops", "--message", "wake up", "--interrupt", "--force", "--dry-run", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send --interrupt --dry-run --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -318,7 +318,7 @@ func TestSendCommandReadsMessageFile(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "manager", "--target", tmp, "--message-file", messageFile, "--format", "{{.To}} {{.Delivered}}"})
+	cmd.SetArgs([]string{"send", "manager", "--repo", tmp, "--message-file", messageFile, "--format", "{{.To}} {{.Delivered}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send --message-file: %v\nstderr=%s", err, stderr.String())
 	}
@@ -375,7 +375,7 @@ func TestSendDryRunCommands(t *testing.T) {
 	directOut, directErr := &bytes.Buffer{}, &bytes.Buffer{}
 	direct.SetOut(directOut)
 	direct.SetErr(directErr)
-	direct.SetArgs([]string{"send", "manager", "--target", tmp, "--from", "ops", "--message", "hello", "--dry-run", "--commands"})
+	direct.SetArgs([]string{"send", "manager", "--repo", tmp, "--from", "ops", "--message", "hello", "--dry-run", "--commands"})
 	if err := direct.Execute(); err != nil {
 		t.Fatalf("send direct --dry-run --commands: %v\nstderr=%s", err, directErr.String())
 	}
@@ -405,7 +405,7 @@ func TestSendDryRunCommands(t *testing.T) {
 	emptyMessageOut, emptyMessageErr := &bytes.Buffer{}, &bytes.Buffer{}
 	emptyMessageFlag.SetOut(emptyMessageOut)
 	emptyMessageFlag.SetErr(emptyMessageErr)
-	emptyMessageFlag.SetArgs([]string{"send", "manager", "--target", tmp, "--message", "", "--dry-run", "--commands", "fallback", "text"})
+	emptyMessageFlag.SetArgs([]string{"send", "manager", "--repo", tmp, "--message", "", "--dry-run", "--commands", "fallback", "text"})
 	if err := emptyMessageFlag.Execute(); err != nil {
 		t.Fatalf("send empty --message --dry-run --commands: %v\nstderr=%s", err, emptyMessageErr.String())
 	}
@@ -418,7 +418,7 @@ func TestSendDryRunCommands(t *testing.T) {
 	selectionOut, selectionErr := &bytes.Buffer{}, &bytes.Buffer{}
 	selection.SetOut(selectionOut)
 	selection.SetErr(selectionErr)
-	selection.SetArgs([]string{"send", "--target", tmp, "--agent", "manager", "--status", "running", "--message", "hello", "--dry-run", "--commands"})
+	selection.SetArgs([]string{"send", "--repo", tmp, "--agent", "manager", "--status", "running", "--message", "hello", "--dry-run", "--commands"})
 	if err := selection.Execute(); err != nil {
 		t.Fatalf("send selection --dry-run --commands: %v\nstderr=%s", err, selectionErr.String())
 	}
@@ -439,27 +439,11 @@ func TestSendDryRunCommands(t *testing.T) {
 		t.Fatalf("send selection root --repo --dry-run --commands = %q, want %q", got, wantSelection)
 	}
 
-	allowMissingSelection := NewRootCmd()
-	allowMissingSelectionOut, allowMissingSelectionErr := &bytes.Buffer{}, &bytes.Buffer{}
-	allowMissingSelection.SetOut(allowMissingSelectionOut)
-	allowMissingSelection.SetErr(allowMissingSelectionErr)
-	allowMissingSelection.SetArgs([]string{"send", "--target", tmp, "--all", "--allow-missing", "--message", "hello", "--dry-run", "--commands"})
-	if err := allowMissingSelection.Execute(); err != nil {
-		t.Fatalf("send selection allow-missing --dry-run --commands: %v\nstderr=%s", err, allowMissingSelectionErr.String())
-	}
-	wantAllowMissingSelection := strings.Join(shellQuoteArgs([]string{"agent-team", "send", "--repo", tmp, "--message", "hello", "--all"}), " ")
-	if got := strings.TrimSpace(allowMissingSelectionOut.String()); got != wantAllowMissingSelection {
-		t.Fatalf("send selection allow-missing --dry-run --commands = %q, want %q", got, wantAllowMissingSelection)
-	}
-	if !strings.Contains(allowMissingSelectionErr.String(), "--allow-missing is deprecated") {
-		t.Fatalf("allow-missing selection stderr = %q, want deprecation warning", allowMissingSelectionErr.String())
-	}
-
 	noRecipients := NewRootCmd()
 	noRecipientsOut, noRecipientsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noRecipients.SetOut(noRecipientsOut)
 	noRecipients.SetErr(noRecipientsErr)
-	noRecipients.SetArgs([]string{"send", "--target", tmp, "--agent", "reviewer", "--message", "hello", "--dry-run", "--commands"})
+	noRecipients.SetArgs([]string{"send", "--repo", tmp, "--agent", "reviewer", "--message", "hello", "--dry-run", "--commands"})
 	if err := noRecipients.Execute(); err != nil {
 		t.Fatalf("send no-recipient --dry-run --commands: %v\nstderr=%s", err, noRecipientsErr.String())
 	}
@@ -471,7 +455,7 @@ func TestSendDryRunCommands(t *testing.T) {
 	missing.SetOut(&bytes.Buffer{})
 	missingErr := &bytes.Buffer{}
 	missing.SetErr(missingErr)
-	missing.SetArgs([]string{"send", "future", "--target", tmp, "--dry-run", "--commands", "queued"})
+	missing.SetArgs([]string{"send", "future", "--repo", tmp, "--dry-run", "--commands", "queued"})
 	err := missing.Execute()
 	if err == nil {
 		t.Fatalf("send missing --dry-run --commands succeeded")
@@ -484,52 +468,6 @@ func TestSendDryRunCommands(t *testing.T) {
 		t.Fatalf("missing stderr = %q, want unknown-instance hint", missingErr.String())
 	}
 
-	allowMissing := NewRootCmd()
-	allowMissingOut, allowMissingErr := &bytes.Buffer{}, &bytes.Buffer{}
-	allowMissing.SetOut(allowMissingOut)
-	allowMissing.SetErr(allowMissingErr)
-	allowMissing.SetArgs([]string{"send", "ticket-manager", "--target", tmp, "--allow-missing", "--dry-run", "--commands", "queued"})
-	if err := allowMissing.Execute(); err != nil {
-		t.Fatalf("send allow-missing --dry-run --commands: %v\nstderr=%s", err, allowMissingErr.String())
-	}
-	wantAllowMissing := strings.Join(shellQuoteArgs([]string{"agent-team", "send", "ticket-manager", "--repo", tmp, "--allow-missing", "queued"}), " ")
-	if got := strings.TrimSpace(allowMissingOut.String()); got != wantAllowMissing {
-		t.Fatalf("send allow-missing --dry-run --commands = %q, want %q", got, wantAllowMissing)
-	}
-	if !strings.Contains(allowMissingErr.String(), "--allow-missing is deprecated") {
-		t.Fatalf("allow-missing stderr = %q, want deprecation warning", allowMissingErr.String())
-	}
-
-	rootScopedAllowMissing := NewRootCmd()
-	rootScopedAllowMissingOut, rootScopedAllowMissingErr := &bytes.Buffer{}, &bytes.Buffer{}
-	rootScopedAllowMissing.SetOut(rootScopedAllowMissingOut)
-	rootScopedAllowMissing.SetErr(rootScopedAllowMissingErr)
-	rootScopedAllowMissing.SetArgs([]string{"--repo", tmp, "send", "ticket-manager", "--allow-missing", "--dry-run", "--commands", "queued"})
-	if err := rootScopedAllowMissing.Execute(); err != nil {
-		t.Fatalf("send allow-missing root --repo --dry-run --commands: %v\nstderr=%s", err, rootScopedAllowMissingErr.String())
-	}
-	if got := strings.TrimSpace(rootScopedAllowMissingOut.String()); got != wantAllowMissing {
-		t.Fatalf("send allow-missing root --repo --dry-run --commands = %q, want %q", got, wantAllowMissing)
-	}
-}
-
-func TestSendAllowMissingStillRequiresKnownOrDeclaredTarget(t *testing.T) {
-	client := &fakeSendClient{}
-	stderr := &bytes.Buffer{}
-	err := runSendWithClient(&bytes.Buffer{}, stderr, client, "future", "queued", sendOptions{AllowMissing: true})
-	var code ExitCode
-	if !errors.As(err, &code) || code != 2 {
-		t.Fatalf("err = %v, want exit 2", err)
-	}
-	if client.instanceCalls != 1 {
-		t.Fatalf("Instances called %d times, want validation", client.instanceCalls)
-	}
-	if !strings.Contains(stderr.String(), "not known to the daemon or declared in instances.toml") {
-		t.Fatalf("stderr = %q, want unknown target", stderr.String())
-	}
-	if client.sentTo != "" {
-		t.Fatalf("message should not have been sent: %+v", client)
-	}
 }
 
 func TestSendUsesLocalMailboxWhenDaemonStopped(t *testing.T) {
@@ -549,7 +487,7 @@ func TestSendUsesLocalMailboxWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "manager", "offline hello", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"send", "manager", "offline hello", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send local mailbox: %v\nstderr=%s", err, stderr.String())
 	}
@@ -589,7 +527,7 @@ func TestSendLatestUsesLocalNewestMailboxWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "--latest", "offline", "hello", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"send", "--latest", "offline", "hello", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send --latest local mailbox: %v\nstderr=%s", err, stderr.String())
 	}
@@ -627,7 +565,7 @@ func TestSendDeclaredUsesLocalMailboxWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "ticket-manager", "queued offline", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"send", "ticket-manager", "queued offline", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send declared local mailbox: %v\nstderr=%s", err, stderr.String())
 	}
@@ -823,7 +761,7 @@ description = "waiting"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "--phase", "blocked", "offline phase hello", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"send", "--phase", "blocked", "offline phase hello", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send --phase local mailbox: %v\nstderr=%s", err, stderr.String())
 	}
@@ -879,7 +817,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "--stale", "offline stale hello", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"send", "--stale", "offline stale hello", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send --stale local mailbox: %v\nstderr=%s", err, stderr.String())
 	}
@@ -940,7 +878,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "--unhealthy", "offline health hello", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"send", "--unhealthy", "offline health hello", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send --unhealthy local mailbox: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1000,7 +938,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "--runtime-stale", "runtime stale hello", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"send", "--runtime-stale", "runtime stale hello", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send --runtime-stale local mailbox: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1048,7 +986,7 @@ func TestSendRuntimeFilterUsesLocalMailboxWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"send", "--runtime", "codex", "runtime hello", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"send", "--runtime", "codex", "runtime hello", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("send --runtime local mailbox: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1357,7 +1295,7 @@ func TestSendLatestLastValidation(t *testing.T) {
 		stderr := &bytes.Buffer{}
 		cmd.SetOut(&bytes.Buffer{})
 		cmd.SetErr(stderr)
-		cmd.SetArgs(append(tc.args, "--target", tmp))
+		cmd.SetArgs(append(tc.args, "--repo", tmp))
 		err := cmd.Execute()
 		if err == nil {
 			t.Fatalf("%v: expected validation error", tc.args)

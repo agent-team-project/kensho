@@ -61,8 +61,8 @@ This sends a mailbox message and marks the durable job running.
 If dispatch or work fails:
 
 ```sh
-agent-team job retry squ-42 --dry-run --dispatch
-agent-team job retry squ-42 --dispatch
+agent-team job reopen squ-42 --dry-run --dispatch
+agent-team job reopen squ-42 --dispatch
 ```
 
 If the queue has a dead entry:

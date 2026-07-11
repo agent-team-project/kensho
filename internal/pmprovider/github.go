@@ -370,7 +370,7 @@ func loadGitHubConfig(teamDir string) (config, string, error) {
 		}
 		return cfg, "", err
 	}
-	if ConfiguredProviderName(cfg.PM.Provider, cfg.Team.PMTool) != ProviderGitHub {
+	if NormalizeProviderName(cfg.PM.Provider) != ProviderGitHub {
 		return cfg, "GitHub not configured for this repo", nil
 	}
 	if strings.TrimSpace(cfg.GitHub.Owner) == "" {

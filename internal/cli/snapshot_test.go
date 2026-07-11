@@ -155,7 +155,7 @@ updated_at = 2026-06-19T02:00:00Z
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "5", "--json"})
+	cmd.SetArgs([]string{"snapshot", "--repo", tmp, "--events", "5", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("snapshot json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -277,7 +277,7 @@ func TestSnapshotEventsSortNewestTailsAfterLimit(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "2", "--events-sort", "newest", "--json"})
+	cmd.SetArgs([]string{"snapshot", "--repo", tmp, "--events", "2", "--events-sort", "newest", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("snapshot events newest: %v\nstderr=%s", err, stderr.String())
 	}
@@ -368,7 +368,7 @@ func TestSnapshotIncludesPipelineAdvancePreview(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"snapshot", "--target", target, "--events", "0", "--json"})
+	cmd.SetArgs([]string{"snapshot", "--repo", target, "--events", "0", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("snapshot pipeline advance: %v\nstderr=%s", err, stderr.String())
 	}
@@ -530,7 +530,7 @@ pipelines = ["ticket_to_pr"]
 	}{
 		{
 			name: "global events sort",
-			args: []string{"snapshot", "--target", target, "--events-sort", "sideways"},
+			args: []string{"snapshot", "--repo", target, "--events-sort", "sideways"},
 			want: "agent-team snapshot: --events-sort must be oldest or newest.",
 		},
 		{
@@ -2455,7 +2455,7 @@ func TestSnapshotIncludesGitMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "0", "--json"})
+	cmd.SetArgs([]string{"snapshot", "--repo", tmp, "--events", "0", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("snapshot git metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2534,7 +2534,7 @@ func TestSnapshotIntakeSummaryUsesFullLedger(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "0", "--intake-deliveries", "1", "--json"})
+	cmd.SetArgs([]string{"snapshot", "--repo", tmp, "--events", "0", "--intake-deliveries", "1", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("snapshot intake limit: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2679,7 +2679,7 @@ pipelines = ["ticket_to_pr"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "0", "--json"})
+	cmd.SetArgs([]string{"snapshot", "--repo", tmp, "--events", "0", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("snapshot team doctor: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2695,7 +2695,7 @@ pipelines = ["ticket_to_pr"]
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"snapshot", "--target", tmp, "--events", "0"})
+	text.SetArgs([]string{"snapshot", "--repo", tmp, "--events", "0"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("snapshot team doctor text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -2713,7 +2713,7 @@ func TestSnapshotCommandWritesOutputFile(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "0", "--output", outPath})
+	cmd.SetArgs([]string{"snapshot", "--repo", tmp, "--events", "0", "--output", outPath})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("snapshot output: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2776,7 +2776,7 @@ func TestSnapshotNoRedactPreservesPayloadSecrets(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"snapshot", "--target", tmp, "--events", "0", "--no-redact", "--json"})
+	cmd.SetArgs([]string{"snapshot", "--repo", tmp, "--events", "0", "--no-redact", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("snapshot no-redact: %v\nstderr=%s", err, stderr.String())
 	}

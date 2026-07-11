@@ -40,7 +40,7 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		UpdatedAt: now.Add(time.Minute),
 	})
 
-	out := runRootForOutboxTest(t, "outbox", "ls", "--target", target, "--json")
+	out := runRootForOutboxTest(t, "outbox", "ls", "--repo", target, "--json")
 	var listed []*daemon.OutboxItem
 	if err := json.Unmarshal(out.Bytes(), &listed); err != nil {
 		t.Fatalf("decode outbox ls: %v\n%s", err, out.String())
@@ -49,12 +49,12 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		t.Fatalf("outbox list = %+v, want outbox-a/outbox-b", listed)
 	}
 
-	filtered := runRootForOutboxTest(t, "outbox", "ls", "--target", target, "--state", "pending", "--job", "SQU-501", "--format", "{{.ID}} {{.State}}")
+	filtered := runRootForOutboxTest(t, "outbox", "ls", "--repo", target, "--state", "pending", "--job", "SQU-501", "--format", "{{.ID}} {{.State}}")
 	if strings.TrimSpace(filtered.String()) != "outbox-a pending" {
 		t.Fatalf("filtered output = %q", filtered.String())
 	}
 
-	listCommands := runRootForOutboxTest(t, "outbox", "ls", "--target", target, "--sort", "id", "--commands")
+	listCommands := runRootForOutboxTest(t, "outbox", "ls", "--repo", target, "--sort", "id", "--commands")
 	wantListCommands := strings.Join(scopedOperatorActions([]string{
 		"agent-team job outbox squ-501 --state pending",
 		"agent-team outbox drain --dry-run",
@@ -68,7 +68,7 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		t.Fatalf("outbox ls --commands included table output:\n%s", listCommands.String())
 	}
 
-	shown := runRootForOutboxTest(t, "outbox", "show", "--target", target, "outbox-b", "--json")
+	shown := runRootForOutboxTest(t, "outbox", "show", "--repo", target, "outbox-b", "--json")
 	var shownItem daemon.OutboxItem
 	if err := json.Unmarshal(shown.Bytes(), &shownItem); err != nil {
 		t.Fatalf("decode outbox show: %v\n%s", err, shown.String())
@@ -77,7 +77,7 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		t.Fatalf("shown item = %+v", shownItem)
 	}
 
-	showText := runRootForOutboxTest(t, "outbox", "show", "--target", target, "outbox-b")
+	showText := runRootForOutboxTest(t, "outbox", "show", "--repo", target, "outbox-b")
 	for _, want := range []string{
 		"Actions:",
 		"agent-team job outbox retry squ-502 outbox-b",
@@ -89,7 +89,7 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		}
 	}
 
-	showCommands := runRootForOutboxTest(t, "outbox", "show", "--target", target, "outbox-b", "--commands")
+	showCommands := runRootForOutboxTest(t, "outbox", "show", "--repo", target, "outbox-b", "--commands")
 	wantShowCommands := strings.Join(scopedOperatorActions([]string{
 		"agent-team job outbox retry squ-502 outbox-b",
 		"agent-team job outbox drop squ-502 outbox-b --dry-run",
@@ -98,13 +98,13 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		t.Fatalf("outbox show --commands = %q, want %q", got, want)
 	}
 
-	retryCommand := runRootForOutboxTest(t, "outbox", "retry", "--target", target, "outbox-b", "--dry-run", "--commands")
+	retryCommand := runRootForOutboxTest(t, "outbox", "retry", "--repo", target, "outbox-b", "--dry-run", "--commands")
 	wantRetryCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "outbox", "retry", "outbox-b", "--repo", target}), " ")
 	if got := strings.TrimSpace(retryCommand.String()); got != wantRetryCommand {
 		t.Fatalf("outbox retry --commands = %q, want %q", got, wantRetryCommand)
 	}
 
-	retry := runRootForOutboxTest(t, "outbox", "retry", "--target", target, "outbox-b", "--json")
+	retry := runRootForOutboxTest(t, "outbox", "retry", "--repo", target, "outbox-b", "--json")
 	var retryRows []outboxActionResult
 	if err := json.Unmarshal(retry.Bytes(), &retryRows); err != nil {
 		t.Fatalf("decode retry: %v\n%s", err, retry.String())
@@ -120,7 +120,7 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		t.Fatalf("retried item = %+v, want pending with cleared error", retried)
 	}
 
-	drop := runRootForOutboxTest(t, "outbox", "drop", "--target", target, "outbox-a", "--json")
+	drop := runRootForOutboxTest(t, "outbox", "drop", "--repo", target, "outbox-a", "--json")
 	var dropRows []outboxActionResult
 	if err := json.Unmarshal(drop.Bytes(), &dropRows); err != nil {
 		t.Fatalf("decode drop: %v\n%s", err, drop.String())
@@ -162,13 +162,13 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		UpdatedAt: now.Add(4 * time.Minute),
 	})
 
-	retryAllCommand := runRootForOutboxTest(t, "outbox", "retry", "--target", target, "--all", "--source", "manager", "--sort", "id", "--limit", "1", "--dry-run", "--commands")
+	retryAllCommand := runRootForOutboxTest(t, "outbox", "retry", "--repo", target, "--all", "--source", "manager", "--sort", "id", "--limit", "1", "--dry-run", "--commands")
 	wantRetryAllCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "outbox", "retry", "--repo", target, "--all", "--source", "manager", "--sort", "id", "--limit", "1"}), " ")
 	if got := strings.TrimSpace(retryAllCommand.String()); got != wantRetryAllCommand {
 		t.Fatalf("outbox retry --all --commands = %q, want %q", got, wantRetryAllCommand)
 	}
 
-	retryAll := runRootForOutboxTest(t, "outbox", "retry", "--target", target, "--all", "--source", "manager", "--sort", "id", "--limit", "1", "--json")
+	retryAll := runRootForOutboxTest(t, "outbox", "retry", "--repo", target, "--all", "--source", "manager", "--sort", "id", "--limit", "1", "--json")
 	var retryAllRows []outboxActionResult
 	if err := json.Unmarshal(retryAll.Bytes(), &retryAllRows); err != nil {
 		t.Fatalf("decode retry all: %v\n%s", err, retryAll.String())
@@ -185,13 +185,13 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		t.Fatalf("retry all changed processed item=%+v err=%v", processed, err)
 	}
 
-	dropAllCommand := runRootForOutboxTest(t, "outbox", "drop", "--target", target, "--all", "--state", "failed", "--job", "SQU-504", "--sort", "id", "--dry-run", "--commands")
+	dropAllCommand := runRootForOutboxTest(t, "outbox", "drop", "--repo", target, "--all", "--state", "failed", "--job", "SQU-504", "--sort", "id", "--dry-run", "--commands")
 	wantDropAllCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "outbox", "drop", "--repo", target, "--all", "--state", "failed", "--job", "SQU-504", "--sort", "id"}), " ")
 	if got := strings.TrimSpace(dropAllCommand.String()); got != wantDropAllCommand {
 		t.Fatalf("outbox drop --all --commands = %q, want %q", got, wantDropAllCommand)
 	}
 
-	dropAllDryRun := runRootForOutboxTest(t, "outbox", "drop", "--target", target, "--all", "--state", "failed", "--job", "SQU-504", "--sort", "id", "--dry-run", "--json")
+	dropAllDryRun := runRootForOutboxTest(t, "outbox", "drop", "--repo", target, "--all", "--state", "failed", "--job", "SQU-504", "--sort", "id", "--dry-run", "--json")
 	var dropAllDryRunRows []outboxActionResult
 	if err := json.Unmarshal(dropAllDryRun.Bytes(), &dropAllDryRunRows); err != nil {
 		t.Fatalf("decode drop all dry-run: %v\n%s", err, dropAllDryRun.String())
@@ -203,7 +203,7 @@ func TestOutboxListShowRetryDrop(t *testing.T) {
 		t.Fatalf("dry-run removed outbox-d: %v", err)
 	}
 
-	dropAll := runRootForOutboxTest(t, "outbox", "drop", "--target", target, "--all", "--state", "failed", "--job", "SQU-504", "--sort", "id", "--json")
+	dropAll := runRootForOutboxTest(t, "outbox", "drop", "--repo", target, "--all", "--state", "failed", "--job", "SQU-504", "--sort", "id", "--json")
 	var dropAllRows []outboxActionResult
 	if err := json.Unmarshal(dropAll.Bytes(), &dropAllRows); err != nil {
 		t.Fatalf("decode drop all: %v\n%s", err, dropAll.String())
@@ -237,7 +237,7 @@ func TestOutboxListWatchRendersSnapshot(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"outbox", "watch", "--target", target, "--state", "pending", "--no-clear", "--interval", "1ms", "--format", "{{.ID}} {{.State}}"})
+	cmd.SetArgs([]string{"outbox", "ls", "--repo", target, "--state", "pending", "--no-clear", "--interval", "1ms", "--format", "{{.ID}} {{.State}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("outbox watch alias: %v\nstderr=%s", err, stderr.String())
 	}
@@ -252,7 +252,7 @@ func TestOutboxListWatchRendersSnapshot(t *testing.T) {
 	summary.SetContext(ctx)
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"outbox", "ls", "--target", target, "--watch", "--summary", "--no-clear", "--interval", "1ms"})
+	summary.SetArgs([]string{"outbox", "ls", "--repo", target, "--watch", "--summary", "--no-clear", "--interval", "1ms"})
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("outbox summary watch: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -394,7 +394,7 @@ func TestOutboxPruneLocal(t *testing.T) {
 		writeCLIOutboxItem(t, teamDir, item)
 	}
 
-	dry := runRootForOutboxTest(t, "outbox", "prune", "--target", target, "--older-than", "24h", "--limit", "1", "--dry-run", "--json")
+	dry := runRootForOutboxTest(t, "outbox", "prune", "--repo", target, "--older-than", "24h", "--limit", "1", "--dry-run", "--json")
 	var dryRows []outboxPruneResult
 	if err := json.Unmarshal(dry.Bytes(), &dryRows); err != nil {
 		t.Fatalf("decode prune dry-run: %v\n%s", err, dry.String())
@@ -406,13 +406,13 @@ func TestOutboxPruneLocal(t *testing.T) {
 		t.Fatalf("dry-run removed processed old: %v", err)
 	}
 
-	pruneCommand := runRootForOutboxTest(t, "outbox", "prune", "--target", target, "--older-than", "24h", "--limit", "1", "--dry-run", "--commands")
+	pruneCommand := runRootForOutboxTest(t, "outbox", "prune", "--repo", target, "--older-than", "24h", "--limit", "1", "--dry-run", "--commands")
 	wantPruneCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "outbox", "prune", "--repo", target, "--limit", "1", "--older-than", "24h0m0s"}), " ")
 	if got := strings.TrimSpace(pruneCommand.String()); got != wantPruneCommand {
 		t.Fatalf("outbox prune --commands = %q, want %q", got, wantPruneCommand)
 	}
 
-	pruned := runRootForOutboxTest(t, "outbox", "prune", "--target", target, "--older-than", "24h", "--format", "{{.ID}} {{.State}} {{.Dropped}}")
+	pruned := runRootForOutboxTest(t, "outbox", "prune", "--repo", target, "--older-than", "24h", "--format", "{{.ID}} {{.State}} {{.Dropped}}")
 	if got, want := strings.TrimSpace(pruned.String()), "outbox-processed-old processed true\noutbox-processed-mid processed true"; got != want {
 		t.Fatalf("prune output = %q, want %q", got, want)
 	}
@@ -427,7 +427,7 @@ func TestOutboxPruneLocal(t *testing.T) {
 		}
 	}
 
-	failed := runRootForOutboxTest(t, "outbox", "prune", "--target", target, "--state", "failed", "--older-than", "24h", "--source", "manager", "--json")
+	failed := runRootForOutboxTest(t, "outbox", "prune", "--repo", target, "--state", "failed", "--older-than", "24h", "--source", "manager", "--json")
 	var failedRows []outboxPruneResult
 	if err := json.Unmarshal(failed.Bytes(), &failedRows); err != nil {
 		t.Fatalf("decode failed prune: %v\n%s", err, failed.String())
@@ -587,7 +587,7 @@ func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
 `)
 	writeRawOutboxFile(t, teamDir, daemon.OutboxStatePending, "README.txt", "operator note\n")
 
-	out, stderr, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--json")
+	out, stderr, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--repo", target, "--json")
 	if err == nil {
 		t.Fatalf("outbox doctor succeeded with corrupt outbox files")
 	}
@@ -611,7 +611,7 @@ func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
 		t.Fatalf("outbox doctor missing unexpected file warning: %+v", result.Warnings)
 	}
 
-	commandsOut, commandsErr, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--commands")
+	commandsOut, commandsErr, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--repo", target, "--commands")
 	if err == nil {
 		t.Fatal("outbox doctor --commands unexpectedly succeeded")
 	}
@@ -629,7 +629,7 @@ func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
 		t.Fatalf("outbox doctor --commands stderr = %q", commandsErr.String())
 	}
 
-	dryOut, dryErrOut, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--quarantine", "--dry-run", "--json")
+	dryOut, dryErrOut, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--repo", target, "--quarantine", "--dry-run", "--json")
 	if err != nil {
 		t.Fatalf("outbox doctor quarantine dry-run: %v\nstderr=%s", err, dryErrOut.String())
 	}
@@ -650,7 +650,7 @@ func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
 		}
 	}
 
-	dryCommandsOut, dryCommandsErr, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--quarantine", "--dry-run", "--commands")
+	dryCommandsOut, dryCommandsErr, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--repo", target, "--quarantine", "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("outbox doctor quarantine dry-run commands: %v\nstderr=%s", err, dryCommandsErr.String())
 	}
@@ -661,7 +661,7 @@ func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
 		t.Fatalf("outbox doctor quarantine dry-run commands stderr = %q", dryCommandsErr.String())
 	}
 
-	quarantineOut, quarantineErrOut, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--target", target, "--quarantine", "--json")
+	quarantineOut, quarantineErrOut, err := runRootForOutboxTestErr(t, "outbox", "doctor", "--repo", target, "--quarantine", "--json")
 	if err != nil {
 		t.Fatalf("outbox doctor quarantine: %v\nstderr=%s", err, quarantineErrOut.String())
 	}
@@ -681,7 +681,7 @@ func TestOutboxDoctorFindsAndQuarantinesProblems(t *testing.T) {
 			t.Fatalf("%s should be quarantined, err=%v", rel, err)
 		}
 	}
-	listOut := runRootForOutboxTest(t, "outbox", "ls", "--target", target, "--json")
+	listOut := runRootForOutboxTest(t, "outbox", "ls", "--repo", target, "--json")
 	var listed []*daemon.OutboxItem
 	if err := json.Unmarshal(listOut.Bytes(), &listed); err != nil {
 		t.Fatalf("decode outbox list after quarantine: %v\n%s", err, listOut.String())
@@ -705,7 +705,6 @@ func TestOutboxDoctorFormatValidation(t *testing.T) {
 		{[]string{"outbox", "ls", "--commands", "--json"}, wantCommandsModeConflict("--json")},
 		{[]string{"outbox", "ls", "--commands", "--format", "{{.ID}}"}, wantCommandsModeConflict("--format")},
 		{[]string{"outbox", "ls", "--commands", "--summary"}, wantCommandsModeConflict("--summary")},
-		{[]string{"outbox", "watch", "--commands"}, wantCommandsModeConflict("--watch")},
 		{[]string{"outbox", "show", "outbox-b", "--commands", "--json"}, wantCommandsModeConflict("--json")},
 		{[]string{"outbox", "show", "outbox-b", "--commands", "--format", "{{.ID}}"}, wantCommandsModeConflict("--format")},
 		{[]string{"job", "outbox", "squ-1", "--commands", "--json"}, wantCommandsModeConflict("--json")},
@@ -793,7 +792,7 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 	dropPath := filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStateFailed, "outbox-drop.json")
 	invalidPath := filepath.Join(outboxQuarantineDir, stamp, daemon.OutboxStateProcessed, "outbox-invalid.json")
 
-	ls := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--target", target, "--json")
+	ls := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--repo", target, "--json")
 	var listed []outboxQuarantineItem
 	if err := json.Unmarshal(ls.Bytes(), &listed); err != nil {
 		t.Fatalf("decode outbox quarantine ls: %v\n%s", err, ls.String())
@@ -804,7 +803,7 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 		t.Fatalf("outbox quarantine list = %+v", listed)
 	}
 
-	listCommands := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--target", target, "--commands")
+	listCommands := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--repo", target, "--commands")
 	wantListCommands := strings.Join(scopedOperatorActions([]string{
 		"agent-team outbox quarantine restore " + dropPath,
 		"agent-team outbox quarantine drop " + dropPath,
@@ -819,7 +818,7 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 		t.Fatalf("outbox quarantine ls --commands included table output:\n%s", listCommands.String())
 	}
 
-	summaryOut := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--target", target, "--summary", "--json")
+	summaryOut := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--repo", target, "--summary", "--json")
 	var summary outboxQuarantineSummary
 	if err := json.Unmarshal(summaryOut.Bytes(), &summary); err != nil {
 		t.Fatalf("decode outbox quarantine summary: %v\n%s", err, summaryOut.String())
@@ -831,12 +830,12 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 		t.Fatalf("outbox quarantine summary buckets = %+v", summary)
 	}
 
-	summaryText := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--target", target, "--job", "SQU-710", "--summary")
+	summaryText := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--repo", target, "--job", "SQU-710", "--summary")
 	if got, want := summaryText.String(), "outbox quarantine: quarantined=1 restorable=1 unrestorable=0\n"; got != want {
 		t.Fatalf("outbox quarantine summary text = %q, want %q", got, want)
 	}
 
-	invalidSummaryOut, invalidSummaryErr, err := runRootForOutboxTestErr(t, "outbox", "quarantine", "ls", "--target", target, "--summary", "--limit", "1")
+	invalidSummaryOut, invalidSummaryErr, err := runRootForOutboxTestErr(t, "outbox", "quarantine", "ls", "--repo", target, "--summary", "--limit", "1")
 	if err == nil {
 		t.Fatalf("outbox quarantine summary accepted --limit; stdout=%s stderr=%s", invalidSummaryOut.String(), invalidSummaryErr.String())
 	}
@@ -844,12 +843,12 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 		t.Fatalf("outbox quarantine summary invalid stderr = %q", invalidSummaryErr.String())
 	}
 
-	filtered := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--target", target, "--job", "SQU-710", "--restorable", "--format", "{{.ID}} {{.Restorable}}")
+	filtered := runRootForOutboxTest(t, "outbox", "quarantine", "ls", "--repo", target, "--job", "SQU-710", "--restorable", "--format", "{{.ID}} {{.Restorable}}")
 	if got, want := strings.TrimSpace(filtered.String()), "outbox-restorable true"; got != want {
 		t.Fatalf("outbox quarantine filtered output = %q, want %q", got, want)
 	}
 
-	show := runRootForOutboxTest(t, "outbox", "quarantine", "show", "--target", target, restorablePath, "--json")
+	show := runRootForOutboxTest(t, "outbox", "quarantine", "show", "--repo", target, restorablePath, "--json")
 	var shown outboxQuarantineShowResult
 	if err := json.Unmarshal(show.Bytes(), &shown); err != nil {
 		t.Fatalf("decode outbox quarantine show: %v\n%s", err, show.String())
@@ -857,14 +856,14 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 	if shown.ID != "outbox-restorable" || !shown.Restorable || shown.OutboxItem == nil || shown.OutboxItem.Payload["job_id"] != "SQU-710" {
 		t.Fatalf("shown outbox quarantine item = %+v", shown)
 	}
-	showText := runRootForOutboxTest(t, "outbox", "quarantine", "show", "--target", target, restorablePath)
+	showText := runRootForOutboxTest(t, "outbox", "quarantine", "show", "--repo", target, restorablePath)
 	for _, want := range []string{"Path:", "outbox-restorable", "Actions:", "agent-team outbox quarantine restore", "Payload:", "SQU-710"} {
 		if !strings.Contains(showText.String(), want) {
 			t.Fatalf("outbox quarantine show text missing %q:\n%s", want, showText.String())
 		}
 	}
 
-	showCommands := runRootForOutboxTest(t, "outbox", "quarantine", "show", "--target", target, restorablePath, "--commands")
+	showCommands := runRootForOutboxTest(t, "outbox", "quarantine", "show", "--repo", target, restorablePath, "--commands")
 	wantShowCommands := strings.Join(scopedOperatorActions([]string{
 		"agent-team outbox quarantine restore " + restorablePath,
 		"agent-team outbox quarantine drop " + restorablePath,
@@ -873,7 +872,7 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 		t.Fatalf("outbox quarantine show --commands = %q, want %q", got, want)
 	}
 
-	restoreAllDry := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--target", target, "--all", "--job", "SQU-710", "--dry-run", "--json")
+	restoreAllDry := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--repo", target, "--all", "--job", "SQU-710", "--dry-run", "--json")
 	var restoreAllRows []outboxQuarantineRestoreResult
 	if err := json.Unmarshal(restoreAllDry.Bytes(), &restoreAllRows); err != nil {
 		t.Fatalf("decode outbox quarantine restore --all dry-run: %v\n%s", err, restoreAllDry.String())
@@ -882,12 +881,12 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 		t.Fatalf("restore all dry-run rows = %+v", restoreAllRows)
 	}
 
-	restoreAllCommands := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--target", target, "--all", "--job", "SQU-710", "--force", "--dry-run", "--commands")
+	restoreAllCommands := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--repo", target, "--all", "--job", "SQU-710", "--force", "--dry-run", "--commands")
 	if got, want := restoreAllCommands.String(), "agent-team outbox quarantine restore --repo "+target+" --all --force --job SQU-710\n"; got != want {
 		t.Fatalf("outbox quarantine restore --all --commands = %q, want %q", got, want)
 	}
 
-	dropAllDry := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--target", target, "--all", "--unrestorable", "--dry-run", "--json")
+	dropAllDry := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--repo", target, "--all", "--unrestorable", "--dry-run", "--json")
 	var dropAllRows []outboxQuarantineDropResult
 	if err := json.Unmarshal(dropAllDry.Bytes(), &dropAllRows); err != nil {
 		t.Fatalf("decode outbox quarantine drop --all dry-run: %v\n%s", err, dropAllDry.String())
@@ -896,17 +895,17 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 		t.Fatalf("drop all dry-run rows = %+v", dropAllRows)
 	}
 
-	dropAllCommands := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--target", target, "--all", "--unrestorable", "--dry-run", "--commands")
+	dropAllCommands := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--repo", target, "--all", "--unrestorable", "--dry-run", "--commands")
 	if got, want := dropAllCommands.String(), "agent-team outbox quarantine drop --repo "+target+" --all --unrestorable\n"; got != want {
 		t.Fatalf("outbox quarantine drop --all --commands = %q, want %q", got, want)
 	}
 
-	restoreCommands := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--target", target, restorablePath, "--dry-run", "--commands")
+	restoreCommands := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--repo", target, restorablePath, "--dry-run", "--commands")
 	if got, want := restoreCommands.String(), "agent-team outbox quarantine restore "+restorablePath+" --repo "+target+"\n"; got != want {
 		t.Fatalf("outbox quarantine restore --commands = %q, want %q", got, want)
 	}
 
-	restore := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--target", target, restorablePath, "--json")
+	restore := runRootForOutboxTest(t, "outbox", "quarantine", "restore", "--repo", target, restorablePath, "--json")
 	var restoreRow outboxQuarantineRestoreResult
 	if err := json.Unmarshal(restore.Bytes(), &restoreRow); err != nil {
 		t.Fatalf("decode outbox quarantine restore: %v\n%s", err, restore.String())
@@ -921,15 +920,15 @@ func TestOutboxQuarantineListShowRestoreDrop(t *testing.T) {
 		t.Fatalf("restored quarantine file should be gone, err=%v", err)
 	}
 
-	dropDry := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--target", target, dropPath, "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}")
+	dropDry := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--repo", target, dropPath, "--dry-run", "--format", "{{.ID}} {{.Action}} {{.DryRun}}")
 	if got, want := strings.TrimSpace(dropDry.String()), "outbox-drop would_drop true"; got != want {
 		t.Fatalf("outbox quarantine drop dry-run = %q, want %q", got, want)
 	}
-	dropCommands := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--target", target, dropPath, "--dry-run", "--commands")
+	dropCommands := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--repo", target, dropPath, "--dry-run", "--commands")
 	if got, want := dropCommands.String(), "agent-team outbox quarantine drop "+dropPath+" --repo "+target+"\n"; got != want {
 		t.Fatalf("outbox quarantine drop --commands = %q, want %q", got, want)
 	}
-	drop := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--target", target, dropPath, "--json")
+	drop := runRootForOutboxTest(t, "outbox", "quarantine", "drop", "--repo", target, dropPath, "--json")
 	var dropRows []outboxQuarantineDropResult
 	if err := json.Unmarshal(drop.Bytes(), &dropRows); err != nil {
 		t.Fatalf("decode outbox quarantine drop: %v\n%s", err, drop.String())
@@ -1132,7 +1131,7 @@ func TestOutboxDrainDryRunOffline(t *testing.T) {
 		UpdatedAt: now,
 	})
 
-	out := runRootForOutboxTest(t, "outbox", "drain", "--target", target, "--dry-run", "--json")
+	out := runRootForOutboxTest(t, "outbox", "drain", "--repo", target, "--dry-run", "--json")
 	var result daemon.OutboxDrainResult
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("decode drain dry-run: %v\n%s", err, out.String())
@@ -1144,7 +1143,7 @@ func TestOutboxDrainDryRunOffline(t *testing.T) {
 		t.Fatalf("dry-run removed outbox item: %v", err)
 	}
 
-	commands := runRootForOutboxTest(t, "outbox", "drain", "--target", target, "--dry-run", "--commands")
+	commands := runRootForOutboxTest(t, "outbox", "drain", "--repo", target, "--dry-run", "--commands")
 	wantCommand := strings.Join(shellQuoteArgs([]string{"agent-team", "outbox", "drain", "--repo", target}), " ")
 	if got := strings.TrimSpace(commands.String()); got != wantCommand {
 		t.Fatalf("outbox drain dry-run commands = %q, want %q", got, wantCommand)
@@ -1154,7 +1153,7 @@ func TestOutboxDrainDryRunOffline(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(empty, ".agent_team"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	emptyCommands := runRootForOutboxTest(t, "outbox", "drain", "--target", empty, "--dry-run", "--commands")
+	emptyCommands := runRootForOutboxTest(t, "outbox", "drain", "--repo", empty, "--dry-run", "--commands")
 	if got := strings.TrimSpace(emptyCommands.String()); got != "" {
 		t.Fatalf("empty outbox drain dry-run commands = %q, want no output", got)
 	}
@@ -1175,7 +1174,7 @@ func TestOutboxDrainThroughDaemon(t *testing.T) {
 		UpdatedAt: now,
 	})
 
-	out := runRootForOutboxTest(t, "outbox", "drain", "--target", target, "--json")
+	out := runRootForOutboxTest(t, "outbox", "drain", "--repo", target, "--json")
 	var result daemon.OutboxDrainResult
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("decode outbox drain: %v\n%s", err, out.String())

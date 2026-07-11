@@ -24,11 +24,10 @@ func newLocksCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "locks",
-		Aliases: []string{"lock"},
-		Short:   "Inspect declared dispatch lock utilization.",
-		Long:    "Inspect named dispatch locks declared in .agent_team/instances.toml and their active daemon ledger holders.",
-		Args:    cobra.NoArgs,
+		Use:   "locks",
+		Short: "Inspect declared dispatch lock utilization.",
+		Long:  "Inspect named dispatch locks declared in .agent_team/instances.toml and their active daemon ledger holders.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team locks: --format cannot be combined with --json.")

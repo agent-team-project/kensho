@@ -28,7 +28,6 @@ func newDispatchCmd() *cobra.Command {
 		jsonOut     bool
 		format      string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "dispatch <target> <ticket> [kickoff...]",
 		Short: "Dispatch an agent through daemon topology.",
@@ -87,7 +86,7 @@ func newDispatchCmd() *cobra.Command {
 					return exitErr(1)
 				}
 				if commands {
-					scope := operatorCommandScopeFromCommand(cmd, repoTarget, "target")
+					scope := operatorCommandScopeFromCommand(cmd, repoTarget, rootRepoFlagName)
 					return renderDispatchApplyCommand(cmd.OutOrStdout(), dispatchPreviewHasRoutes(preview), dispatchApplyCommandOptions{
 						Target:          targetAgent,
 						Ticket:          ticket,
@@ -133,7 +132,6 @@ func newDispatchCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&repoTarget, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&name, "name", "", "Requested instance name (default: <target>-<ticket-slug>).")
 	cmd.Flags().StringVar(&source, "source", "", "Source instance for the dispatch event (default: AGENT_TEAM_INSTANCE or cli).")
 	cmd.Flags().StringVar(&workspace, "workspace", "auto", "Workspace mode for spawned children: auto, worktree, or repo.")

@@ -17,7 +17,7 @@ func TestLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
 	recordedAt := time.Now().UTC().Truncate(time.Second)
 	le := &LaunchEnv{
 		Bin:        "/tmp/agent-teamd",
-		Args:       []string{"/tmp/agent-teamd", "--target", "/repo"},
+		Args:       []string{"/tmp/agent-teamd", "--repo", "/repo"},
 		Dir:        "/repo",
 		Env:        []string{"PATH=/bin", "OPENAI_API_KEY=must-not-persist", "OPENAI_API_KEY_EXTRA=keep", "TOKEN=value"},
 		RecordedAt: recordedAt,

@@ -24,7 +24,7 @@ func TestRepairDryRunPreviewsDeadQueueWithoutDaemon(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--json"})
+	cmd.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -56,7 +56,7 @@ func TestRepairDryRunPreviewsDeadQueueWithoutDaemon(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick"})
+	text.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-tick"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("repair text dry-run: %v\nstderr=%s", err, textErr.String())
 	}
@@ -70,7 +70,7 @@ func TestRepairDryRunPreviewsDeadQueueWithoutDaemon(t *testing.T) {
 	formatOut, formatErr := &bytes.Buffer{}, &bytes.Buffer{}
 	formatted.SetOut(formatOut)
 	formatted.SetErr(formatErr)
-	formatted.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--format", "{{.DryRun}} {{.Daemon.Action}} {{.Queue.Action}} {{len .Queue.Results}}"})
+	formatted.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--format", "{{.DryRun}} {{.Daemon.Action}} {{.Queue.Action}} {{len .Queue.Results}}"})
 	if err := formatted.Execute(); err != nil {
 		t.Fatalf("repair formatted dry-run: %v\nstderr=%s", err, formatErr.String())
 	}
@@ -85,7 +85,7 @@ func TestRepairDryRunPreviewsDeadQueueWithoutDaemon(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--commands"})
+	commands.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("repair dry-run commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -203,7 +203,7 @@ func TestRepairQueueRetryRespectsScopedTimeoutFilters(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-tick", "--json"})
+	dry.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-tick", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("repair scoped queue dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -222,7 +222,7 @@ func TestRepairQueueRetryRespectsScopedTimeoutFilters(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-tick", "--commands"})
+	commands.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-tick", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("repair scoped queue commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -235,7 +235,7 @@ func TestRepairQueueRetryRespectsScopedTimeoutFilters(t *testing.T) {
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)
 	apply.SetErr(applyErr)
-	apply.SetArgs([]string{"repair", "--target", tmp, "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-tick", "--json"})
+	apply.SetArgs([]string{"repair", "--repo", tmp, "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-tick", "--json"})
 	if err := apply.Execute(); err != nil {
 		t.Fatalf("repair scoped queue apply: %v\nstderr=%s", err, applyErr.String())
 	}
@@ -375,7 +375,7 @@ func TestRepairQueueRetryRespectsScopedStepFilters(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--timeout-jobs", "--timeout-step", "review", "--skip-daemon", "--skip-tick", "--json"})
+	dry.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--timeout-jobs", "--timeout-step", "review", "--skip-daemon", "--skip-tick", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("repair step-scoped queue dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -399,7 +399,7 @@ func TestRepairQueueRetryRespectsScopedStepFilters(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--timeout-jobs", "--timeout-step", "review", "--skip-daemon", "--skip-tick", "--commands"})
+	commands.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--timeout-jobs", "--timeout-step", "review", "--skip-daemon", "--skip-tick", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("repair step-scoped queue commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -412,7 +412,7 @@ func TestRepairQueueRetryRespectsScopedStepFilters(t *testing.T) {
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)
 	apply.SetErr(applyErr)
-	apply.SetArgs([]string{"repair", "--target", tmp, "--timeout-jobs", "--timeout-step", "review", "--skip-daemon", "--skip-tick", "--json"})
+	apply.SetArgs([]string{"repair", "--repo", tmp, "--timeout-jobs", "--timeout-step", "review", "--skip-daemon", "--skip-tick", "--json"})
 	if err := apply.Execute(); err != nil {
 		t.Fatalf("repair step-scoped queue apply: %v\nstderr=%s", err, applyErr.String())
 	}
@@ -475,7 +475,7 @@ func TestRepairLastMessageRewritesRuntimeHealthActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message", "--json"})
+	cmd.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair last-message json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -497,7 +497,7 @@ func TestRepairLastMessageRewritesRuntimeHealthActions(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message"})
+	text.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("repair last-message text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -509,7 +509,7 @@ func TestRepairLastMessageRewritesRuntimeHealthActions(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message", "--commands"})
+	commands.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--last-message", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("repair last-message commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -522,7 +522,7 @@ func TestRepairLastMessageRewritesRuntimeHealthActions(t *testing.T) {
 	fallbacksOut, fallbacksErr := &bytes.Buffer{}, &bytes.Buffer{}
 	fallbacks.SetOut(fallbacksOut)
 	fallbacks.SetErr(fallbacksErr)
-	fallbacks.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--fallbacks", "--json"})
+	fallbacks.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--fallbacks", "--json"})
 	if err := fallbacks.Execute(); err != nil {
 		t.Fatalf("repair fallbacks json: %v\nstderr=%s", err, fallbacksErr.String())
 	}
@@ -545,7 +545,7 @@ func TestRepairLastMessageRewritesRuntimeHealthActions(t *testing.T) {
 	fallbackCommandsOut, fallbackCommandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	fallbackCommands.SetOut(fallbackCommandsOut)
 	fallbackCommands.SetErr(fallbackCommandsErr)
-	fallbackCommands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--fallbacks", "--commands"})
+	fallbackCommands.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-tick", "--fallbacks", "--commands"})
 	if err := fallbackCommands.Execute(); err != nil {
 		t.Fatalf("repair fallbacks commands: %v\nstderr=%s", err, fallbackCommandsErr.String())
 	}
@@ -563,7 +563,7 @@ func TestRepairDryRunCommandsSilentWithoutAction(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--commands"})
+	cmd.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair dry-run commands without action: %v\nstderr=%s", err, stderr.String())
 	}
@@ -580,7 +580,7 @@ func TestRepairDryRunCommandsIncludeDaemonStart(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-queue", "--skip-tick", "--commands"})
+	cmd.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-queue", "--skip-tick", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair dry-run commands daemon start: %v\nstderr=%s", err, stderr.String())
 	}
@@ -612,7 +612,7 @@ func TestRepairDryRunReportsIntakeRecoveryActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	cmd.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair intake dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -637,7 +637,7 @@ func TestRepairDryRunReportsIntakeRecoveryActions(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick"})
+	text.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("repair intake text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -689,7 +689,7 @@ func TestRepairDryRunReportsIntakeDuplicateRequestIDs(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	cmd.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair intake duplicate dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -708,7 +708,7 @@ func TestRepairDryRunReportsIntakeDuplicateRequestIDs(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick"})
+	text.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("repair duplicate intake text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -757,7 +757,7 @@ func TestRepairReconcilesJobEventsWithoutTick(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	dry.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("repair event reconcile dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -784,7 +784,7 @@ func TestRepairReconcilesJobEventsWithoutTick(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--commands"})
+	commands.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("repair event reconcile commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -797,7 +797,7 @@ func TestRepairReconcilesJobEventsWithoutTick(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick"})
+	text.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("repair event reconcile text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -811,7 +811,7 @@ func TestRepairReconcilesJobEventsWithoutTick(t *testing.T) {
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)
 	apply.SetErr(applyErr)
-	apply.SetArgs([]string{"repair", "--target", tmp, "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	apply.SetArgs([]string{"repair", "--repo", tmp, "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
 	if err := apply.Execute(); err != nil {
 		t.Fatalf("repair event reconcile apply: %v\nstderr=%s", err, applyErr.String())
 	}
@@ -928,7 +928,7 @@ func TestRepairJobEventsRespectScopedTimeoutFilters(t *testing.T) {
 	dryOut, dryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	dry.SetOut(dryOut)
 	dry.SetErr(dryErr)
-	dry.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	dry.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
 	if err := dry.Execute(); err != nil {
 		t.Fatalf("repair scoped job events dry-run: %v\nstderr=%s", err, dryErr.String())
 	}
@@ -947,7 +947,7 @@ func TestRepairJobEventsRespectScopedTimeoutFilters(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-queue", "--skip-tick", "--commands"})
+	commands.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-queue", "--skip-tick", "--commands"})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("repair scoped job events commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -960,7 +960,7 @@ func TestRepairJobEventsRespectScopedTimeoutFilters(t *testing.T) {
 	applyOut, applyErr := &bytes.Buffer{}, &bytes.Buffer{}
 	apply.SetOut(applyOut)
 	apply.SetErr(applyErr)
-	apply.SetArgs([]string{"repair", "--target", tmp, "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
+	apply.SetArgs([]string{"repair", "--repo", tmp, "--timeout-jobs", "--timeout-pipeline", "ticket_to_pr", "--timeout-target-agent", "worker", "--skip-daemon", "--skip-queue", "--skip-tick", "--json"})
 	if err := apply.Execute(); err != nil {
 		t.Fatalf("repair scoped job events apply: %v\nstderr=%s", err, applyErr.String())
 	}
@@ -1020,7 +1020,7 @@ branch = "worker-squ-121"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--jobs", "--json"})
+	cmd.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--jobs", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair --jobs dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1055,7 +1055,7 @@ branch = "worker-squ-121"
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"repair", "--target", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--jobs"})
+	text.SetArgs([]string{"repair", "--repo", tmp, "--dry-run", "--skip-daemon", "--skip-queue", "--skip-tick", "--jobs"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("repair --jobs text dry-run: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1093,7 +1093,7 @@ func TestRepairDryRunCanPreviewTickRoutes(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", target, "--dry-run", "--preview-routes", "--skip-daemon", "--skip-queue", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--json"})
+	cmd.SetArgs([]string{"repair", "--repo", target, "--dry-run", "--preview-routes", "--skip-daemon", "--skip-queue", "--workspace", "repo", "--runtime", "codex", "--runtime-bin", "codex-dev", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair dry-run preview-routes: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1127,7 +1127,7 @@ func TestRepairDryRunCanPreviewTickRoutes(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"repair", "--target", target, "--dry-run", "--preview-routes", "--skip-daemon", "--skip-queue", "--workspace", "repo"})
+	text.SetArgs([]string{"repair", "--repo", target, "--dry-run", "--preview-routes", "--skip-daemon", "--skip-queue", "--workspace", "repo"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("repair dry-run preview-routes text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -1175,7 +1175,7 @@ after = ["lint", "test"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", target, "--dry-run", "--skip-daemon", "--skip-queue", "--all-ready-steps", "--json"})
+	cmd.SetArgs([]string{"repair", "--repo", target, "--dry-run", "--skip-daemon", "--skip-queue", "--all-ready-steps", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair all-ready dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1218,7 +1218,7 @@ func TestRepairDryRunCanRetryFailedPipelineRoutes(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"repair",
-		"--target", target,
+		"--repo", target,
 		"--dry-run",
 		"--retry-pipelines",
 		"--preview-routes",
@@ -1265,7 +1265,7 @@ func TestRepairDryRunCanRetryFailedPipelineRoutes(t *testing.T) {
 	text.SetErr(textErr)
 	text.SetArgs([]string{
 		"repair",
-		"--target", target,
+		"--repo", target,
 		"--dry-run",
 		"--retry-pipelines",
 		"--preview-routes",
@@ -1318,7 +1318,7 @@ func TestRepairRetryPipelinesDispatchesAndAudits(t *testing.T) {
 	}
 	cmd.SetArgs([]string{
 		"repair",
-		"--target", target,
+		"--repo", target,
 		"--retry-pipelines",
 		"--retry-message-file", retryMessageFile,
 		"--skip-queue",
@@ -1377,7 +1377,7 @@ func TestRepairWaitsForRepairedJobs(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"repair",
-		"--target", root,
+		"--repo", root,
 		"--workspace", "repo",
 		"--skip-queue",
 		"--retry-pipelines",
@@ -1478,7 +1478,7 @@ timeout = "1h"
 	dry.SetErr(dryErr)
 	dry.SetArgs([]string{
 		"repair",
-		"--target", root,
+		"--repo", root,
 		"--dry-run",
 		"--timeout-pipelines",
 		"--timeout-pipeline", "ticket_to_pr",
@@ -1516,7 +1516,7 @@ timeout = "1h"
 	}
 	apply.SetArgs([]string{
 		"repair",
-		"--target", root,
+		"--repo", root,
 		"--timeout-pipelines",
 		"--timeout-pipeline", "ticket_to_pr",
 		"--timeout-target-agent", "worker",
@@ -1602,7 +1602,7 @@ func TestRepairTimeoutJobsMarksStaleRunningWork(t *testing.T) {
 	dry.SetErr(dryErr)
 	dry.SetArgs([]string{
 		"repair",
-		"--target", root,
+		"--repo", root,
 		"--dry-run",
 		"--timeout-jobs",
 		"--skip-daemon",
@@ -1641,7 +1641,7 @@ func TestRepairTimeoutJobsMarksStaleRunningWork(t *testing.T) {
 	apply.SetErr(applyErr)
 	apply.SetArgs([]string{
 		"repair",
-		"--target", root,
+		"--repo", root,
 		"--timeout-jobs",
 		"--timeout-message", "repair timed out job work",
 		"--skip-daemon",
@@ -1747,7 +1747,7 @@ func TestRepairTimeoutJobsFiltersByPipelineAndTargetAgent(t *testing.T) {
 	dry.SetErr(dryErr)
 	dry.SetArgs([]string{
 		"repair",
-		"--target", root,
+		"--repo", root,
 		"--dry-run",
 		"--timeout-jobs",
 		"--timeout-pipeline", "ticket_to_pr",
@@ -1773,7 +1773,7 @@ func TestRepairTimeoutJobsFiltersByPipelineAndTargetAgent(t *testing.T) {
 	apply.SetErr(applyErr)
 	apply.SetArgs([]string{
 		"repair",
-		"--target", root,
+		"--repo", root,
 		"--timeout-jobs",
 		"--timeout-target-agent", "manager",
 		"--timeout-message", "manager repair timeout",
@@ -1866,7 +1866,7 @@ func TestRepairRetryPipelinesStepFilter(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"repair",
-		"--target", target,
+		"--repo", target,
 		"--dry-run",
 		"--retry-pipelines",
 		"--retry-pipeline", "ticket_to_pr",
@@ -1923,7 +1923,7 @@ func TestRepairRetriesDeadQueueOffline(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", tmp, "--skip-daemon", "--skip-tick", "--json"})
+	cmd.SetArgs([]string{"repair", "--repo", tmp, "--skip-daemon", "--skip-tick", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair apply: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2147,7 +2147,7 @@ func TestRepairDaemonRetryDispatchesDeadQueue(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"repair", "--target", target, "--skip-tick", "--json"})
+	cmd.SetArgs([]string{"repair", "--repo", target, "--skip-tick", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("repair daemon: %v\nstderr=%s", err, stderr.String())
 	}

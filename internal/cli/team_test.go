@@ -168,7 +168,7 @@ since = "2026-06-18T12:00:00Z"
 	inspectOut, inspectErr := &bytes.Buffer{}, &bytes.Buffer{}
 	inspect.SetOut(inspectOut)
 	inspect.SetErr(inspectErr)
-	inspect.SetArgs([]string{"team", "inspect", "delivery", "--repo", root, "--json"})
+	inspect.SetArgs([]string{"team", "show", "delivery", "--repo", root, "--json"})
 	if err := inspect.Execute(); err != nil {
 		t.Fatalf("team inspect alias: %v\nstderr=%s", err, inspectErr.String())
 	}
@@ -403,7 +403,7 @@ since = "2026-06-18T12:00:00Z"
 	psAliasOut, psAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
 	psAlias.SetOut(psAliasOut)
 	psAlias.SetErr(psAliasErr)
-	psAlias.SetArgs([]string{"team", "instances", "delivery", "--repo", root})
+	psAlias.SetArgs([]string{"team", "ps", "delivery", "--repo", root})
 	if err := psAlias.Execute(); err != nil {
 		t.Fatalf("team instances alias: %v\nstderr=%s", err, psAliasErr.String())
 	}
@@ -7668,7 +7668,7 @@ instances = ["other", "build-worker"]
 	topOut, topErr := &bytes.Buffer{}, &bytes.Buffer{}
 	top.SetOut(topOut)
 	top.SetErr(topErr)
-	top.SetArgs([]string{"team", "top", "delivery", "--repo", root, "--runtime", "codex", "--format", "{{.Instance}}"})
+	top.SetArgs([]string{"team", "stats", "delivery", "--repo", root, "--runtime", "codex", "--format", "{{.Instance}}"})
 	if err := top.Execute(); err != nil {
 		t.Fatalf("team top alias: %v\nstderr=%s", err, topErr.String())
 	}

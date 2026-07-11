@@ -58,11 +58,7 @@ agent-team agent show worker
 agent-team agent doctor worker
 ```
 
-These commands accept `--json` for automation and `--format` for shell-friendly output. The doctor command also accepts `--strict` (or `--strict-runtime`) to promote invalid or unavailable agent runtime defaults to failures. `agent doctor --json` includes top-level `actions` matching `--commands` for focused follow-ups. The plural alias also works:
-
-```sh
-agent-team agents ls --format '{{.Name}} {{.Runtime}} {{.RuntimeBin}} {{len .Skills}}'
-```
+These commands accept `--json` for automation and `--format` for shell-friendly output. The doctor command also accepts `--strict` (or `--strict-runtime`) to promote invalid or unavailable agent runtime defaults to failures. `agent doctor --json` includes top-level `actions` matching `--commands` for focused follow-ups.
 
 ## Skills Ownership Model
 

@@ -547,7 +547,7 @@ func TestHealthCommandJSONExitsUnhealthy(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -593,7 +593,7 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -634,7 +634,7 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--target", tmp})
+	text.SetArgs([]string{"health", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health text succeeded unexpectedly")
 	}
@@ -648,7 +648,7 @@ func TestHealthCommandReportsDeadQueueItems(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"health", "--target", tmp, "--commands"})
+	commands.SetArgs([]string{"health", "--repo", tmp, "--commands"})
 	err = commands.Execute()
 	if !errors.As(err, &code) || code != 1 {
 		t.Fatalf("health commands err = %v, want exit 1\nstderr=%s", err, commandsErr.String())
@@ -698,7 +698,7 @@ func TestHealthCommandReportsJobScopedQueueDeadLetterAction(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err = cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -726,7 +726,7 @@ func TestHealthCommandReportsJobScopedQueueDeadLetterAction(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--target", tmp})
+	text.SetArgs([]string{"health", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health text succeeded unexpectedly")
 	}
@@ -756,7 +756,7 @@ func TestHealthCommandReportsQueueQuarantine(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -787,7 +787,7 @@ func TestHealthCommandReportsQueueQuarantine(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--target", tmp})
+	text.SetArgs([]string{"health", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health text succeeded unexpectedly")
 	}
@@ -822,7 +822,7 @@ func TestHealthCommandSuggestsJobScopedQueueQuarantine(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -911,7 +911,7 @@ target = "worker"
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -969,7 +969,7 @@ func TestHealthCommandReportsOutboxQuarantine(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1000,7 +1000,7 @@ func TestHealthCommandReportsOutboxQuarantine(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--target", tmp})
+	text.SetArgs([]string{"health", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health text succeeded unexpectedly")
 	}
@@ -1028,7 +1028,7 @@ updated_at = 2026-06-27T23:00:00Z
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1059,7 +1059,7 @@ updated_at = 2026-06-27T23:00:00Z
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--target", tmp})
+	text.SetArgs([]string{"health", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health text succeeded unexpectedly")
 	}
@@ -1094,7 +1094,7 @@ func TestHealthCommandSuggestsJobScopedOutboxQuarantine(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1168,7 +1168,7 @@ target = "worker"
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1205,7 +1205,7 @@ target = "worker"
 	nextOut, nextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	next.SetOut(nextOut)
 	next.SetErr(nextErr)
-	next.SetArgs([]string{"next", "--target", tmp, "--source", "outbox", "--reason", "quarantined", "--json"})
+	next.SetArgs([]string{"next", "--repo", tmp, "--source", "outbox", "--reason", "quarantined", "--json"})
 	if err := next.Execute(); err != nil {
 		t.Fatalf("next outbox quarantine json: %v\nstderr=%s", err, nextErr.String())
 	}
@@ -1265,7 +1265,7 @@ func TestHealthCommandReportsIntakeFailures(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1296,7 +1296,7 @@ func TestHealthCommandReportsIntakeFailures(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--target", tmp})
+	text.SetArgs([]string{"health", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health text succeeded unexpectedly")
 	}
@@ -1329,7 +1329,7 @@ func TestHealthCommandJobsReportsJobAttention(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--jobs", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--jobs", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("health --jobs succeeded unexpectedly")
@@ -1362,7 +1362,7 @@ func TestHealthCommandJobsReportsJobAttention(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--jobs", "--target", tmp})
+	text.SetArgs([]string{"health", "--jobs", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health --jobs text succeeded unexpectedly")
 	}
@@ -1432,7 +1432,7 @@ after = ["implement"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--jobs", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--jobs", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("health --jobs succeeded unexpectedly")
@@ -1470,7 +1470,7 @@ after = ["implement"]
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--jobs", "--target", tmp})
+	text.SetArgs([]string{"health", "--jobs", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health --jobs text succeeded unexpectedly")
 	}
@@ -1516,7 +1516,7 @@ after = ["implement"]
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("health succeeded unexpectedly")
@@ -1546,7 +1546,7 @@ after = ["implement"]
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--target", tmp})
+	text.SetArgs([]string{"health", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health text succeeded unexpectedly")
 	}
@@ -1588,7 +1588,7 @@ branch = "worker-squ-92"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--jobs", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--jobs", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("health --jobs succeeded unexpectedly")
@@ -1622,7 +1622,7 @@ branch = "worker-squ-92"
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"health", "--jobs", "--target", tmp})
+	text.SetArgs([]string{"health", "--jobs", "--repo", tmp})
 	if err := text.Execute(); err == nil {
 		t.Fatal("health --jobs text succeeded unexpectedly")
 	}
@@ -1653,7 +1653,7 @@ func TestHealthCommandLatestUsesLocalNewestMatchingMetadata(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--latest", "--agent", "manager", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--latest", "--agent", "manager", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1700,7 +1700,7 @@ description = "fresh work"
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--unhealthy", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--unhealthy", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1749,7 +1749,7 @@ func TestHealthCommandUnhealthyIncludesRuntimeStaleIssue(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--unhealthy", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--unhealthy", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1795,7 +1795,7 @@ func TestHealthCommandLastMessageRewritesRuntimeRecoveryActions(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--unhealthy", "--last-message", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--unhealthy", "--last-message", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1819,7 +1819,7 @@ func TestHealthCommandLastMessageRewritesRuntimeRecoveryActions(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"health", "--unhealthy", "--last-message", "--commands", "--target", tmp})
+	commands.SetArgs([]string{"health", "--unhealthy", "--last-message", "--commands", "--repo", tmp})
 	if err := commands.Execute(); !errors.As(err, &code) || code != 1 {
 		t.Fatalf("health commands err = %v, want exit 1\nstderr=%s", err, commandsErr.String())
 	}
@@ -1832,7 +1832,7 @@ func TestHealthCommandLastMessageRewritesRuntimeRecoveryActions(t *testing.T) {
 	fallbacksOut, fallbacksErr := &bytes.Buffer{}, &bytes.Buffer{}
 	fallbacks.SetOut(fallbacksOut)
 	fallbacks.SetErr(fallbacksErr)
-	fallbacks.SetArgs([]string{"health", "--unhealthy", "--fallbacks", "--commands", "--target", tmp})
+	fallbacks.SetArgs([]string{"health", "--unhealthy", "--fallbacks", "--commands", "--repo", tmp})
 	if err := fallbacks.Execute(); !errors.As(err, &code) || code != 1 {
 		t.Fatalf("health fallbacks commands err = %v, want exit 1\nstderr=%s", err, fallbacksErr.String())
 	}
@@ -1862,7 +1862,7 @@ func TestHealthCommandRuntimeStaleFilterOnlyIncludesRuntimeStaleInstances(t *tes
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--runtime-stale", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--runtime-stale", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1898,7 +1898,7 @@ func TestHealthCommandFormatExitsUnhealthy(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"health", "--format", "{{.Healthy}}:{{.Daemon.Running}}:{{.Summary.Total}}:{{len .Issues}}", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--format", "{{.Healthy}}:{{.Daemon.Running}}:{{.Summary.Total}}:{{len .Issues}}", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1917,7 +1917,7 @@ func TestHealthQuietExitsUnhealthyWithoutOutput(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--quiet", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1936,7 +1936,7 @@ func TestHealthQuietWaitExitsUnhealthyWithoutOutput(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--quiet", "--wait", "--timeout", "5ms", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--quiet", "--wait", "--timeout", "5ms", "--interval", "1ms", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -1994,7 +1994,7 @@ func TestHealthLatestLastValidation(t *testing.T) {
 		stderr := &bytes.Buffer{}
 		cmd.SetOut(&bytes.Buffer{})
 		cmd.SetErr(stderr)
-		cmd.SetArgs(append(tc.args, "--target", tmp))
+		cmd.SetArgs(append(tc.args, "--repo", tmp))
 		err := cmd.Execute()
 		if err == nil {
 			t.Fatalf("%v: expected validation error", tc.args)
@@ -2014,7 +2014,7 @@ func TestHealthWaitJSONTimesOutWithFinalSnapshot(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"health", "--wait", "--json", "--timeout", "5ms", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--wait", "--json", "--timeout", "5ms", "--interval", "1ms", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {
@@ -2040,7 +2040,7 @@ func TestHealthWaitFormatTimesOutWithFinalSnapshot(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"health", "--wait", "--format", "{{.Healthy}}:{{len .Issues}}", "--timeout", "5ms", "--interval", "1ms", "--target", tmp})
+	cmd.SetArgs([]string{"health", "--wait", "--format", "{{.Healthy}}:{{len .Issues}}", "--timeout", "5ms", "--interval", "1ms", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if !errors.As(err, &code) || code != 1 {

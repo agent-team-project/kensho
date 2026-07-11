@@ -77,7 +77,6 @@ func newOutboxDoctorCmd() *cobra.Command {
 		quarantine bool
 		dryRun     bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Validate sandboxed agent outbox files.",
@@ -135,7 +134,7 @@ func newOutboxDoctorCmd() *cobra.Command {
 					result = refreshed
 				}
 			}
-			if err := renderOutboxDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, "target")); err != nil {
+			if err := renderOutboxDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, tmpl, commands, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)); err != nil {
 				return err
 			}
 			if !result.OK && !quarantine {
@@ -147,7 +146,6 @@ func newOutboxDoctorCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit outbox doctor findings as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the outbox doctor result with a Go template, e.g. '{{.OK}} {{.Summary.Invalid}}'.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print recommended follow-up commands, or with --quarantine --dry-run print the matching quarantine apply command.")

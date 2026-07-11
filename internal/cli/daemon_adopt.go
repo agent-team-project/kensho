@@ -143,10 +143,6 @@ func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Co
 				fmt.Fprintf(cmd.ErrOrStderr(), "%s: %v\n", label, err)
 				return exitErr(2)
 			}
-			repoFlag := "target"
-			if cfg.RepoFlag {
-				repoFlag = "repo"
-			}
 			return runDaemonAdopt(cmd, target, args[0], daemonAdoptOptions{
 				Agent:         agent,
 				PID:           pid,
@@ -167,14 +163,12 @@ func newAdoptExternalProcessCmd(cfg adoptExternalProcessCommandConfig) *cobra.Co
 				Commands:      commandsOnly,
 				JSON:          jsonOut,
 				Format:        tmpl,
-				CommandScope:  operatorCommandScopeFromCommand(cmd, target, repoFlag),
+				CommandScope:  operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName),
 			})
 		},
 	}
 	if cfg.RepoFlag {
 		cmd.Flags().StringVar(&target, "repo", cwd, repoFlagHelp)
-	} else {
-		cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	}
 	cmd.Flags().StringVar(&agent, "agent", "", "Agent name for the adopted instance. Inferred from instances.toml when omitted.")
 	cmd.Flags().IntVar(&pid, "pid", 0, "Live process PID to adopt.")

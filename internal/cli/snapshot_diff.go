@@ -37,7 +37,6 @@ func newSnapshotDiffCmd() *cobra.Command {
 		timelineTail  string
 		noRedact      bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "diff <before.json> <after.json> | <snapshot.json> (--current-after|--current-before)",
 		Short: "Compare two saved diagnostic snapshots.",
@@ -138,7 +137,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team snapshot diff: %v\n", err)
 				return exitErr(2)
 			}
-			result, err := diffSnapshotInputs(cmd, cwd, args, snapshotDiffOptions{Sections: sectionSet}, snapshotDiffCurrentOptions{
+			result, err := diffSnapshotInputs(cmd, ".", args, snapshotDiffOptions{Sections: sectionSet}, snapshotDiffCurrentOptions{
 				Events:           eventLimit,
 				EventSort:        eventSortMode,
 				EventSortChanged: cmd.Flags().Changed("events-sort"),
@@ -161,7 +160,7 @@ func newSnapshotDiffCmd() *cobra.Command {
 				limitSnapshotDiffResult(result, limit)
 			}
 			if commandsOnly {
-				if err := renderSnapshotDiffCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, cwd, "")); err != nil {
+				if err := renderSnapshotDiffCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, ".", "")); err != nil {
 					return err
 				}
 			} else if jsonOut || output == "-" {

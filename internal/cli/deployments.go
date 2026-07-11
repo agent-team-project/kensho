@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"text/tabwriter"
 	"text/template"
@@ -27,11 +26,9 @@ type deploymentsResolveOptions struct {
 
 func newDeploymentsCmd() *cobra.Command {
 	var opts deploymentsListOptions
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "deployments",
-		Aliases: []string{"deployment"},
-		Short:   "Read the deployment address registry view.",
+		Use:   "deployments",
+		Short: "Read the deployment address registry view.",
 		Long: "Read the deployment address registry view projected from existing repo state. " +
 			"This command does not create or update a registry file.",
 		Args: cobra.NoArgs,
@@ -39,7 +36,7 @@ func newDeploymentsCmd() *cobra.Command {
 			return runDeploymentsLsCommand(cmd, opts, "agent-team deployments")
 		},
 	}
-	addDeploymentsListFlags(cmd, &opts, cwd)
+	addDeploymentsListFlags(cmd, &opts, ".")
 	cmd.AddCommand(newDeploymentsLsCmd())
 	cmd.AddCommand(newDeploymentsResolveCmd())
 	return cmd
@@ -47,7 +44,6 @@ func newDeploymentsCmd() *cobra.Command {
 
 func newDeploymentsLsCmd() *cobra.Command {
 	var opts deploymentsListOptions
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List deployment names and their canonical resource URIs.",
@@ -56,13 +52,12 @@ func newDeploymentsLsCmd() *cobra.Command {
 			return runDeploymentsLsCommand(cmd, opts, "agent-team deployments ls")
 		},
 	}
-	addDeploymentsListFlags(cmd, &opts, cwd)
+	addDeploymentsListFlags(cmd, &opts, ".")
 	return cmd
 }
 
 func newDeploymentsResolveCmd() *cobra.Command {
 	var opts deploymentsResolveOptions
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "resolve <name-or-uri>",
 		Short: "Resolve a deployment name to its canonical resource URI.",
@@ -89,14 +84,12 @@ func newDeploymentsResolveCmd() *cobra.Command {
 			return renderDeploymentResolve(cmd.OutOrStdout(), entry, opts.JSON, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&opts.Target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&opts.Format, "format", "", "Render the resolved deployment with a Go template, e.g. '{{.URI}}'.")
 	return cmd
 }
 
 func addDeploymentsListFlags(cmd *cobra.Command, opts *deploymentsListOptions, cwd string) {
-	cmd.Flags().StringVar(&opts.Target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&opts.Format, "format", "", "Render each deployment with a Go template, e.g. '{{.Name}} {{.URI}}'.")
 }

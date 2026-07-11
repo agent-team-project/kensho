@@ -7,9 +7,6 @@
 [pm]
 provider = "github"
 
-[team]
-pm_tool = "linear"   # only "linear" supported in v1
-
 [linear]
 team_id       = "72986798-f8b4-4f57-afe2-c76d4868db0f"   # SquirtleSquad team (key: SQU)
 ticket_prefix = "SQU"

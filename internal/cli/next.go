@@ -34,7 +34,6 @@ func newNextCmd() *cobra.Command {
 		jsonOut       bool
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "next",
 		Short: "Print recommended next operator actions.",
@@ -116,10 +115,9 @@ func newNextCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team next: %v\n", err)
 				return exitErr(1)
 			}
-			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverviewFilteredSorted(overview, limit, filters, sortMode), jsonOut, tmpl, details, commandsOnly, operatorCommandScopeFromCommand(cmd, target, "target"))
+			return renderNextActionResult(cmd.OutOrStdout(), nextActionResultFromOverviewFilteredSorted(overview, limit, filters, sortMode), jsonOut, tmpl, details, commandsOnly, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&teamName, "team", "", "Scope recommendations to this declared team.")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Show at most this many actions; 0 means all.")
 	cmd.Flags().IntVar(&scheduleLimit, "schedule-limit", 5, "Upcoming schedules to inspect while building recommendations; 0 means all.")

@@ -74,7 +74,7 @@ func TestDaemonStatus_NotRunning(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestDaemonStatus_StalePidfile(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestDaemonStatus_Running(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestDaemonStatus_ReadyWithInstanceCount(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestDaemonStatusCommandsNotRunning(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "status", "--target", tmp, "--commands"})
+	cmd.SetArgs([]string{"daemon", "status", "--repo", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -207,7 +207,7 @@ func TestDaemonStatusCommandsRunningNotReady(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "status", "--target", tmp, "--commands"})
+	cmd.SetArgs([]string{"daemon", "status", "--repo", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -241,7 +241,7 @@ func TestDaemonStatusCommandsReady(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "status", "--target", tmp, "--commands"})
+	cmd.SetArgs([]string{"daemon", "status", "--repo", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -262,7 +262,7 @@ func TestDaemonStatusJSON_NotRunning(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --json: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestDaemonStatusJSON_Running(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --json: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestDaemonStatusJSON_RunningButSocketUnreachable(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --json: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestDaemonStatusTextShowsLastExitReason(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon status: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestDaemonStatusJSON_ReadyWithInstanceCount(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --json: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestDaemonStatusJSONWarnsOnBuildMismatch(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --json: %v", err)
 	}
@@ -497,7 +497,7 @@ agent = "manager"
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "adopt", "manager", "--target", tmp, "--pid", strconv.Itoa(os.Getpid()), "--json"})
+	cmd.SetArgs([]string{"daemon", "adopt", "manager", "--repo", tmp, "--pid", strconv.Itoa(os.Getpid()), "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon adopt: %v", err)
 	}
@@ -548,7 +548,7 @@ func TestDaemonAdoptDryRunDoesNotWriteMetadata(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "adopt", "external-worker", "--target", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--json"})
+	cmd.SetArgs([]string{"daemon", "adopt", "external-worker", "--repo", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon adopt --dry-run: %v", err)
 	}
@@ -572,7 +572,7 @@ func TestDaemonAdoptDryRunTextPrintsFollowUpActions(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "adopt", "external-worker", "--target", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run"})
+	cmd.SetArgs([]string{"daemon", "adopt", "external-worker", "--repo", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon adopt --dry-run text: %v", err)
 	}
@@ -597,7 +597,7 @@ func TestDaemonAdoptCommandsPrintsOnlyFollowUpActions(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "adopt", "external-worker", "--target", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands"})
+	cmd.SetArgs([]string{"daemon", "adopt", "external-worker", "--repo", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon adopt --commands: %v", err)
 	}
@@ -619,12 +619,12 @@ func TestDaemonAdoptRejectsCommandsWithJSONOrFormat(t *testing.T) {
 	}{
 		{
 			name: "json",
-			args: []string{"daemon", "adopt", "external-worker", "--target", t.TempDir(), "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands", "--json"},
+			args: []string{"daemon", "adopt", "external-worker", "--repo", t.TempDir(), "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands", "--json"},
 			want: wantCommandsModeConflict("--json"),
 		},
 		{
 			name: "format",
-			args: []string{"daemon", "adopt", "external-worker", "--target", t.TempDir(), "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands", "--format", "{{.Action}}"},
+			args: []string{"daemon", "adopt", "external-worker", "--repo", t.TempDir(), "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--dry-run", "--commands", "--format", "{{.Action}}"},
 			want: wantCommandsModeConflict("--format"),
 		},
 	} {
@@ -652,7 +652,7 @@ func TestRuntimeAdoptDryRunDoesNotWriteMetadata(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"runtime", "adopt", "external-worker", "--target", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--runtime", "codex", "--dry-run", "--json"})
+	cmd.SetArgs([]string{"runtime", "adopt", "external-worker", "--repo", tmp, "--agent", "worker", "--pid", strconv.Itoa(os.Getpid()), "--runtime", "codex", "--dry-run", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime adopt --dry-run: %v", err)
 	}
@@ -776,7 +776,7 @@ func TestDaemonAdoptUpdatesOwningJob(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"daemon", "adopt", "worker-squ-66",
-		"--target", tmp,
+		"--repo", tmp,
 		"--pid", strconv.Itoa(os.Getpid()),
 		"--job", "squ-66",
 		"--json",
@@ -852,7 +852,7 @@ func TestDaemonAdoptUpdatesOwningPipelineStep(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"daemon", "adopt", "worker-squ-166-implement",
-		"--target", tmp,
+		"--repo", tmp,
 		"--pid", strconv.Itoa(os.Getpid()),
 		"--job", "squ-166",
 		"--json",
@@ -916,7 +916,7 @@ func TestDaemonAdoptUsesExplicitPipelineStep(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"daemon", "adopt", "manager-squ-167-review",
-		"--target", tmp,
+		"--repo", tmp,
 		"--pid", strconv.Itoa(os.Getpid()),
 		"--job", "squ-167",
 		"--step", "review",
@@ -977,7 +977,7 @@ func TestDaemonAdoptDryRunPreviewsOwningJobUpdate(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"daemon", "adopt", "worker-squ-67",
-		"--target", tmp,
+		"--repo", tmp,
 		"--agent", "worker",
 		"--pid", strconv.Itoa(os.Getpid()),
 		"--job", "squ-67",
@@ -1016,7 +1016,7 @@ func TestDaemonAdoptFormatPrintsRow(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"daemon", "adopt", "worker-one",
-		"--target", tmp,
+		"--repo", tmp,
 		"--agent", "worker",
 		"--pid", strconv.Itoa(os.Getpid()),
 		"--runtime", "codex",
@@ -1039,7 +1039,7 @@ func TestDaemonAdoptRequiresAgentForUndeclaredInstance(t *testing.T) {
 	errOut := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"daemon", "adopt", "unknown", "--target", tmp, "--pid", strconv.Itoa(os.Getpid())})
+	cmd.SetArgs([]string{"daemon", "adopt", "unknown", "--repo", tmp, "--pid", strconv.Itoa(os.Getpid())})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("daemon adopt without inferred agent succeeded")
 	}
@@ -1056,7 +1056,7 @@ func TestDaemonStatusQuietNotReadyExitsOneWithoutOutput(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "status", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--quiet", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if err == nil || !errors.As(err, &code) || code != 1 {
@@ -1084,7 +1084,7 @@ func TestDaemonStatusQuietReadyNoOutput(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "status", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--quiet", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon status --quiet: %v", err)
 	}
@@ -1141,7 +1141,7 @@ func TestDaemonStatusFormatNotRunning(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--format", "{{.Running}}:{{.Ready}}:{{.Instances}}:{{.SocketExists}}:{{index .Actions 0}}", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--format", "{{.Running}}:{{.Ready}}:{{.Instances}}:{{.SocketExists}}:{{index .Actions 0}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --format: %v", err)
 	}
@@ -1158,7 +1158,7 @@ func TestDaemonStatusWaitFormatTimeout(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--wait", "--timeout", "5ms", "--interval", "1ms", "--format", "{{.Running}}:{{.Ready}}:{{.Error}}", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--wait", "--timeout", "5ms", "--interval", "1ms", "--format", "{{.Running}}:{{.Ready}}:{{.Error}}", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if err == nil || !errors.As(err, &code) || code != 1 {
@@ -1215,7 +1215,7 @@ func TestDaemonStatusWaitJSONReady(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--wait", "--timeout", "1s", "--interval", "10ms", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--wait", "--timeout", "1s", "--interval", "10ms", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --wait --json: %v", err)
 	}
@@ -1236,7 +1236,7 @@ func TestDaemonStatusWaitJSONTimeout(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--wait", "--timeout", "5ms", "--interval", "1ms", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--wait", "--timeout", "5ms", "--interval", "1ms", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if err == nil || !errors.As(err, &code) || code != 1 {
@@ -1259,7 +1259,7 @@ func TestDaemonStatusWaitDownJSONAlreadyStopped(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--wait", "--down", "--timeout", "1s", "--interval", "1ms", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--wait", "--down", "--timeout", "1s", "--interval", "1ms", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("status --wait --down --json: %v", err)
 	}
@@ -1288,7 +1288,7 @@ func TestDaemonStatusWaitDownJSONTimeout(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "status", "--wait", "--down", "--timeout", "5ms", "--interval", "1ms", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "status", "--wait", "--down", "--timeout", "5ms", "--interval", "1ms", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if err == nil || !errors.As(err, &code) || code != 1 {
@@ -1349,7 +1349,7 @@ func TestDaemonStartJSONAlreadyRunning(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "start", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "start", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon start --json: %v", err)
 	}
@@ -1394,7 +1394,7 @@ func TestDaemonStartTextShowsPreviousExitReason(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "start", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "start", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon start: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1421,7 +1421,7 @@ func TestDaemonStartFormatAlreadyRunning(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "start", "--format", "{{.Action}}:{{.Changed}}:{{.AlreadyRunning}}:{{.PID}}", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "start", "--format", "{{.Action}}:{{.Changed}}:{{.AlreadyRunning}}:{{.PID}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon start --format: %v", err)
 	}
@@ -1446,7 +1446,7 @@ func TestDaemonStartQuietAlreadyRunning(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "start", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "start", "--quiet", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon start --quiet: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1530,7 +1530,7 @@ func TestDaemonStopJSONNotRunning(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "stop", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "stop", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon stop --json: %v", err)
 	}
@@ -1550,7 +1550,7 @@ func TestDaemonStopFormatNotRunning(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "stop", "--format", "{{.Action}}:{{.Changed}}:{{.Message}}:{{.Status.Running}}", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "stop", "--format", "{{.Action}}:{{.Changed}}:{{.Message}}:{{.Status.Running}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon stop --format: %v", err)
 	}
@@ -1574,7 +1574,7 @@ func TestDaemonStopJSONStalePidfile(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "stop", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "stop", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon stop --json stale pidfile: %v", err)
 	}
@@ -1649,7 +1649,7 @@ func TestDaemonRestartRelaunchesFromSnapshotEnv(t *testing.T) {
 	unsetEnvForTest(t, markerKey)
 	writeRawLaunchEnvForCLITest(t, teamDir, daemon.LaunchEnv{
 		Bin:        "/snapshot/bin/agent-teamd",
-		Args:       []string{"/old/argv0", "--target", tmp, "--http-addr", "127.0.0.1:9999"},
+		Args:       []string{"/old/argv0", "--repo", tmp, "--http-addr", "127.0.0.1:9999"},
 		Dir:        "/snapshot/workdir",
 		Env:        []string{"PATH=/snapshot/bin", markerKey + "=from-snapshot", "OPENAI_API_KEY=contaminated"},
 		RecordedAt: time.Now().UTC(),
@@ -1677,7 +1677,7 @@ func TestDaemonRestartRelaunchesFromSnapshotEnv(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "restart", "--json", "--target", tmp, "--ready-timeout", "10ms", "--http-addr", "127.0.0.1:0"})
+	cmd.SetArgs([]string{"daemon", "restart", "--json", "--repo", tmp, "--ready-timeout", "10ms", "--http-addr", "127.0.0.1:0"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon restart --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1733,7 +1733,7 @@ func TestDaemonRestartFallbackMarksMissingSnapshot(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "restart", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "restart", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon restart fallback --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1772,7 +1772,7 @@ func TestDaemonRestartFallbackPrintsSnapshotWarning(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "restart", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "restart", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon restart fallback text: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1787,7 +1787,7 @@ func TestDaemonRestartTextPrintsRelaunchedBinary(t *testing.T) {
 	teamDir := filepath.Join(tmp, ".agent_team")
 	writeRawLaunchEnvForCLITest(t, teamDir, daemon.LaunchEnv{
 		Bin:        "/snapshot/bin/agent-teamd",
-		Args:       []string{"/snapshot/bin/agent-teamd", "--target", tmp},
+		Args:       []string{"/snapshot/bin/agent-teamd", "--repo", tmp},
 		Dir:        "/snapshot/workdir",
 		Env:        []string{"PATH=/snapshot/bin"},
 		RecordedAt: time.Now().UTC(),
@@ -1809,7 +1809,7 @@ func TestDaemonRestartTextPrintsRelaunchedBinary(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "restart", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "restart", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon restart text: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1825,7 +1825,7 @@ func TestDaemonEnvJSONRedactsSecrets(t *testing.T) {
 	recordedAt := time.Now().UTC().Truncate(time.Second)
 	if err := daemon.WriteLaunchEnv(daemon.DaemonRoot(teamDir), &daemon.LaunchEnv{
 		Bin:        "/snapshot/bin/agent-teamd",
-		Args:       []string{"/snapshot/bin/agent-teamd", "--target", tmp},
+		Args:       []string{"/snapshot/bin/agent-teamd", "--repo", tmp},
 		Dir:        "/snapshot/workdir",
 		Env:        []string{"NORMAL=ok", "GH_TOKEN=secret-token", "DB_PASSWORD=secret-password", "API_KEY=secret-key"},
 		RecordedAt: recordedAt,
@@ -1840,7 +1840,7 @@ func TestDaemonEnvJSONRedactsSecrets(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "env", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "env", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon env --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1876,7 +1876,7 @@ func TestDaemonEnvMissingSnapshotExitsOne(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "env", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "env", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if err == nil || !errors.As(err, &code) || code != 1 {
@@ -1897,7 +1897,7 @@ func TestDaemonStop_NotRunning(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "stop", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "stop", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
@@ -1913,7 +1913,7 @@ func TestDaemonStopQuietNotRunning(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "stop", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "stop", "--quiet", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon stop --quiet: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1936,7 +1936,7 @@ func TestDaemonStop_StalePidfileCleaned(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "stop", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "stop", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
@@ -2001,7 +2001,7 @@ func TestDaemonReconcileRequiresRunningDaemon(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"daemon", "reconcile", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "reconcile", "--repo", tmp})
 	err := cmd.Execute()
 	var code ExitCode
 	if err == nil || !strings.Contains(stderr.String(), "daemon is not running") {
@@ -2027,7 +2027,7 @@ func TestDaemonLogsReadsLocalLogWithoutDaemon(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "logs", "--tail", "1", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "logs", "--tail", "1", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon logs: %v", err)
 	}
@@ -2051,7 +2051,7 @@ func TestDaemonLogsTailAllReadsWholeLog(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "logs", "--tail", "all", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "logs", "--tail", "all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon logs --tail all: %v", err)
 	}
@@ -2075,7 +2075,7 @@ func TestDaemonLogsGrep(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "logs", "--grep", "error", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "logs", "--grep", "error", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon logs --grep: %v", err)
 	}
@@ -2104,7 +2104,7 @@ func TestDaemonLogsSinceFiltersOldLog(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"daemon", "logs", "--since", "1h", "--target", tmp})
+	cmd.SetArgs([]string{"daemon", "logs", "--since", "1h", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("daemon logs --since: %v", err)
 	}

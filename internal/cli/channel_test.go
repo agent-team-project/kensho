@@ -257,7 +257,7 @@ func TestChannelLsSortLimitFormatAndJSON(t *testing.T) {
 		}
 	}
 
-	stdout, stderr, err := executeChannelCommand("channel", "ls", "--target", tmp, "--sort", "messages", "--limit", "2", "--format", "{{.Name}} {{.MessageCount}}")
+	stdout, stderr, err := executeChannelCommand("channel", "ls", "--repo", tmp, "--sort", "messages", "--limit", "2", "--format", "{{.Name}} {{.MessageCount}}")
 	if err != nil {
 		t.Fatalf("channel ls format: %v\nstderr=%s", err, stderr)
 	}
@@ -265,7 +265,7 @@ func TestChannelLsSortLimitFormatAndJSON(t *testing.T) {
 		t.Fatalf("channel ls format = %q, want %q", got, want)
 	}
 
-	stdout, stderr, err = executeChannelCommand("channels", "--target", tmp, "--sort", "messages", "--limit", "1", "--json")
+	stdout, stderr, err = executeChannelCommand("channels", "--repo", tmp, "--sort", "messages", "--limit", "1", "--json")
 	if err != nil {
 		t.Fatalf("channels json: %v\nstderr=%s", err, stderr)
 	}
@@ -288,7 +288,7 @@ func TestChannelShowTailJSONAndFormat(t *testing.T) {
 		}
 	}
 
-	stdout, stderr, err := executeChannelCommand("channel", "show", "#ops", "--target", tmp, "--tail", "2", "--json")
+	stdout, stderr, err := executeChannelCommand("channel", "show", "#ops", "--repo", tmp, "--tail", "2", "--json")
 	if err != nil {
 		t.Fatalf("channel show json: %v\nstderr=%s", err, stderr)
 	}
@@ -303,7 +303,7 @@ func TestChannelShowTailJSONAndFormat(t *testing.T) {
 		t.Fatalf("channel show json = %+v, want tail second/third", result)
 	}
 
-	stdout, stderr, err = executeChannelCommand("channel", "show", "#ops", "--target", tmp, "--tail", "1", "--format", "{{.Channel.Name}} {{len .Messages}} {{(index .Messages 0).Body}}")
+	stdout, stderr, err = executeChannelCommand("channel", "show", "#ops", "--repo", tmp, "--tail", "1", "--format", "{{.Channel.Name}} {{len .Messages}} {{(index .Messages 0).Body}}")
 	if err != nil {
 		t.Fatalf("channel show format: %v\nstderr=%s", err, stderr)
 	}
@@ -316,7 +316,7 @@ func TestChannelPublishAndRmMachineOutput(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 
-	stdout, stderr, err := executeChannelCommand("channel", "publish", "#ops", "--target", tmp, "--sender", "tester", "--message", "deploy ready", "--json")
+	stdout, stderr, err := executeChannelCommand("channel", "publish", "#ops", "--repo", tmp, "--sender", "tester", "--message", "deploy ready", "--json")
 	if err != nil {
 		t.Fatalf("channel publish json: %v\nstderr=%s", err, stderr)
 	}
@@ -328,7 +328,7 @@ func TestChannelPublishAndRmMachineOutput(t *testing.T) {
 		t.Fatalf("publish json = %+v, want #ops/tester/seq1", published)
 	}
 
-	stdout, stderr, err = executeChannelCommand("channel", "publish", "#ops", "--target", tmp, "--message", "second", "--format", "{{.Channel}} {{.Seq}} {{.Body}}")
+	stdout, stderr, err = executeChannelCommand("channel", "publish", "#ops", "--repo", tmp, "--message", "second", "--format", "{{.Channel}} {{.Seq}} {{.Body}}")
 	if err != nil {
 		t.Fatalf("channel publish format: %v\nstderr=%s", err, stderr)
 	}
@@ -336,14 +336,14 @@ func TestChannelPublishAndRmMachineOutput(t *testing.T) {
 		t.Fatalf("publish format = %q, want %q", got, want)
 	}
 
-	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--target", tmp, "--dry-run", "--format", "{{.Name}} {{.Action}} {{.DryRun}}")
+	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--repo", tmp, "--dry-run", "--format", "{{.Name}} {{.Action}} {{.DryRun}}")
 	if err != nil {
 		t.Fatalf("channel rm dry-run format: %v\nstderr=%s", err, stderr)
 	}
 	if got, want := strings.TrimSpace(stdout), "#ops would-remove true"; got != want {
 		t.Fatalf("rm dry-run format = %q, want %q", got, want)
 	}
-	stdout, stderr, err = executeChannelCommand("channel", "show", "#ops", "--target", tmp, "--tail", "0", "--format", "{{.Channel.MessageCount}}")
+	stdout, stderr, err = executeChannelCommand("channel", "show", "#ops", "--repo", tmp, "--tail", "0", "--format", "{{.Channel.MessageCount}}")
 	if err != nil {
 		t.Fatalf("channel show after dry-run rm: %v\nstderr=%s", err, stderr)
 	}
@@ -351,7 +351,7 @@ func TestChannelPublishAndRmMachineOutput(t *testing.T) {
 		t.Fatalf("channel after dry-run rm count = %q, want %q", got, want)
 	}
 
-	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--target", tmp, "--dry-run", "--commands")
+	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--repo", tmp, "--dry-run", "--commands")
 	if err != nil {
 		t.Fatalf("channel rm commands: %v\nstderr=%s", err, stderr)
 	}
@@ -368,7 +368,7 @@ func TestChannelPublishAndRmMachineOutput(t *testing.T) {
 		t.Fatalf("rm root repo commands = %q, want %q", got, wantCommand)
 	}
 
-	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--target", tmp, "--force", "--json")
+	stdout, stderr, err = executeChannelCommand("channel", "rm", "#ops", "--repo", tmp, "--force", "--json")
 	if err != nil {
 		t.Fatalf("channel rm json: %v\nstderr=%s", err, stderr)
 	}
@@ -392,52 +392,52 @@ func TestChannelMachineOutputValidation(t *testing.T) {
 	}{
 		{
 			name: "ls rejects json format",
-			args: []string{"channel", "ls", "--target", tmp, "--json", "--format", "{{.Name}}"},
+			args: []string{"channel", "ls", "--repo", tmp, "--json", "--format", "{{.Name}}"},
 			want: "--format cannot be combined with --json",
 		},
 		{
 			name: "ls rejects negative limit",
-			args: []string{"channel", "ls", "--target", tmp, "--limit", "-1"},
+			args: []string{"channel", "ls", "--repo", tmp, "--limit", "-1"},
 			want: "--limit must be >= 0",
 		},
 		{
 			name: "ls rejects bad sort",
-			args: []string{"channel", "ls", "--target", tmp, "--sort", "created"},
+			args: []string{"channel", "ls", "--repo", tmp, "--sort", "created"},
 			want: "--sort must be name, subscribers, messages, or last",
 		},
 		{
 			name: "show rejects json format",
-			args: []string{"channel", "show", "#ops", "--target", tmp, "--json", "--format", "{{.Channel.Name}}"},
+			args: []string{"channel", "show", "#ops", "--repo", tmp, "--json", "--format", "{{.Channel.Name}}"},
 			want: "--format cannot be combined with --json",
 		},
 		{
 			name: "show rejects negative tail",
-			args: []string{"channel", "show", "#ops", "--target", tmp, "--tail", "-1"},
+			args: []string{"channel", "show", "#ops", "--repo", tmp, "--tail", "-1"},
 			want: "--tail must be >= 0",
 		},
 		{
 			name: "publish rejects json format",
-			args: []string{"channel", "publish", "#ops", "--target", tmp, "--message", "body", "--json", "--format", "{{.Seq}}"},
+			args: []string{"channel", "publish", "#ops", "--repo", tmp, "--message", "body", "--json", "--format", "{{.Seq}}"},
 			want: "--format cannot be combined with --json",
 		},
 		{
 			name: "rm rejects commands without dry run",
-			args: []string{"channel", "rm", "#ops", "--target", tmp, "--commands"},
+			args: []string{"channel", "rm", "#ops", "--repo", tmp, "--commands"},
 			want: wantCommandsModeRequiresDryRun(),
 		},
 		{
 			name: "rm rejects commands json",
-			args: []string{"channel", "rm", "#ops", "--target", tmp, "--dry-run", "--commands", "--json"},
+			args: []string{"channel", "rm", "#ops", "--repo", tmp, "--dry-run", "--commands", "--json"},
 			want: wantCommandsModeConflict("--json"),
 		},
 		{
 			name: "rm rejects commands format",
-			args: []string{"channel", "rm", "#ops", "--target", tmp, "--dry-run", "--commands", "--format", "{{.Name}}"},
+			args: []string{"channel", "rm", "#ops", "--repo", tmp, "--dry-run", "--commands", "--format", "{{.Name}}"},
 			want: wantCommandsModeConflict("--format"),
 		},
 		{
 			name: "rm rejects json format",
-			args: []string{"channel", "rm", "#ops", "--target", tmp, "--json", "--format", "{{.Name}}"},
+			args: []string{"channel", "rm", "#ops", "--repo", tmp, "--json", "--format", "{{.Name}}"},
 			want: "--format cannot be combined with --json",
 		},
 	}
@@ -468,7 +468,7 @@ func TestChannelPublishCommandMessageFile(t *testing.T) {
 	fileOut, fileErr := &bytes.Buffer{}, &bytes.Buffer{}
 	publishFile.SetOut(fileOut)
 	publishFile.SetErr(fileErr)
-	publishFile.SetArgs([]string{"channel", "publish", "#ops", "--target", tmp, "--sender", "tester", "--message-file", messageFile})
+	publishFile.SetArgs([]string{"channel", "publish", "#ops", "--repo", tmp, "--sender", "tester", "--message-file", messageFile})
 	if err := publishFile.Execute(); err != nil {
 		t.Fatalf("channel publish --message-file: %v\nstderr=%s", err, fileErr.String())
 	}
@@ -483,7 +483,7 @@ func TestChannelPublishCommandMessageFile(t *testing.T) {
 	stdinOut, stdinErr := &bytes.Buffer{}, &bytes.Buffer{}
 	publishStdin.SetOut(stdinOut)
 	publishStdin.SetErr(stdinErr)
-	publishStdin.SetArgs([]string{"channel", "publish", "#ops", "--target", tmp, "--message-file", "-"})
+	publishStdin.SetArgs([]string{"channel", "publish", "#ops", "--repo", tmp, "--message-file", "-"})
 	if err := publishStdin.Execute(); err != nil {
 		t.Fatalf("channel publish stdin: %v\nstderr=%s", err, stdinErr.String())
 	}
@@ -503,7 +503,7 @@ func TestChannelPublishCommandMessageFile(t *testing.T) {
 	conflictOut, conflictErr := &bytes.Buffer{}, &bytes.Buffer{}
 	conflict.SetOut(conflictOut)
 	conflict.SetErr(conflictErr)
-	conflict.SetArgs([]string{"channel", "publish", "#ops", "body", "--target", tmp, "--message", "flag"})
+	conflict.SetArgs([]string{"channel", "publish", "#ops", "body", "--repo", tmp, "--message", "flag"})
 	if err := conflict.Execute(); err == nil {
 		t.Fatal("channel publish conflicting message sources succeeded")
 	}
@@ -534,7 +534,7 @@ func TestChannelCommandsRoundTripHashNameThroughDaemon(t *testing.T) {
 		return out.String(), stderr.String(), err
 	}
 
-	out, stderr, err := run("channel", "publish", "--target", tmp, "#standup", "Codex docs validation")
+	out, stderr, err := run("channel", "publish", "--repo", tmp, "#standup", "Codex docs validation")
 	if err != nil {
 		t.Fatalf("publish daemon channel: %v\nstderr=%s", err, stderr)
 	}
@@ -542,7 +542,7 @@ func TestChannelCommandsRoundTripHashNameThroughDaemon(t *testing.T) {
 		t.Fatalf("publish output = %q, want seq=1", out)
 	}
 
-	out, stderr, err = run("channels", "--target", tmp)
+	out, stderr, err = run("channels", "--repo", tmp)
 	if err != nil {
 		t.Fatalf("channels: %v\nstderr=%s", err, stderr)
 	}
@@ -550,7 +550,7 @@ func TestChannelCommandsRoundTripHashNameThroughDaemon(t *testing.T) {
 		t.Fatalf("channels output = %q, want #standup with one message", out)
 	}
 
-	out, stderr, err = run("channel", "show", "--target", tmp, "#standup")
+	out, stderr, err = run("channel", "show", "--repo", tmp, "#standup")
 	if err != nil {
 		t.Fatalf("show daemon channel: %v\nstderr=%s", err, stderr)
 	}
@@ -558,7 +558,7 @@ func TestChannelCommandsRoundTripHashNameThroughDaemon(t *testing.T) {
 		t.Fatalf("show output = %q, want #standup message", out)
 	}
 
-	out, stderr, err = run("channel", "rm", "--target", tmp, "--force", "#standup")
+	out, stderr, err = run("channel", "rm", "--repo", tmp, "--force", "#standup")
 	if err != nil {
 		t.Fatalf("rm daemon channel: %v\nstderr=%s", err, stderr)
 	}

@@ -64,31 +64,15 @@ triage, pipeline status, overview/next hints, and the drain loop.
 
 ## Important Findings
 
-1. **Repo-root flag names are inconsistent.**
-   Some command families use `--repo`; older ones use `--target`. Examples:
-   `job create` and `team ...` use `--repo`; `dispatch`, `intake`,
-   `channel`, `instance`, and top-level lifecycle commands use `--target`.
-   This caused real operator mistakes during validation.
-
-   Status after follow-up on 2026-06-23: the global `--repo` selector is now a
-   supported override for repo-scoped commands that still expose legacy
-   repo-root `--target`, including `run`, `doctor`, `runtime`, and `snapshot`.
-   The remaining work is command-shape cleanup and help-text consistency, not a
-   functional repo-selection blocker.
-
-   Status after help-text follow-up: fixed for the current CLI surface. Local
-   `--repo` flags now use one shared repo-root description, legacy repo-root
-   `--target` flags are explicitly labeled as legacy and point operators to
-   global `--repo`, and `job create --target` remains documented as the target
-   agent selector. Generated CLI docs and help-output regression coverage pin
-   the distinction.
+1. **Repo-root flag names were inconsistent.**
+   Status after the v0.5 cleanup: repo-scoped commands use global `--repo`.
+   Semantic `--target` remains only for creation destinations and agent
+   selection, including `job create --target worker`. Generated CLI docs and
+   help-output regression coverage pin the distinction.
 
 2. **Roadmap command shape is not exactly current CLI shape.**
-   The roadmap example `agent-team job create <ticket> --target worker` is
-   valid for target agent selection, but when combined with commands that use
-   `--target` for repo root it is easy to misapply. Prefer standardizing on
-   `--repo` for repo root everywhere and reserving `--target` for agent/event
-   target.
+   The roadmap example `agent-team job create <ticket> --target worker` uses
+   the semantic target-agent flag. Repo selection uses global `--repo`.
 
 3. **Fresh pipeline jobs do not advance through the general maintenance paths.**
    `job advance doc-402 --dry-run` previewed worker dispatch, but

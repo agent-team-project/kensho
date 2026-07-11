@@ -41,7 +41,6 @@ func newInstanceCmd() *cobra.Command {
 
 func newInstanceLsCmd() *cobra.Command {
 	var target string
-	cwd, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "ls",
 		Short: "List instances (state dirs).",
@@ -77,7 +76,6 @@ func newInstanceLsCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	return c
 }
 
@@ -86,7 +84,6 @@ func newInstanceShowCmd() *cobra.Command {
 		target  string
 		jsonOut bool
 	)
-	cwd, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "show <name>",
 		Short: "Show an instance's state files.",
@@ -95,7 +92,6 @@ func newInstanceShowCmd() *cobra.Command {
 			return runInstanceShow(cmd, target, args[0], jsonOut)
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	return c
 }
@@ -674,7 +670,6 @@ func newInstanceRmCmd() *cobra.Command {
 		summary        bool
 		format         string
 	)
-	cwd, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "rm [<name>...]",
 		Short: "Remove an instance's state.",
@@ -726,7 +721,6 @@ func newInstanceRmCmd() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVarP(&all, "all", "a", false, "Remove every daemon-known instance. Can combine with --agent, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy.")
 	c.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation; if the daemon is running, stop a running instance before removal.")
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching removals without deleting state or daemon metadata.")
@@ -1502,7 +1496,6 @@ func newInstanceUpCmd() *cobra.Command {
 		jsonOut       bool
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "up [<name>...]",
 		Short: "Start or resume instances (idempotent). Requires the daemon.",
@@ -1580,7 +1573,6 @@ func newInstanceUpCmd() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().StringVar(&prompt, "prompt", "", "Override the default kickoff prompt.")
 	c.Flags().StringVar(&promptFile, "prompt-file", "", "Read kickoff prompt from a file, or '-' for stdin.")
 	c.Flags().BoolVarP(&all, "all", "a", false, "Start or resume every declared persistent and daemon-known instance.")
@@ -3003,8 +2995,7 @@ func runningInstanceSetFromMetas(list []*daemon.Metadata) map[string]bool {
 // an interactive claude.
 func upOne(cmd *cobra.Command, target string, inst *topology.Instance, kickoff string) error {
 	if target == "" {
-		cwd, _ := os.Getwd()
-		target = cwd
+		target = "."
 	}
 	repoResolved, err := resolvePrimaryRepo(cmd, target)
 	if err != nil {
@@ -3057,7 +3048,6 @@ func newInstanceDownCmd() *cobra.Command {
 		jsonOut       bool
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "down [<name>...]",
 		Short: "Stop declared persistent instances. With no args, stops all running.",
@@ -3106,7 +3096,6 @@ func newInstanceDownCmd() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	c.Flags().BoolVar(&latest, "latest", false, "Stop the most recently started running instance after other filters.")
 	c.Flags().IntVarP(&last, "last", "n", 0, "Stop the N most recently started running instances after other filters (0 = all).")
 	c.Flags().StringSliceVar(&agents, "agent", nil, "Stop every running instance for this agent. Can repeat or comma-separate.")
@@ -3870,7 +3859,7 @@ func resolvePrimaryRepo(cmd *cobra.Command, target string) (primaryRepoResolutio
 			return primaryRepoResolution{RepoRoot: filepath.Dir(teamDir), TeamDir: teamDir}, nil
 		}
 	}
-	return primaryRepoResolution{}, fmt.Errorf("no %s found for repo-scoped command; pass --repo/--target <repo>, run from inside a repo with %s in cwd ancestors, or set AGENT_TEAM_ROOT to the primary %s directory", loader.TeamDirName, loader.TeamDirName, loader.TeamDirName)
+	return primaryRepoResolution{}, fmt.Errorf("no %s found for repo-scoped command; pass --repo <repo>, run from inside a repo with %s in cwd ancestors, or set AGENT_TEAM_ROOT to the primary %s directory", loader.TeamDirName, loader.TeamDirName, loader.TeamDirName)
 }
 
 func resolveExplicitRepo(target string) (primaryRepoResolution, error) {
@@ -3888,7 +3877,7 @@ func resolveExplicitRepo(target string) (primaryRepoResolution, error) {
 	if teamDir, ok := existingTeamDir(teamDir); ok {
 		return primaryRepoResolution{RepoRoot: filepath.Dir(teamDir), TeamDir: teamDir}, nil
 	}
-	return primaryRepoResolution{}, fmt.Errorf("%s not found; pass --repo/--target <repo>, run from inside a repo with %s in cwd ancestors, or set AGENT_TEAM_ROOT to the primary %s directory", teamDir, loader.TeamDirName, loader.TeamDirName)
+	return primaryRepoResolution{}, fmt.Errorf("%s not found; pass --repo <repo>, run from inside a repo with %s in cwd ancestors, or set AGENT_TEAM_ROOT to the primary %s directory", teamDir, loader.TeamDirName, loader.TeamDirName)
 }
 
 func selectedRepoTarget(cmd *cobra.Command, target string) (string, bool) {
@@ -3900,12 +3889,6 @@ func selectedRepoTarget(cmd *cobra.Command, target string) (string, bool) {
 		}
 		if flag := cmd.Flags().Lookup("repo"); flag != nil && flag.Changed {
 			if value := strings.TrimSpace(flag.Value.String()); value != "" {
-				return value, true
-			}
-		}
-		if flag := cmd.Flags().Lookup("target"); flag != nil && flag.Changed {
-			value := strings.TrimSpace(flag.Value.String())
-			if value != "" && (cmd.Flags().Lookup("repo") == nil || value == strings.TrimSpace(target)) {
 				return value, true
 			}
 		}

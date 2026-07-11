@@ -24,7 +24,6 @@ import (
 	"github.com/agent-team-project/agent-team/internal/daemon"
 	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/agent-team-project/agent-team/internal/runtimehooks"
-	"github.com/agent-team-project/agent-team/internal/runtimeshim"
 	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/spf13/cobra"
 )
@@ -158,7 +157,7 @@ func startRunTestDaemonWithBuild(t *testing.T, teamDir string, mgr *daemon.Insta
 	}
 	if err := daemon.WriteLaunchEnv(daemon.DaemonRoot(teamDir), &daemon.LaunchEnv{
 		Bin:        "/test/bin/agent-teamd",
-		Args:       []string{"/test/bin/agent-teamd", "--target", filepath.Dir(teamDir)},
+		Args:       []string{"/test/bin/agent-teamd", "--repo", filepath.Dir(teamDir)},
 		Dir:        filepath.Dir(teamDir),
 		RecordedAt: time.Now().UTC().Truncate(time.Second),
 		PID:        os.Getpid(),
@@ -351,8 +350,8 @@ func TestInitFullResolvesComprehensiveModelPolicy(t *testing.T) {
 
 func writeOTelRunConfig(t *testing.T, dir string) {
 	t.Helper()
-	body := `[team]
-pm_tool = "none"
+	body := `[pm]
+provider = "none"
 
 [otel]
 enabled = true
@@ -409,7 +408,7 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--runtime", "claude"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "kickoff message", "--runtime", "claude"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -497,7 +496,7 @@ func TestRun_ExecsClaudeWithExpectedArgs(t *testing.T) {
 	}
 }
 
-func TestRun_ExportsAuthorityAllowlistFromTopology(t *testing.T) {
+func TestRun_DoesNotExportAuthorityAllowlist(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
 
@@ -507,35 +506,16 @@ func TestRun_ExportsAuthorityAllowlistFromTopology(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "worker", "--target", tmp, "--name", "worker-squ-123", "--prompt", "kickoff message", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "worker", "--repo", tmp, "--name", "worker-squ-123", "--prompt", "kickoff message", "--no-daemon"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	want := "budget.status,channel.*,event.publish,feedback.*,inbox.*,job.events,job.gate.*:own,job.show,job.step:own,status.*"
-	if got := envValue(cap.env, runtimeshim.EnvAuthorityAllowlist); got != want {
-		t.Fatalf("%s = %q, want topology allowlist", runtimeshim.EnvAuthorityAllowlist, got)
-	}
-}
-
-func TestRun_ExportsVerifierAdvanceAuthorityAllowlistFromTopology(t *testing.T) {
-	tmp := t.TempDir()
-	initInto(t, tmp)
-
-	cap, restore := captureRun(t, nil)
-	defer restore()
-
-	cmd := NewRootCmd()
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "verifier", "--target", tmp, "--name", "verifier-squ-123-verify", "--prompt", "kickoff message", "--no-daemon"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-
-	want := "budget.status,channel.*,event.publish,feedback.*,inbox.*,job.events,job.gate.*:own,job.show,job.step:own,status.*"
-	if got := envValue(cap.env, runtimeshim.EnvAuthorityAllowlist); got != want {
-		t.Fatalf("%s = %q, want verifier advance allowlist", runtimeshim.EnvAuthorityAllowlist, got)
+	removedKey := "AGENT_TEAM_AUTHORITY_" + "ALLOWLIST"
+	for _, entry := range cap.env {
+		if strings.HasPrefix(entry, removedKey+"=") {
+			t.Fatalf("removed authority compatibility env exported: %q", entry)
+		}
 	}
 }
 
@@ -557,7 +537,7 @@ func TestRun_StagesTeamLevelSkills(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "kickoff message"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -576,7 +556,7 @@ func TestRun_MailboxHookOptOutSuppressesClaudeSettings(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--set", "runtime.hooks.mailbox_injection=false", "--no-daemon", "--runtime", "claude"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "kickoff message", "--set", "runtime.hooks.mailbox_injection=false", "--no-daemon", "--runtime", "claude"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -596,7 +576,7 @@ func TestRun_ClaudeOTelInjectionFromConfig(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "kickoff message", "--no-daemon", "--runtime", "claude"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "kickoff message", "--no-daemon", "--runtime", "claude"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -640,7 +620,7 @@ func TestRun_CodexOTelInjectionFromConfig(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "codex task", "--no-daemon"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -686,7 +666,7 @@ func TestRunPromptFileFromStdin(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt-file", "-", "--runtime", "claude"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt-file", "-", "--runtime", "claude"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run prompt file stdin: %v", err)
 	}
@@ -699,37 +679,6 @@ func TestRunPromptFileFromStdin(t *testing.T) {
 	}
 	if !foundPromptFlag {
 		t.Fatalf("-p prompt from stdin not forwarded: %v", cap.args)
-	}
-}
-
-func TestRun_RepoFlagOverridesTarget(t *testing.T) {
-	tmp := t.TempDir()
-	initInto(t, tmp)
-	badTarget := t.TempDir()
-
-	cap, restore := captureRun(t, nil)
-	defer restore()
-
-	cmd := NewRootCmd()
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"--repo", tmp, "run", "manager", "--target", badTarget, "--prompt", "kickoff message", "--no-daemon"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("run with --repo override: %v", err)
-	}
-
-	wantRoot := tmp
-	if eval, err := filepath.EvalSymlinks(wantRoot); err == nil {
-		wantRoot = eval
-	}
-	if cap.cwd != wantRoot {
-		t.Fatalf("cwd = %q, want repo root %q", cap.cwd, wantRoot)
-	}
-	if _, err := os.Stat(filepath.Join(tmp, ".agent_team", "state", "manager")); err != nil {
-		t.Fatalf("expected state in --repo target: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(badTarget, ".agent_team", "state", "manager")); !os.IsNotExist(err) {
-		t.Fatalf("unexpected state in legacy --target: %v", err)
 	}
 }
 
@@ -751,7 +700,7 @@ func TestRun_CodexRuntimeBuildsDirectExecArgs(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--no-daemon", "--", "--sandbox", "workspace-write"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "codex task", "--no-daemon", "--", "--sandbox", "workspace-write"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -842,7 +791,7 @@ agent = "manager"
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "codex task", "--no-daemon"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -876,7 +825,7 @@ agent = "manager"
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "claude task", "--runtime", "claude", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "claude task", "--runtime", "claude", "--no-daemon"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -915,7 +864,7 @@ agent = "manager"
 			cmd := NewRootCmd()
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})
-			cmd.SetArgs([]string{"run", "manager", "--name", name, "--target", tmp, "--prompt", "codex task", "--no-daemon"})
+			cmd.SetArgs([]string{"run", "manager", "--name", name, "--repo", tmp, "--prompt", "codex task", "--no-daemon"})
 			if err := cmd.Execute(); err != nil {
 				t.Fatalf("run: %v", err)
 			}
@@ -955,7 +904,7 @@ agent = "manager"
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "worker", "--name", "manager", "--target", tmp, "--prompt", "task", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "worker", "--name", "manager", "--repo", tmp, "--prompt", "task", "--no-daemon"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected declared instance agent mismatch to fail")
@@ -1000,7 +949,7 @@ effort = "max"
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "advisor", "--target", tmp, "--no-daemon"})
+	cmd.SetArgs([]string{"run", "advisor", "--repo", tmp, "--no-daemon"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -1037,7 +986,7 @@ effort = "max"
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "advisor", "--target", tmp, "--prompt", "codex task", "--runtime", "codex", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "advisor", "--repo", tmp, "--prompt", "codex task", "--runtime", "codex", "--no-daemon"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -1078,7 +1027,7 @@ func TestRun_CodexLastMessagePrintsCleanSidecar(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--last-message"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "codex task", "--last-message"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run last-message: %v\nstderr: %s", err, stderr.String())
 	}
@@ -1118,7 +1067,7 @@ func TestRun_CodexLastMessageCanUseRuntimeFlag(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"run", "manager",
-		"--target", tmp,
+		"--repo", tmp,
 		"--runtime", "codex",
 		"--runtime-bin", "codex-dev",
 		"--prompt", "codex task",
@@ -1153,7 +1102,7 @@ func TestRun_CodexLastMessageReplaysRawOutputOnFailure(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--last-message"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "codex task", "--last-message"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected runtime failure")
@@ -1182,7 +1131,7 @@ func TestRun_CodexLastMessageMissingSidecarFails(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--last-message"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "codex task", "--last-message"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected missing last-message sidecar to fail")
@@ -1209,7 +1158,7 @@ func TestRun_CodexRuntimeCanComeFromRepoConfig(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "codex task", "--no-daemon"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -1236,7 +1185,7 @@ func TestRun_RuntimeFlagOverridesEnvRuntimeAndBinary(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--runtime", "codex", "--prompt", "codex task", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--runtime", "codex", "--prompt", "codex task", "--no-daemon"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -1262,7 +1211,7 @@ func TestRun_RuntimeBinFlagOverridesSelectedRuntimeBinary(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"run", "manager",
-		"--target", tmp,
+		"--repo", tmp,
 		"--runtime", "codex",
 		"--runtime-bin", "codex-dev",
 		"--prompt", "codex task",
@@ -1293,7 +1242,7 @@ func TestRun_RuntimeBinFlagOverridesTopologyRuntimeBinary(t *testing.T) {
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
 		"run", "manager",
-		"--target", tmp,
+		"--repo", tmp,
 		"--runtime-bin", "codex-dev",
 		"--prompt", "codex task",
 		"--no-daemon",
@@ -1317,7 +1266,7 @@ func TestRun_InvalidRuntimeFlagExitsTwo(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--runtime", "bad-runtime", "--prompt", "hello", "--no-daemon"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--runtime", "bad-runtime", "--prompt", "hello", "--no-daemon"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected invalid runtime flag to fail")
@@ -1376,10 +1325,10 @@ func TestRun_CodexRuntimeRequiresPromptForDaemonDispatch(t *testing.T) {
 	initInto(t, tmp)
 
 	cases := [][]string{
-		{"run", "manager", "--target", tmp, "--detach"},
-		{"run", "manager", "--target", tmp, "--attach"},
-		{"run", "manager", "--target", tmp, "--json"},
-		{"run", "manager", "--target", tmp, "--format", "{{.Instance}}"},
+		{"run", "manager", "--repo", tmp, "--detach"},
+		{"run", "manager", "--repo", tmp, "--attach"},
+		{"run", "manager", "--repo", tmp, "--json"},
+		{"run", "manager", "--repo", tmp, "--format", "{{.Instance}}"},
 	}
 	for _, args := range cases {
 		cmd := NewRootCmd()
@@ -1510,7 +1459,7 @@ description = "Persistent Codex manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "codex task", "--detach", "--json"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "codex task", "--detach", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("codex run --detach --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -1592,7 +1541,7 @@ func TestRun_NamedInstanceUsesCustomStateDir(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "worker", "--target", tmp, "--name", "worker-squ-99"})
+	cmd.SetArgs([]string{"run", "worker", "--repo", tmp, "--name", "worker-squ-99"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -1610,7 +1559,7 @@ func TestRun_AgentNotFound(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"run", "nonexistent", "--target", tmp})
+	cmd.SetArgs([]string{"run", "nonexistent", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for unknown agent")
@@ -1634,7 +1583,7 @@ func TestRun_MissingTeamDir(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error when .agent_team/ missing")
@@ -1753,7 +1702,7 @@ func TestRunJSONRequiresRunningDaemon(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--prompt", "hello", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"run", "manager", "--prompt", "hello", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected --json without daemon to fail")
@@ -1857,7 +1806,7 @@ func TestRunLastMessageRequiresCodexRuntime(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--prompt", "hello", "--last-message"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--prompt", "hello", "--last-message"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected --last-message with claude runtime to fail")
@@ -1878,7 +1827,7 @@ func TestRunLastMessageRejectsForwardedOutputLastMessage(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"run", "manager",
-		"--target", tmp,
+		"--repo", tmp,
 		"--prompt", "hello",
 		"--last-message",
 		"--",
@@ -1901,7 +1850,7 @@ func TestRunFormatRequiresRunningDaemon(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--prompt", "hello", "--format", "{{.Instance}}", "--target", tmp})
+	cmd.SetArgs([]string{"run", "manager", "--prompt", "hello", "--format", "{{.Instance}}", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected --format without daemon to fail")
@@ -1952,7 +1901,7 @@ func TestRunAttachDispatchesThroughDaemonAndFollowsLog(t *testing.T) {
 	cmd.SetContext(ctx)
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--name", "manager-attach", "--target", tmp, "--runtime", "claude", "--attach", "--tail", "all"})
+	cmd.SetArgs([]string{"run", "manager", "--name", "manager-attach", "--repo", tmp, "--runtime", "claude", "--attach", "--tail", "all"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run --attach: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
 	}
@@ -2009,7 +1958,7 @@ description = "Persistent Claude manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--detach", "--json"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--detach", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run --detach --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2082,7 +2031,7 @@ description = "Persistent Claude manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--detach", "--json"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--detach", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run --detach --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2187,7 +2136,7 @@ func TestRunDetachLaunchesClaudeProcessWithPersistentPromptFile(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--detach", "--json", "--runtime", "claude", "--runtime-bin", fakeClaude})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--detach", "--json", "--runtime", "claude", "--runtime-bin", fakeClaude})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run --detach --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2288,7 +2237,7 @@ func TestRunDetachDaemonScratchLaunchRootCleansAfterReap(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "worker", "--name", "worker-ad-hoc", "--target", tmp, "--prompt", "scratch task", "--detach", "--json"})
+	cmd.SetArgs([]string{"run", "worker", "--name", "worker-ad-hoc", "--repo", tmp, "--prompt", "scratch task", "--detach", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run worker --detach --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2375,7 +2324,7 @@ func TestRunDetachDaemonScratchLaunchRootCleansWhenDispatchFails(t *testing.T) {
 	firstOut, firstErr := &bytes.Buffer{}, &bytes.Buffer{}
 	first.SetOut(firstOut)
 	first.SetErr(firstErr)
-	first.SetArgs([]string{"run", "worker", "--name", "worker-ad-hoc", "--target", tmp, "--prompt", "first task", "--detach", "--json"})
+	first.SetArgs([]string{"run", "worker", "--name", "worker-ad-hoc", "--repo", tmp, "--prompt", "first task", "--detach", "--json"})
 	if err := first.Execute(); err != nil {
 		t.Fatalf("first run worker --detach --json: %v\nstderr: %s", err, firstErr.String())
 	}
@@ -2397,7 +2346,7 @@ func TestRunDetachDaemonScratchLaunchRootCleansWhenDispatchFails(t *testing.T) {
 	second.SetOut(&bytes.Buffer{})
 	secondErr := &bytes.Buffer{}
 	second.SetErr(secondErr)
-	second.SetArgs([]string{"run", "worker", "--name", "worker-ad-hoc", "--target", tmp, "--prompt", "second task", "--detach", "--json"})
+	second.SetArgs([]string{"run", "worker", "--name", "worker-ad-hoc", "--repo", tmp, "--prompt", "second task", "--detach", "--json"})
 	if err := second.Execute(); err == nil {
 		t.Fatalf("second run succeeded, want already-running dispatch error")
 	} else if !strings.Contains(err.Error(), "already running") && !strings.Contains(secondErr.String(), "already running") {
@@ -2458,7 +2407,7 @@ func TestRunDetachAdHocPersistentPrefixUsesDaemonScratchLaunchRoot(t *testing.T)
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--name", "manager-ad-hoc", "--target", tmp, "--prompt", "scratch task", "--detach", "--json"})
+	cmd.SetArgs([]string{"run", "manager", "--name", "manager-ad-hoc", "--repo", tmp, "--prompt", "scratch task", "--detach", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run manager ad-hoc --detach --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2524,7 +2473,7 @@ func TestRunDetachFormatPrintsDispatchMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"run", "manager", "--name", "manager-format", "--target", tmp, "--runtime", "claude", "--detach", "--format", "{{.Instance}}:{{.Agent}}:{{.PID}}:{{.Follow}}"})
+	cmd.SetArgs([]string{"run", "manager", "--name", "manager-format", "--repo", tmp, "--runtime", "claude", "--detach", "--format", "{{.Instance}}:{{.Agent}}:{{.PID}}:{{.Follow}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run --detach --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2548,7 +2497,7 @@ func TestRun_WritesResolvedConfigToStateDir(t *testing.T) {
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
-		"run", "manager", "--target", tmp,
+		"run", "manager", "--repo", tmp,
 		"--set", "linear.team_id=run-override",
 		"--set", "linear.runtime_only=hello",
 	})
@@ -2593,7 +2542,7 @@ extra = "from-instance-file"
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
-		"run", "manager", "--target", tmp,
+		"run", "manager", "--repo", tmp,
 		"--instance-config", instCfg,
 		"--set", "linear.team_id=from-cli",
 	})
@@ -2631,7 +2580,7 @@ func TestRun_ReRendersTmplFiles(t *testing.T) {
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{
-		"run", "manager", "--target", tmp,
+		"run", "manager", "--repo", tmp,
 		"--set", "linear.team_id=fresh-from-set",
 	})
 	if err := cmd.Execute(); err != nil {
@@ -2657,7 +2606,7 @@ func TestRun_NoTmplFilesProducesNoRenderDir(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -2719,7 +2668,7 @@ func TestRun_ForwardedArgsAfterDoubleDash(t *testing.T) {
 	cmd := NewRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"run", "manager", "--target", tmp, "--", "--dangerously-skip-permissions"})
+	cmd.SetArgs([]string{"run", "manager", "--repo", tmp, "--", "--dangerously-skip-permissions"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("run: %v", err)
 	}

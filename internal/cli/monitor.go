@@ -56,7 +56,6 @@ func newMonitorCmd() *cobra.Command {
 		eventActions     []string
 		strictTopology   bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "monitor",
 		Short: "Show a combined health, recovery, inbox, instance, and resource snapshot.",
@@ -197,7 +196,7 @@ func newMonitorCmd() *cobra.Command {
 			}
 			if summary {
 				if commands {
-					scope := operatorCommandScopeFromCommand(cmd, target, "target")
+					scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 					return runMonitorSummaryCommands(cmd.OutOrStdout(), teamDir, time.Now(), opts, monitorCommandOptions{
 						Scope: scope,
 						Plan: planCommandOptions{
@@ -223,7 +222,7 @@ func newMonitorCmd() *cobra.Command {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(snapshot)
 			}
 			if commands {
-				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 				return renderMonitorCommands(cmd.OutOrStdout(), snapshot, monitorCommandOptions{
 					Scope: scope,
 					Plan: planCommandOptions{
@@ -245,7 +244,6 @@ func newMonitorCmd() *cobra.Command {
 			return renderMonitor(cmd.OutOrStdout(), snapshot)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Include stopped, exited, and crashed daemon-managed instances in the stats section.")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the monitor snapshot until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")

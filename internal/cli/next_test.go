@@ -20,7 +20,7 @@ func TestNextCommandReportsRecommendedActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--limit", "2", "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--limit", "2", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -55,7 +55,7 @@ func TestNextCommandCanScopeToTeam(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--team", "delivery"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--team", "delivery"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next team text: %v\nstderr=%s", err, stderr.String())
 	}
@@ -137,7 +137,7 @@ func TestNextCommandDetailsTextIncludesSourceAndReason(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--source", "queue", "--reason", "queue_dead_letter", "--details"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--source", "queue", "--reason", "queue_dead_letter", "--details"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next details text: %v\nstderr=%s", err, stderr.String())
 	}
@@ -173,7 +173,7 @@ func TestNextCommandCommandsPrintsOnlyActions(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--source", "queue", "--reason", "queue_dead_letter", "--sort", "command", "--commands"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--source", "queue", "--reason", "queue_dead_letter", "--sort", "command", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -209,7 +209,7 @@ func TestNextCommandFormat(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--limit", "1", "--format", "{{.State}}|{{.HiddenActions}}|{{index .Actions 0}}|{{(index .ActionDetails 0).Source}}"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--limit", "1", "--format", "{{.State}}|{{.HiddenActions}}|{{index .Actions 0}}|{{(index .ActionDetails 0).Source}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next format: %v\nstderr=%s", err, stderr.String())
 	}
@@ -226,7 +226,7 @@ func TestNextCommandSortsActionsBeforeLimit(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--sort", "command", "--limit", "1", "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--sort", "command", "--limit", "1", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next sort command json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -278,7 +278,7 @@ func TestNextCommandFiltersBySourceAndReason(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--source", "queue", "--reason", "queue_dead_letter", "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--source", "queue", "--reason", "queue_dead_letter", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next filtered json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -303,7 +303,7 @@ func TestNextCommandFiltersBySourceAndReason(t *testing.T) {
 	prefixOut, prefixErr := &bytes.Buffer{}, &bytes.Buffer{}
 	reasonPrefix.SetOut(prefixOut)
 	reasonPrefix.SetErr(prefixErr)
-	reasonPrefix.SetArgs([]string{"next", "--target", root, "--source", "schedules", "--reason", "due", "--json"})
+	reasonPrefix.SetArgs([]string{"next", "--repo", root, "--source", "schedules", "--reason", "due", "--json"})
 	if err := reasonPrefix.Execute(); err != nil {
 		t.Fatalf("next reason prefix json: %v\nstderr=%s", err, prefixErr.String())
 	}
@@ -319,7 +319,7 @@ func TestNextCommandFiltersBySourceAndReason(t *testing.T) {
 	overviewSourceOut, overviewSourceErr := &bytes.Buffer{}, &bytes.Buffer{}
 	overviewSource.SetOut(overviewSourceOut)
 	overviewSource.SetErr(overviewSourceErr)
-	overviewSource.SetArgs([]string{"next", "--target", root, "--source", "overview", "--reason", "drainable_work", "--json"})
+	overviewSource.SetArgs([]string{"next", "--repo", root, "--source", "overview", "--reason", "drainable_work", "--json"})
 	if err := overviewSource.Execute(); err != nil {
 		t.Fatalf("next overview source json: %v\nstderr=%s", err, overviewSourceErr.String())
 	}
@@ -336,7 +336,7 @@ func TestNextCommandFiltersBySourceAndReason(t *testing.T) {
 	staleOut, staleErr := &bytes.Buffer{}, &bytes.Buffer{}
 	stale.SetOut(staleOut)
 	stale.SetErr(staleErr)
-	stale.SetArgs([]string{"next", "--target", staleRoot, "--source", "jobs", "--reason", "stale_running", "--json"})
+	stale.SetArgs([]string{"next", "--repo", staleRoot, "--source", "jobs", "--reason", "stale_running", "--json"})
 	if err := stale.Execute(); err != nil {
 		t.Fatalf("next stale-running json: %v\nstderr=%s", err, staleErr.String())
 	}
@@ -396,7 +396,7 @@ func TestNextCommandFiltersRuntimeSource(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--source", "runtime", "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--source", "runtime", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next runtime filtered json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -415,7 +415,7 @@ func TestNextCommandFiltersRuntimeSource(t *testing.T) {
 	lastMessageOut, lastMessageErr := &bytes.Buffer{}, &bytes.Buffer{}
 	lastMessage.SetOut(lastMessageOut)
 	lastMessage.SetErr(lastMessageErr)
-	lastMessage.SetArgs([]string{"next", "--target", root, "--source", "runtime", "--last-message", "--json"})
+	lastMessage.SetArgs([]string{"next", "--repo", root, "--source", "runtime", "--last-message", "--json"})
 	if err := lastMessage.Execute(); err != nil {
 		t.Fatalf("next runtime last-message json: %v\nstderr=%s", err, lastMessageErr.String())
 	}
@@ -434,7 +434,7 @@ func TestNextCommandFiltersRuntimeSource(t *testing.T) {
 	fallbacksOut, fallbacksErr := &bytes.Buffer{}, &bytes.Buffer{}
 	fallbacks.SetOut(fallbacksOut)
 	fallbacks.SetErr(fallbacksErr)
-	fallbacks.SetArgs([]string{"next", "--target", root, "--source", "runtime", "--fallbacks", "--commands"})
+	fallbacks.SetArgs([]string{"next", "--repo", root, "--source", "runtime", "--fallbacks", "--commands"})
 	if err := fallbacks.Execute(); err != nil {
 		t.Fatalf("next runtime fallbacks commands: %v\nstderr=%s", err, fallbacksErr.String())
 	}
@@ -516,7 +516,7 @@ func TestNextCommandFiltersStaleRuntimeSource(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--source", "runtime", "--reason", "stale", "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--source", "runtime", "--reason", "stale", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next stale runtime filtered json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -663,7 +663,7 @@ func TestNextCommandReportsIntakeReplayAction(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next intake json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -690,7 +690,7 @@ func TestNextCommandReportsBatchCleanupAction(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next cleanup json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -711,7 +711,7 @@ func TestNextCommandReportsQueueDoctorAction(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next queue doctor json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -732,7 +732,7 @@ func TestNextCommandReportsQueueQuarantineAction(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next queue quarantine json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -749,7 +749,7 @@ func TestNextCommandReportsQueueQuarantineAction(t *testing.T) {
 	aliasOut, aliasErr := &bytes.Buffer{}, &bytes.Buffer{}
 	alias.SetOut(aliasOut)
 	alias.SetErr(aliasErr)
-	alias.SetArgs([]string{"next", "--target", root, "--reason", "queue_quarantined", "--json"})
+	alias.SetArgs([]string{"next", "--repo", root, "--reason", "queue_quarantined", "--json"})
 	if err := alias.Execute(); err != nil {
 		t.Fatalf("next queue quarantine alias json: %v\nstderr=%s", err, aliasErr.String())
 	}
@@ -782,7 +782,7 @@ func TestNextCommandReportsQueueQuarantineAction(t *testing.T) {
 	outboxAliasOut, outboxAliasErr := &bytes.Buffer{}, &bytes.Buffer{}
 	outboxAlias.SetOut(outboxAliasOut)
 	outboxAlias.SetErr(outboxAliasErr)
-	outboxAlias.SetArgs([]string{"next", "--target", root, "--reason", "outbox_quarantined", "--json"})
+	outboxAlias.SetArgs([]string{"next", "--repo", root, "--reason", "outbox_quarantined", "--json"})
 	if err := outboxAlias.Execute(); err != nil {
 		t.Fatalf("next outbox quarantine alias on queue fixture: %v\nstderr=%s", err, outboxAliasErr.String())
 	}
@@ -802,7 +802,7 @@ func TestNextCommandReportsJobQuarantineAction(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"next", "--target", root, "--reason", "job_quarantined", "--json"})
+	cmd.SetArgs([]string{"next", "--repo", root, "--reason", "job_quarantined", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("next job quarantine alias json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -837,7 +837,7 @@ func TestNextCommandReportsJobQuarantineAction(t *testing.T) {
 	broadOut, broadErr := &bytes.Buffer{}, &bytes.Buffer{}
 	broad.SetOut(broadOut)
 	broad.SetErr(broadErr)
-	broad.SetArgs([]string{"next", "--target", root, "--reason", "quarantined", "--json"})
+	broad.SetArgs([]string{"next", "--repo", root, "--reason", "quarantined", "--json"})
 	if err := broad.Execute(); err != nil {
 		t.Fatalf("next broad quarantine alias json: %v\nstderr=%s", err, broadErr.String())
 	}

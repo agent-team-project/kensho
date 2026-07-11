@@ -11,16 +11,15 @@ import (
 // invocation to its canonical dotted verb path using Cobra's own command tree.
 //
 // The shim MUST NOT maintain its own copy of the command tree — that copy
-// drifts from reality (positional args, leaf verbs, aliases) and every drift is
+// drifts from reality (positional args and leaf verbs) and every drift is
 // a wrongly-denied command. Instead the shim asks the real binary: this command
-// runs Cobra's Find() over the same root the CLI dispatches from, so aliases
-// (ls -> ps, top -> stats), nested subcommands, and positional arguments all
-// resolve exactly as a real invocation would. Unknown commands exit non-zero.
+// runs Cobra's Find() over the same root the CLI dispatches from, so nested
+// subcommands and positional arguments resolve exactly as a real invocation
+// would. Unknown commands exit non-zero.
 //
 // Output: the canonical verb path with segments joined by '.', e.g.
 //
 //	agent-team job merge squ-1   -> "job.merge"
-//	agent-team ls                -> "ps"
 //	agent-team run worker        -> "run"
 func newResolveVerbCmd() *cobra.Command {
 	return &cobra.Command{
@@ -58,10 +57,10 @@ func resolveVerbPath(root *cobra.Command, args []string) (string, bool) {
 		if a == "--" {
 			continue
 		}
-		if strings.HasPrefix(a, "--repo=") || strings.HasPrefix(a, "--target=") {
+		if strings.HasPrefix(a, "--repo=") {
 			continue
 		}
-		if a == "--repo" || a == "--target" {
+		if a == "--repo" {
 			skipValue = true
 			continue
 		}

@@ -34,7 +34,7 @@ func TestInstanceLs_Empty(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"instance", "ls", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "ls", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance ls: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestInstanceLs_ListsCreatedDirs(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"instance", "ls", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "ls", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance ls: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestInstanceShow_PrintsFiles(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"instance", "show", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "show", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance show: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestInspectAlias_PrintsFiles(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"inspect", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"inspect", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestInspectUsesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"inspect", "adhoc", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"inspect", "adhoc", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -292,7 +292,7 @@ since = "2026-06-17T12:00:00Z"
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"inspect", "manager", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"inspect", "manager", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect --json: %v", err)
 	}
@@ -335,7 +335,7 @@ description = "Waiting"
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"inspect", "manager", "--format", "{{.Instance}}:{{.State.Path}}:{{.Status.Phase}}:{{.Topology.Agent}}", "--target", tmp})
+	cmd.SetArgs([]string{"inspect", "manager", "--format", "{{.Instance}}:{{.State.Path}}:{{.Status.Phase}}:{{.Topology.Agent}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect --format: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestInspectJSONMultipleEmitsArray(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"inspect", "manager", "worker-1", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"inspect", "manager", "worker-1", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect multiple --json: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestInspectAllJSONUsesVisibleInstances(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"inspect", "--all", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"inspect", "--all", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect --all --json: %v", err)
 	}
@@ -446,7 +446,7 @@ func TestInspectLatestJSONUsesNewestVisibleInstance(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"inspect", "--latest", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"inspect", "--latest", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect --latest: %v\nstderr=%s", err, stderr.String())
 	}
@@ -479,7 +479,7 @@ func TestInspectLastJSONUsesNewestVisibleInstances(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"inspect", "--last", "2", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"inspect", "--last", "2", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect --last 2: %v\nstderr=%s", err, stderr.String())
 	}
@@ -512,7 +512,7 @@ func TestInspectLatestHonorsFilters(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"inspect", "--latest", "--status", "running", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"inspect", "--latest", "--status", "running", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect --latest --status: %v\nstderr=%s", err, stderr.String())
 	}
@@ -551,7 +551,7 @@ description = "Blocked"
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"inspect", "--agent", "manager", "--phase", "idle", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"inspect", "--agent", "manager", "--phase", "idle", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect filtered --json: %v", err)
 	}
@@ -586,7 +586,7 @@ func TestInspectRuntimeFilterUsesVisibleInstances(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"inspect", "--runtime", "codex", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"inspect", "--runtime", "codex", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect --runtime --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -633,7 +633,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"inspect", "--unhealthy", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"inspect", "--unhealthy", "--repo", tmp, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("inspect --unhealthy --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -796,7 +796,7 @@ func TestInstanceShow_NotFound(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"instance", "show", "ghost", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "show", "ghost", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for missing instance")
@@ -1336,7 +1336,7 @@ description = "Persistent manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err == nil || err.Error() != "exit 1" {
 		t.Fatalf("instance up --fresh running err = %v, want exit 1\nstderr=%s", err, stderr.String())
 	}
@@ -1387,7 +1387,7 @@ func TestInstanceUpLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "up", "--last", "2", "--status", "stopped", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "up", "--last", "2", "--status", "stopped", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance up --last dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1403,7 +1403,7 @@ func TestInstanceUpLastDryRunSelectsNewestStoppedMetadata(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"instance", "up", "--last", "2", "--status", "stopped", "--dry-run", "--commands", "--target", tmp})
+	commands.SetArgs([]string{"instance", "up", "--last", "2", "--status", "stopped", "--dry-run", "--commands", "--repo", tmp})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("instance up --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -1459,7 +1459,7 @@ description = "Persistent manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--dry-run", "--commands", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--dry-run", "--commands", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance up --fresh --dry-run --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1480,7 +1480,7 @@ description = "Persistent manager."
 	startOut, startErr := &bytes.Buffer{}, &bytes.Buffer{}
 	start.SetOut(startOut)
 	start.SetErr(startErr)
-	start.SetArgs([]string{"start", "manager", "--fresh", "--dry-run", "--commands", "--target", tmp})
+	start.SetArgs([]string{"start", "manager", "--fresh", "--dry-run", "--commands", "--repo", tmp})
 	if err := start.Execute(); err != nil {
 		t.Fatalf("start --fresh --dry-run --commands: %v\nstderr=%s", err, startErr.String())
 	}
@@ -1522,7 +1522,7 @@ description = "Persistent manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--force", "--dry-run", "--commands", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--force", "--dry-run", "--commands", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance up --fresh --force --dry-run --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1544,7 +1544,7 @@ description = "Persistent manager."
 	startOut, startErr := &bytes.Buffer{}, &bytes.Buffer{}
 	start.SetOut(startOut)
 	start.SetErr(startErr)
-	start.SetArgs([]string{"start", "manager", "--fresh", "--force", "--dry-run", "--commands", "--target", tmp})
+	start.SetArgs([]string{"start", "manager", "--fresh", "--force", "--dry-run", "--commands", "--repo", tmp})
 	if err := start.Execute(); err != nil {
 		t.Fatalf("start --fresh --force --dry-run --commands: %v\nstderr=%s", err, startErr.String())
 	}
@@ -1607,7 +1607,7 @@ description = "Persistent Claude manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "up", "manager", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "up", "manager", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance up manager --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1677,7 +1677,7 @@ description = "Persistent Codex manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "up", "manager", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "up", "manager", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance up manager --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1748,7 +1748,7 @@ description = "Persistent manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance up --fresh --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1907,7 +1907,7 @@ description = "Persistent claude manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "up", "manager", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "up", "manager", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance up manager: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2016,7 +2016,7 @@ description = "Persistent claude manager."
 	}
 
 	mgr := daemon.NewInstanceManager(root, nil) // nil spawner = real child process
-	if err := daemon.Reconcile(root, mgr); err != nil {
+	if err := daemon.ReconcileWithTopology(teamDir, mgr, nil); err != nil {
 		t.Fatalf("reconcile wedged metadata: %v", err)
 	}
 	cleanup := startRunTestDaemon(t, teamDir, mgr)
@@ -2031,7 +2031,7 @@ description = "Persistent claude manager."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "up", "manager", "--fresh", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance up manager --fresh: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2162,7 +2162,7 @@ func TestInstanceUpWaitJSONHonorsAgentFilterHealth(t *testing.T) {
 		"--wait",
 		"--timeout", "50ms",
 		"--json",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance up --agent manager --wait --json: %v\nstdout=%s\nstderr=%s", err, out.String(), stderr.String())
@@ -2203,7 +2203,7 @@ func TestInstanceDownLastDryRunSelectsNewestRunningMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "down", "--last", "2", "--status", "running", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "down", "--last", "2", "--status", "running", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance down --last dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2219,7 +2219,7 @@ func TestInstanceDownLastDryRunSelectsNewestRunningMetadata(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"instance", "down", "--last", "2", "--status", "running", "--dry-run", "--commands", "--rm", "--timeout", "10s", "--target", tmp})
+	commands.SetArgs([]string{"instance", "down", "--last", "2", "--status", "running", "--dry-run", "--commands", "--rm", "--timeout", "10s", "--repo", tmp})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("instance down --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -2317,7 +2317,7 @@ func TestInstanceRm_Force(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"instance", "rm", "ephemeral", "--target", tmp, "--force"})
+	cmd.SetArgs([]string{"instance", "rm", "ephemeral", "--repo", tmp, "--force"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance rm --force: %v", err)
 	}
@@ -2345,7 +2345,7 @@ func TestInstanceRmRefusesSoleOwnerSkillWithoutForce(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "rm", "ticket-manager", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "rm", "ticket-manager", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected instance rm to refuse orphaning sole-skill")
@@ -2376,7 +2376,7 @@ func TestInstanceRmDoesNotWarnForTeamLevelSkill(t *testing.T) {
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
 	cmd.SetIn(bytes.NewBufferString("\n")) // normal non-force confirmation path
-	cmd.SetArgs([]string{"instance", "rm", "ticket-manager", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "rm", "ticket-manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance rm: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2402,7 +2402,7 @@ func TestRmTopLevel_Force(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"rm", "ephemeral", "--target", tmp, "--force"})
+	cmd.SetArgs([]string{"rm", "ephemeral", "--repo", tmp, "--force"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --force: %v", err)
 	}
@@ -2426,7 +2426,7 @@ func TestRmTopLevelDryRunCommands(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "ephemeral", "--target", tmp, "--force", "--dry-run", "--commands"})
+	cmd.SetArgs([]string{"rm", "ephemeral", "--repo", tmp, "--force", "--dry-run", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --dry-run --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2463,7 +2463,7 @@ func TestInstanceRmDryRunCommands(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "rm", "ephemeral", "--target", tmp, "--force", "--dry-run", "--commands"})
+	cmd.SetArgs([]string{"instance", "rm", "ephemeral", "--repo", tmp, "--force", "--dry-run", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance rm --dry-run --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2491,7 +2491,7 @@ func TestInstanceRmDryRunCommands(t *testing.T) {
 	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noAction.SetOut(noActionOut)
 	noAction.SetErr(noActionErr)
-	noAction.SetArgs([]string{"instance", "rm", "--all", "--target", tmp, "--runtime", "codex", "--dry-run", "--commands"})
+	noAction.SetArgs([]string{"instance", "rm", "--all", "--repo", tmp, "--runtime", "codex", "--dry-run", "--commands"})
 	if err := noAction.Execute(); err != nil {
 		t.Fatalf("instance rm --dry-run --commands no action: %v\nstderr=%s", err, noActionErr.String())
 	}
@@ -2511,7 +2511,7 @@ func TestRmTopLevelJSONForce(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"rm", "ephemeral", "--target", tmp, "--force", "--json"})
+	cmd.SetArgs([]string{"rm", "ephemeral", "--repo", tmp, "--force", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --json --force: %v", err)
 	}
@@ -2538,7 +2538,7 @@ func TestRmTopLevelFormatForce(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"rm", "ephemeral", "--target", tmp, "--force", "--format", "{{.Instance}}:{{.Removed}}:{{.StateRemoved}}:{{.Path}}"})
+	cmd.SetArgs([]string{"rm", "ephemeral", "--repo", tmp, "--force", "--format", "{{.Instance}}:{{.Removed}}:{{.StateRemoved}}:{{.Path}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --format --force: %v", err)
 	}
@@ -2574,7 +2574,7 @@ func TestRmDryRunFormatDoesNotRemoveStateOrMetadata(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs([]string{
 		"rm", "ephemeral",
-		"--target", tmp,
+		"--repo", tmp,
 		"--dry-run",
 		"--format", "{{.Instance}}:{{.Action}}:{{.DryRun}}:{{.StateRemoved}}:{{.DaemonRemoved}}:{{.Removed}}:{{.Path}}",
 	})
@@ -2615,7 +2615,7 @@ func TestRmLastDryRunSelectsNewestLocalMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--last", "2", "--status", "stopped", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--last", "2", "--status", "stopped", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --last --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2656,7 +2656,7 @@ func TestInstanceRmLatestDryRunSelectsNewestMatchingAgent(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "rm", "--latest", "--agent", "manager", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "rm", "--latest", "--agent", "manager", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance rm --latest --agent --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2680,7 +2680,7 @@ func TestRmTopLevelQuietForceSuppressesOutput(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "ephemeral", "--target", tmp, "--force", "--quiet"})
+	cmd.SetArgs([]string{"rm", "ephemeral", "--repo", tmp, "--force", "--quiet"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --force --quiet: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2731,7 +2731,7 @@ func TestRmAllForceJSONRemovesMatchingAgent(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--all", "--agent", "manager", "--force", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--all", "--agent", "manager", "--force", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --all --agent --force --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2786,8 +2786,8 @@ func TestRmRuntimeDryRunJSONUsesLocalMetadata(t *testing.T) {
 	}
 
 	for _, args := range [][]string{
-		{"rm", "--runtime", "codex", "--dry-run", "--json", "--target", tmp},
-		{"instance", "rm", "--runtime", "codex", "--dry-run", "--json", "--target", tmp},
+		{"rm", "--runtime", "codex", "--dry-run", "--json", "--repo", tmp},
+		{"instance", "rm", "--runtime", "codex", "--dry-run", "--json", "--repo", tmp},
 	} {
 		cmd := NewRootCmd()
 		out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -2824,7 +2824,7 @@ func TestRmRuntimeDryRunJSONUsesLocalMetadata(t *testing.T) {
 	bad.SetOut(&bytes.Buffer{})
 	var badErr bytes.Buffer
 	bad.SetErr(&badErr)
-	bad.SetArgs([]string{"rm", "--runtime", "llama", "--dry-run", "--target", tmp})
+	bad.SetArgs([]string{"rm", "--runtime", "llama", "--dry-run", "--repo", tmp})
 	if err := bad.Execute(); err == nil {
 		t.Fatal("rm accepted unknown runtime")
 	}
@@ -2854,7 +2854,7 @@ func TestRmSummaryJSONDryRun(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--all", "--dry-run", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--all", "--dry-run", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --summary --json --dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -2894,7 +2894,7 @@ func TestInstanceRmSummaryTextSuppressesRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "rm", "--all", "--dry-run", "--summary", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "rm", "--all", "--dry-run", "--summary", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance rm --summary --dry-run: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3011,7 +3011,7 @@ func TestPruneQuietSuppressesOutput(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--quiet", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--quiet", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --quiet: %v\nstderr: %s", err, stderr.String())
 	}
@@ -3059,7 +3059,7 @@ func TestPruneFormatPrintsRemovalRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--format", "{{.Instance}}:{{.Path}}", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--format", "{{.Instance}}:{{.Path}}", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -3097,7 +3097,7 @@ func TestPruneDryRunJSONDoesNotRemoveFinished(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --dry-run --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3151,7 +3151,7 @@ func TestPruneOlderThanDryRunJSONOnlyMatchesOldFinished(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--dry-run", "--json", "--older-than", "24h", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--dry-run", "--json", "--older-than", "24h", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --older-than dry-run json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3208,7 +3208,7 @@ func TestPruneUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3248,7 +3248,7 @@ func TestPruneSummaryJSONUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --summary --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3294,7 +3294,7 @@ func TestPrunePhaseUsesLocalStatusWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--phase", "done", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--phase", "done", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --phase done local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3349,7 +3349,7 @@ func TestPruneStatusNarrowsFinishedInstances(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--status", "crashed", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--status", "crashed", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --status crashed: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3403,7 +3403,7 @@ func TestPruneRuntimeNarrowsFinishedInstances(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--runtime", "codex", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--runtime", "codex", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --runtime codex: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3432,7 +3432,7 @@ func TestPruneRuntimeNarrowsFinishedInstances(t *testing.T) {
 	commandsOut, commandsErr := &bytes.Buffer{}, &bytes.Buffer{}
 	commands.SetOut(commandsOut)
 	commands.SetErr(commandsErr)
-	commands.SetArgs([]string{"prune", "--runtime", "codex", "--status", "crashed", "--dry-run", "--commands", "--target", tmp})
+	commands.SetArgs([]string{"prune", "--runtime", "codex", "--status", "crashed", "--dry-run", "--commands", "--repo", tmp})
 	if err := commands.Execute(); err != nil {
 		t.Fatalf("prune --dry-run --commands: %v\nstderr=%s", err, commandsErr.String())
 	}
@@ -3462,7 +3462,7 @@ func TestPruneDryRunCommandsNoActionIsSilent(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--target", tmp, "--dry-run", "--commands"})
+	cmd.SetArgs([]string{"prune", "--repo", tmp, "--dry-run", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --dry-run --commands no action: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3571,7 +3571,7 @@ func TestPruneStaleNarrowsFinishedInstances(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--stale", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--stale", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --stale: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3624,7 +3624,7 @@ func TestPruneUnhealthyNarrowsFinishedInstances(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--unhealthy", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--unhealthy", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --unhealthy: %v\nstderr=%s", err, stderr.String())
 	}
@@ -3810,7 +3810,7 @@ func TestPruneRuntimeStaleNarrowsDeadRecordedPIDs(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"prune", "--runtime-stale", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"prune", "--runtime-stale", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("prune --runtime-stale: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4145,7 +4145,7 @@ func TestRmFinishedNoLocalMetadataNoops(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--finished", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--finished", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --finished: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4161,7 +4161,7 @@ func TestRmAllNoLocalMetadataNoops(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--all", "--force", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--all", "--force", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --all: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4191,7 +4191,7 @@ func TestRmStatusUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--status", "stopped", "--force", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--status", "stopped", "--force", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --status stopped local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4237,7 +4237,7 @@ func TestRmPhaseUsesLocalStatusWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--phase", "done", "--force", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--phase", "done", "--force", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --phase done local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4296,7 +4296,7 @@ func TestRmStaleUsesLocalStatusWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--stale", "--agent", "manager", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--stale", "--agent", "manager", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --stale --agent manager dry-run json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4352,7 +4352,7 @@ func TestRmUnhealthyUsesLocalStatusWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--unhealthy", "--agent", "manager", "--dry-run", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--unhealthy", "--agent", "manager", "--dry-run", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("rm --unhealthy --agent manager dry-run json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -4395,7 +4395,7 @@ func TestRmLocalMetadataRefusesLiveRunningPID(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"rm", "--all", "--force", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"rm", "--all", "--force", "--json", "--repo", tmp})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("expected live running local metadata removal to fail")
@@ -4418,7 +4418,7 @@ func TestInstanceRm_AbortedWithoutConfirm(t *testing.T) {
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetIn(bytes.NewBufferString("\n")) // empty answer → abort
-	cmd.SetArgs([]string{"instance", "rm", "keep", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "rm", "keep", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance rm: %v", err)
 	}

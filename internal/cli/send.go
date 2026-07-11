@@ -37,7 +37,6 @@ func newSendCmd() *cobra.Command {
 		staleOnly     bool
 		runtimeStale  bool
 		unhealthyOnly bool
-		allowMissing  bool
 		interrupt     bool
 		force         bool
 		dryRun        bool
@@ -45,7 +44,6 @@ func newSendCmd() *cobra.Command {
 		jsonOut       bool
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "send [<instance>] <message...>",
 		Short: "Send a mailbox message to a daemon-managed instance.",
@@ -100,7 +98,6 @@ func newSendCmd() *cobra.Command {
 				Stale:          staleOnly,
 				RuntimeStale:   runtimeStale,
 				Unhealthy:      unhealthyOnly,
-				AllowMissing:   allowMissing,
 				Interrupt:      interrupt,
 				Force:          force,
 				DryRun:         dryRun,
@@ -142,9 +139,6 @@ func newSendCmd() *cobra.Command {
 				return fmt.Errorf("load topology: %w", err)
 			}
 			opts.Topology = topo
-			if allowMissing {
-				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: --allow-missing is deprecated and no longer changes recipient validation; declared instances queue automatically.")
-			}
 			client, err := sendClientForTeamDir(teamDir)
 			if err != nil {
 				return err
@@ -162,7 +156,7 @@ func newSendCmd() *cobra.Command {
 				opts.StaleByInstance = staleInstanceSet(teamDir, time.Now())
 			}
 			if commands {
-				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 				if opts.selectingSet() {
 					targets, err := selectSendTargets(client, opts)
 					if err != nil {
@@ -223,7 +217,6 @@ func newSendCmd() *cobra.Command {
 					MessageFile:    messageFile,
 					MessageFileSet: cmd.Flags().Changed("message-file"),
 					Positional:     args[1:],
-					AllowMissing:   allowMissing,
 					Interrupt:      interrupt,
 					Force:          force,
 				})
@@ -234,7 +227,6 @@ func newSendCmd() *cobra.Command {
 			return runSendWithClient(cmd.OutOrStdout(), cmd.ErrOrStderr(), client, to, body, opts)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the message.")
 	cmd.Flags().StringVar(&replyTo, "reply-to", "", "Durable instance mailbox the recipient should use for replies.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
@@ -249,7 +241,6 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&staleOnly, "stale", false, "Send to daemon-known instances whose status.toml is stale.")
 	cmd.Flags().BoolVar(&runtimeStale, "runtime-stale", false, "Send to daemon-known running instances whose recorded runtime PID is no longer live.")
 	cmd.Flags().BoolVar(&unhealthyOnly, "unhealthy", false, "Send to daemon-known instances that are crashed, status-stale, or runtime-stale.")
-	cmd.Flags().BoolVar(&allowMissing, "allow-missing", false, "Deprecated no-op; declared instances queue automatically.")
 	cmd.Flags().BoolVar(&interrupt, "interrupt", false, "Deliver the message, gracefully stop the instance, and managed-resume the same captured session.")
 	cmd.Flags().BoolVar(&force, "force", false, "With --interrupt, allow fresh fallback when no captured session can be resumed.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching recipients without appending mailbox messages.")
@@ -337,7 +328,6 @@ type sendOptions struct {
 	RuntimeStale    bool
 	Unhealthy       bool
 	StaleByInstance map[string]bool
-	AllowMissing    bool
 	Interrupt       bool
 	Force           bool
 	DryRun          bool
@@ -646,7 +636,6 @@ type scopedSendApplyCommandOptions struct {
 	Stale          bool
 	RuntimeStale   bool
 	Unhealthy      bool
-	AllowMissing   bool
 	Interrupt      bool
 	Force          bool
 }
@@ -719,9 +708,6 @@ func scopedSendApplyCommandArgs(opts scopedSendApplyCommandOptions) []string {
 	}
 	if opts.Unhealthy {
 		args = append(args, "--unhealthy")
-	}
-	if opts.AllowMissing {
-		args = append(args, "--allow-missing")
 	}
 	if opts.Interrupt {
 		args = append(args, "--interrupt")

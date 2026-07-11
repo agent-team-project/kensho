@@ -43,11 +43,9 @@ func newStatsCmd() *cobra.Command {
 		runtimeStaleOnly bool
 		unhealthyOnly    bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "stats [<instance>...]",
-		Aliases: []string{"top"},
-		Short:   "Show CPU and memory usage for daemon-managed instances.",
+		Use:   "stats [<instance>...]",
+		Short: "Show CPU and memory usage for daemon-managed instances.",
 		Long: "Show a one-shot or watchable resource snapshot for daemon-managed instances. " +
 			"With no names, only running instances are shown. Use --all to include stopped, exited, and crashed instances.",
 		Args: cobra.ArbitraryArgs,
@@ -147,7 +145,6 @@ func newStatsCmd() *cobra.Command {
 			return runStats(cmd.OutOrStdout(), lister, args, opts, time.Now(), readProcessStats)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Include stopped, exited, and crashed daemon-managed instances.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Show stats for the most recently started instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Show stats for the N most recently started instances after other filters (0 = all).")

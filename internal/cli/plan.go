@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -31,7 +30,6 @@ func newPlanCmd() *cobra.Command {
 		commands        bool
 		format          string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Preview desired agent instance state from topology and daemon metadata.",
@@ -85,7 +83,7 @@ func newPlanCmd() *cobra.Command {
 			result.Instances = filterPlanRowsWithActions(result.Instances, opts, actions)
 			result.Summary = summarizePlanRows(result.Instances)
 			if commands {
-				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 				return renderPlanCommands(cmd.OutOrStdout(), result.Instances, planCommandOptions{
 					BaseArgs:        []string{"agent-team", "sync"},
 					TargetFlag:      "--repo",
@@ -120,7 +118,6 @@ func newPlanCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show aggregate action counts instead of per-instance rows.")
 	cmd.Flags().BoolVar(&stopExtras, "stop-extras", false, "Preview running topology extras as stop actions, matching sync --stop-extras.")

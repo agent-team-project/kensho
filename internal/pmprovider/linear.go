@@ -65,9 +65,6 @@ type config struct {
 	PM struct {
 		Provider string `toml:"provider"`
 	} `toml:"pm"`
-	Team struct {
-		PMTool string `toml:"pm_tool"`
-	} `toml:"team"`
 	Linear struct {
 		TeamID          string   `toml:"team_id"`
 		TicketPrefix    string   `toml:"ticket_prefix"`
@@ -282,7 +279,7 @@ func loadConfig(teamDir string) (config, string, error) {
 		}
 		return cfg, "", err
 	}
-	if ConfiguredProviderName(cfg.PM.Provider, cfg.Team.PMTool) != ProviderLinear {
+	if NormalizeProviderName(cfg.PM.Provider) != ProviderLinear {
 		return cfg, "Linear not configured for this repo", nil
 	}
 	if strings.TrimSpace(cfg.Linear.TeamID) == "" {

@@ -153,49 +153,10 @@ func TestRepoScopedCommandMissingRepoErrorTeachesResolutionOptions(t *testing.T)
 	if err == nil {
 		t.Fatalf("job show outside repo unexpectedly succeeded")
 	}
-	for _, want := range []string{"--repo/--target", ".agent_team", "cwd ancestors", "AGENT_TEAM_ROOT"} {
+	for _, want := range []string{"--repo <repo>", ".agent_team", "cwd ancestors", "AGENT_TEAM_ROOT"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, stderr)
 		}
-	}
-}
-
-func TestRootTargetAliasSelectsRepoForRepoScopedCommands(t *testing.T) {
-	root := t.TempDir()
-	initInto(t, root)
-
-	for _, tc := range []struct {
-		name string
-		args []string
-		want []string
-	}{
-		{
-			name: "pipeline doctor",
-			args: []string{"pipeline", "doctor", "--target", root, "--all", "--json"},
-			want: []string{`"ok":true`, `"ticket_to_pr"`},
-		},
-		{
-			name: "team doctor",
-			args: []string{"team", "doctor", "--target", root, "--all", "--json"},
-			want: []string{`"ok":true`},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cmd := NewRootCmd()
-			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-			cmd.SetOut(out)
-			cmd.SetErr(stderr)
-			cmd.SetArgs(tc.args)
-			if err := cmd.Execute(); err != nil {
-				t.Fatalf("%s with local --target repo alias: %v\nstderr=%s", tc.name, err, stderr.String())
-			}
-			body := out.String()
-			for _, want := range tc.want {
-				if !strings.Contains(body, want) {
-					t.Fatalf("%s output missing %q\nbody:\n%s", tc.name, want, body)
-				}
-			}
-		})
 	}
 }
 
@@ -209,49 +170,7 @@ func runRootResolverCommand(args ...string) (string, string, error) {
 	return out.String(), stderr.String(), err
 }
 
-func TestRootRepoFlagWinsOverDoctorTargetAlias(t *testing.T) {
-	root := t.TempDir()
-	initInto(t, root)
-	notARepo := t.TempDir()
-
-	for _, tc := range []struct {
-		name string
-		args []string
-	}{
-		{
-			name: "pipeline repo before target",
-			args: []string{"pipeline", "doctor", "--repo", root, "--target", notARepo, "--all", "--json"},
-		},
-		{
-			name: "pipeline target before repo",
-			args: []string{"pipeline", "doctor", "--target", notARepo, "--repo", root, "--all", "--json"},
-		},
-		{
-			name: "team repo before target",
-			args: []string{"team", "doctor", "--repo", root, "--target", notARepo, "--all", "--json"},
-		},
-		{
-			name: "team target before repo",
-			args: []string{"team", "doctor", "--target", notARepo, "--repo", root, "--all", "--json"},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cmd := NewRootCmd()
-			out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
-			cmd.SetOut(out)
-			cmd.SetErr(stderr)
-			cmd.SetArgs(tc.args)
-			if err := cmd.Execute(); err != nil {
-				t.Fatalf("%s with both repo selectors: %v\nstderr=%s", tc.name, err, stderr.String())
-			}
-			if !strings.Contains(out.String(), `"ok":true`) {
-				t.Fatalf("%s output missing ok=true\nbody:\n%s", tc.name, out.String())
-			}
-		})
-	}
-}
-
-func TestRootTargetAliasCommandsEmitRepoScope(t *testing.T) {
+func TestRootRepoCommandsEmitRepoScope(t *testing.T) {
 	root := t.TempDir()
 	initInto(t, root)
 	teamDir := filepath.Join(root, ".agent_team")
@@ -276,7 +195,7 @@ runtime_bin = "missing-agent-team-test-runtime"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"pipeline", "doctor", "--target", root, "--strict-runtime", "--commands"})
+	cmd.SetArgs([]string{"pipeline", "doctor", "--repo", root, "--strict-runtime", "--commands"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatalf("pipeline doctor strict runtime unexpectedly succeeded")
 	}
@@ -295,7 +214,7 @@ runtime_bin = "missing-agent-team-test-runtime"
 	aliasOut, aliasErr := &bytes.Buffer{}, &bytes.Buffer{}
 	alias.SetOut(aliasOut)
 	alias.SetErr(aliasErr)
-	alias.SetArgs([]string{"pipeline", "doctor", "--target", root, "--strict", "--commands"})
+	alias.SetArgs([]string{"pipeline", "doctor", "--repo", root, "--strict", "--commands"})
 	if err := alias.Execute(); err == nil {
 		t.Fatalf("pipeline doctor strict alias unexpectedly succeeded")
 	}
@@ -340,12 +259,12 @@ func TestPluralTopLevelAliasesDispatch(t *testing.T) {
 		name string
 		args []string
 	}{
-		{name: "agents", args: []string{"--repo", root, "agents", "ls", "--json"}},
-		{name: "jobs", args: []string{"--repo", root, "jobs", "ls", "--json"}},
-		{name: "pipelines", args: []string{"--repo", root, "pipelines", "ls", "--json"}},
-		{name: "queues", args: []string{"--repo", root, "queues", "ls", "--summary", "--json"}},
-		{name: "schedules", args: []string{"--repo", root, "schedules", "ls", "--json"}},
-		{name: "teams", args: []string{"--repo", root, "teams", "ls", "--json"}},
+		{name: "agent", args: []string{"--repo", root, "agent", "ls", "--json"}},
+		{name: "job", args: []string{"--repo", root, "job", "ls", "--json"}},
+		{name: "pipeline", args: []string{"--repo", root, "pipeline", "ls", "--json"}},
+		{name: "queue", args: []string{"--repo", root, "queue", "ls", "--summary", "--json"}},
+		{name: "schedule", args: []string{"--repo", root, "schedule", "ls", "--json"}},
+		{name: "team", args: []string{"--repo", root, "team", "ls", "--json"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := NewRootCmd()
@@ -527,16 +446,16 @@ target = "worker"
 	}
 }
 
-func TestRepoHelpDistinguishesLegacyTargetFromAgentTarget(t *testing.T) {
+func TestRepoHelpDistinguishesGlobalRepoFromAgentTarget(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		args []string
 		want []string
 	}{
 		{
-			name: "legacy repo target",
+			name: "global repo selector",
 			args: []string{"dispatch", "--help"},
-			want: []string{"--repo string", "Repo root containing .agent_team for commands that read repo state", "--target string", legacyRepoTargetFlagHelp},
+			want: []string{"--repo string", "Repo root containing .agent_team for commands that read repo state"},
 		},
 		{
 			name: "job target agent",

@@ -26,10 +26,9 @@ import (
 
 func newPipelineCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "pipeline",
-		Aliases: []string{"pipelines"},
-		Short:   "Inspect declared pipeline workflows.",
-		Long:    "Inspect pipeline declarations loaded from .agent_team/instances.toml.",
+		Use:   "pipeline",
+		Short: "Inspect declared pipeline workflows.",
+		Long:  "Inspect pipeline declarations loaded from .agent_team/instances.toml.",
 	}
 	cmd.AddCommand(newPipelineLsCmd())
 	cmd.AddCommand(newPipelineShowCmd())
@@ -120,10 +119,9 @@ func newPipelineShowCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "show <pipeline>",
-		Aliases: []string{"inspect"},
-		Short:   "Show one declared pipeline.",
-		Args:    cobra.ExactArgs(1),
+		Use:   "show <pipeline>",
+		Short: "Show one declared pipeline.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline show: --format cannot be combined with --json.")
@@ -214,7 +212,6 @@ func newPipelineGraphCmd() *cobra.Command {
 func newPipelineDoctorCmd() *cobra.Command {
 	var (
 		repo          string
-		targetRepo    string
 		all           bool
 		strict        bool
 		strictRuntime bool
@@ -269,13 +266,7 @@ func newPipelineDoctorCmd() *cobra.Command {
 				strictRuntime = true
 			}
 			strictActionFlag := scopedDoctorStrictActionFlag(strict, strictRuntime)
-			selectedRepo := repo
-			repoFlag := "repo"
-			if cmd.Flags().Changed("target") && !cmd.Flags().Changed("repo") {
-				selectedRepo = targetRepo
-				repoFlag = "target"
-			}
-			teamDir, err := resolveTeamDir(cmd, selectedRepo)
+			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
@@ -287,11 +278,10 @@ func newPipelineDoctorCmd() *cobra.Command {
 			if strictRuntime {
 				promotePipelineDoctorRuntimeWarnings(result)
 			}
-			return renderPipelineDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, commands, strictRuntime, strictActionFlag, tmpl, operatorCommandScopeFromCommand(cmd, selectedRepo, repoFlag))
+			return renderPipelineDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, commands, strictRuntime, strictActionFlag, tmpl, operatorCommandScopeFromCommand(cmd, repo, rootRepoFlagName))
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
-	cmd.Flags().StringVar(&targetRepo, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Validate all pipelines. This is the default when no pipeline is passed.")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Fail on all strict pipeline doctor checks. Currently aliases --strict-runtime.")
 	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when a step-declared or target-agent runtime default cannot be resolved or is not discoverable.")
@@ -745,14 +735,10 @@ func newPipelineStatusCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "status [<pipeline>|--all]",
-		Aliases: []string{"watch"},
-		Short:   "Summarize pipeline jobs and next steps.",
-		Args:    cobra.ArbitraryArgs,
+		Use:   "status [<pipeline>|--all]",
+		Short: "Summarize pipeline jobs and next steps.",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.CalledAs() == "watch" {
-				watch = true
-			}
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline status: --format cannot be combined with --json.")
 				return exitErr(2)
@@ -3528,9 +3514,8 @@ func newPipelineRuntimeLsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ls [<pipeline>|--all]",
-		Aliases: []string{"list", "ps"},
-		Short:   "List daemon runtime metadata owned by pipeline jobs.",
+		Use:   "ls [<pipeline>|--all]",
+		Short: "List daemon runtime metadata owned by pipeline jobs.",
 		Long: "List daemon-known runtime metadata owned by jobs in one declared pipeline. " +
 			"Omit the pipeline or pass --all to inspect every pipeline-owned job while excluding ad hoc instances.",
 		Args: cobra.ArbitraryArgs,
@@ -4049,9 +4034,8 @@ func newPipelineStatsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "stats [<pipeline>|--all]",
-		Aliases: []string{"top"},
-		Short:   "Show CPU and memory usage for pipeline-owned instances.",
+		Use:   "stats [<pipeline>|--all]",
+		Short: "Show CPU and memory usage for pipeline-owned instances.",
 		Long: "Show a one-shot or watchable resource snapshot for daemon-known instances owned by durable jobs in one declared pipeline. " +
 			"Omit the pipeline or pass --all to inspect every pipeline-owned job. With no filters, only running pipeline-owned instances are shown; use --status or --unhealthy to include inactive rows.",
 		Args: cobra.ArbitraryArgs,
@@ -5432,9 +5416,8 @@ func newPipelineHoldCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "hold <pipeline>|--all [reason...]",
-		Aliases: []string{"pause"},
-		Short:   "Hold pipeline jobs so automation will not advance them.",
+		Use:   "hold <pipeline>|--all [reason...]",
+		Short: "Hold pipeline jobs so automation will not advance them.",
 		Long: "Hold jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status. " +
 			"Held jobs report next-step state held until released.",
 		Args: cobra.ArbitraryArgs,
@@ -5566,11 +5549,10 @@ func newPipelineReleaseCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "release <pipeline>|--all [message...]",
-		Aliases: []string{"resume", "unpause"},
-		Short:   "Release held pipeline jobs so automation can advance them.",
-		Long:    "Release held jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status.",
-		Args:    cobra.ArbitraryArgs,
+		Use:   "release <pipeline>|--all [message...]",
+		Short: "Release held pipeline jobs so automation can advance them.",
+		Long:  "Release held jobs in one pipeline, or all pipelines with --all, without changing their lifecycle status.",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team pipeline release: --format cannot be combined with --json.")

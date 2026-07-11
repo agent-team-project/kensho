@@ -54,11 +54,9 @@ func newPsCmd() *cobra.Command {
 		instanceFilters  []string
 		teamFilter       string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ps",
-		Aliases: []string{"ls"},
-		Short:   "List instances (daemon-aware: merges live daemon state with on-disk status).",
+		Use:   "ps",
+		Short: "List instances (daemon-aware: merges live daemon state with on-disk status).",
 		Long: "Daemon-aware single-source view of instances. With the daemon " +
 			"running, lifecycle status (running/stopped/exited/crashed) comes " +
 			"from /v1/instances; phase / summary come from each instance's " +
@@ -152,7 +150,6 @@ func newPsCmd() *cobra.Command {
 			return runPsWatchFiltered(ctx, cmd.OutOrStdout(), teamDir, interval, time.Now, jsonOut, opts, clear)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Refresh the process table until interrupted.")
 	cmd.Flags().BoolVar(&noClear, "no-clear", false, "With --watch, append snapshots instead of redrawing the terminal.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON. With --watch, writes one JSON array per refresh.")

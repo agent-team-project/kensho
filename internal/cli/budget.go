@@ -36,7 +36,6 @@ func newBudgetStatusCmd() *cobra.Command {
 		self    bool
 		jsonOut bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show spend and in-flight counts for configured team budgets.",
@@ -56,7 +55,7 @@ func newBudgetStatusCmd() *cobra.Command {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team budget status: --self requires AGENT_TEAM_JOB_ID.")
 					return exitErr(2)
 				}
-				if root := strings.TrimSpace(os.Getenv("AGENT_TEAM_ROOT")); root != "" && !cmd.Flags().Changed("target") {
+				if root := strings.TrimSpace(os.Getenv("AGENT_TEAM_ROOT")); root != "" && !cmd.Flags().Changed(rootRepoFlagName) {
 					teamDir = root
 				}
 			}
@@ -91,7 +90,6 @@ func newBudgetStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&team, "team", "", "Show only one team budget.")
 	cmd.Flags().StringVar(&jobID, "job", "", "Show one job's soft allowance status.")
 	cmd.Flags().BoolVar(&self, "self", false, "Show the current runtime job's soft allowance status from AGENT_TEAM_JOB_ID.")

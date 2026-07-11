@@ -30,7 +30,6 @@ func newRuntimeCmd() *cobra.Command {
 		runtimeKind   string
 		runtimeBinary string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "runtime",
 		Short: "Inspect the selected LLM runtime profile.",
@@ -41,7 +40,6 @@ func newRuntimeCmd() *cobra.Command {
 			return runRuntimeProfileCommand(cmd, "agent-team runtime", target, runtimeKind, runtimeBinary, jsonOut, format)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to inspect for this invocation (claude, codex, or docker). Overrides env and repo config.")
@@ -66,11 +64,9 @@ func newRuntimeSetCmd() *cobra.Command {
 		jsonOut       bool
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "set <runtime>",
-		Aliases: []string{"configure", "use"},
-		Short:   "Set the repo default runtime profile.",
+		Use:   "set <runtime>",
+		Short: "Set the repo default runtime profile.",
 		Long: "Set the repo default LLM runtime profile in .agent_team/config.toml. " +
 			"Command flags and AGENT_TEAM_RUNTIME / AGENT_TEAM_RUNTIME_BIN still override this repo default at runtime.",
 		Args: cobra.ExactArgs(1),
@@ -132,7 +128,6 @@ func newRuntimeSetCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().StringVar(&runtimeBinary, "runtime-bin", "", "Runtime binary or wrapper to store. Defaults to the runtime's built-in binary.")
 	cmd.Flags().StringVar(&runtimeBinary, "binary", "", "Alias for --runtime-bin.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the config change without writing.")
@@ -150,11 +145,9 @@ func newRuntimeUnsetCmd() *cobra.Command {
 		jsonOut  bool
 		format   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "unset",
-		Aliases: []string{"reset", "clear"},
-		Short:   "Remove the repo default runtime profile.",
+		Use:   "unset",
+		Short: "Remove the repo default runtime profile.",
 		Long: "Remove [runtime].kind, [runtime].binary, and [runtime].bin from .agent_team/config.toml " +
 			"so the repo falls back to environment variables or built-in runtime defaults.",
 		Args: cobra.NoArgs,
@@ -206,7 +199,6 @@ func newRuntimeUnsetCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the config change without writing.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "With --dry-run, print the apply command. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
@@ -222,11 +214,9 @@ func newRuntimeProfileCmd() *cobra.Command {
 		runtimeKind   string
 		runtimeBinary string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "profile",
-		Aliases: []string{"show"},
-		Short:   "Show the selected runtime profile.",
+		Use:   "profile",
+		Short: "Show the selected runtime profile.",
 		Long: "Show the selected LLM runtime profile, binary resolution, and whether " +
 			"the runtime supports direct runs, daemon dispatch, direct resume, managed resume, and native subagents.",
 		Args: cobra.NoArgs,
@@ -234,7 +224,6 @@ func newRuntimeProfileCmd() *cobra.Command {
 			return runRuntimeProfileCommand(cmd, "agent-team runtime profile", target, runtimeKind, runtimeBinary, jsonOut, format)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render runtime info with a Go template, e.g. '{{.Runtime}} {{.Available}}'.")
 	cmd.Flags().StringVar(&runtimeKind, "runtime", "", "Runtime profile to inspect for this invocation (claude, codex, or docker). Overrides env and repo config.")
@@ -357,11 +346,9 @@ func newRuntimeLsCmd() *cobra.Command {
 		commands bool
 		format   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ls",
-		Aliases: []string{"list"},
-		Short:   "List supported runtime profiles.",
+		Use:   "ls",
+		Short: "List supported runtime profiles.",
 		Long: "List supported runtime profiles, binary resolution, availability, and runtime capabilities. " +
 			"The selected row is the profile the current environment or repo config would use by default.",
 		Args: cobra.NoArgs,
@@ -392,7 +379,7 @@ func newRuntimeLsCmd() *cobra.Command {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(rows)
 			}
 			if commands {
-				return renderRuntimeListCommands(cmd.OutOrStdout(), rows, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderRuntimeListCommands(cmd.OutOrStdout(), rows, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			if tmpl != nil {
 				return renderRuntimeListFormat(cmd.OutOrStdout(), rows, tmpl)
@@ -401,7 +388,6 @@ func newRuntimeLsCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root or any path under a repo.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print runtime probe commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render each runtime row with a Go template, e.g. '{{.Runtime}} {{.Available}}'.")
@@ -410,10 +396,9 @@ func newRuntimeLsCmd() *cobra.Command {
 
 func newRuntimeMetadataCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "metadata",
-		Aliases: []string{"meta"},
-		Short:   "Inspect persisted daemon runtime metadata.",
-		Long:    "Inspect raw daemon runtime metadata persisted under .agent_team/daemon without adding declared-but-not-started placeholders.",
+		Use:   "metadata",
+		Short: "Inspect persisted daemon runtime metadata.",
+		Long:  "Inspect raw daemon runtime metadata persisted under .agent_team/daemon without adding declared-but-not-started placeholders.",
 	}
 	cmd.AddCommand(newRuntimeMetadataLsCmd())
 	cmd.AddCommand(newRuntimeMetadataShowCmd())
@@ -437,13 +422,11 @@ func newRuntimeMetadataLsCmd() *cobra.Command {
 		jsonOut          bool
 		format           string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ls [<instance>...]",
-		Aliases: []string{"list", "ps"},
-		Short:   "List persisted daemon runtime metadata.",
-		Long:    "List raw daemon runtime metadata persisted for this repo without adding declared-but-not-started placeholders.",
-		Args:    cobra.ArbitraryArgs,
+		Use:   "ls [<instance>...]",
+		Short: "List persisted daemon runtime metadata.",
+		Long:  "List raw daemon runtime metadata persisted for this repo without adding declared-but-not-started placeholders.",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && (jsonOut || summary || format != "") {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime metadata ls: --commands cannot be combined with --json, --summary, or --format.")
@@ -522,7 +505,6 @@ func newRuntimeMetadataLsCmd() *cobra.Command {
 			return renderTeamRuntimeRows(cmd.OutOrStdout(), rows)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root containing .agent_team (legacy; prefer global --repo).")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only show metadata with this status: running, stopped, exited, crashed, or unknown. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only show metadata for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&agentFilters, "agent", nil, "Only show metadata for this agent. Can repeat or comma-separate.")
@@ -546,13 +528,11 @@ func newRuntimeMetadataShowCmd() *cobra.Command {
 		jsonOut  bool
 		format   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "show <instance>",
-		Aliases: []string{"inspect", "get"},
-		Short:   "Show one persisted daemon runtime metadata record.",
-		Long:    "Show one raw daemon runtime metadata record persisted for this repo, enriching job ownership fields from durable job files when possible.",
-		Args:    cobra.ExactArgs(1),
+		Use:   "show <instance>",
+		Short: "Show one persisted daemon runtime metadata record.",
+		Long:  "Show one raw daemon runtime metadata record persisted for this repo, enriching job ownership fields from durable job files when possible.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if commands && (jsonOut || format != "") {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team runtime metadata show: --commands cannot be combined with --json or --format.")
@@ -597,7 +577,6 @@ func newRuntimeMetadataShowCmd() *cobra.Command {
 			return renderRuntimeMetadataShow(cmd.OutOrStdout(), row)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, "Repo root containing .agent_team (legacy; prefer global --repo).")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print follow-up inspect, logs, resume-plan, and job show commands. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit runtime metadata as JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the runtime metadata row with a Go template, e.g. '{{.Instance}} {{.Runtime}} {{.Status}}'.")
@@ -1210,7 +1189,7 @@ func appendRuntimeRepoArgs(args []string, repoFlag, repo string, repoSet bool) [
 	}
 	flag := strings.TrimSpace(repoFlag)
 	if flag == "" {
-		flag = "target"
+		flag = rootRepoFlagName
 	}
 	return append(args, "--"+flag, repo)
 }
@@ -1222,7 +1201,7 @@ func runtimeCommandRepoSet(cmd *cobra.Command) bool {
 	if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
 		return true
 	}
-	return cmd.Flags().Changed("target")
+	return cmd.Flags().Changed(rootRepoFlagName)
 }
 
 func runtimeCommandRepoFlag(cmd *cobra.Command) string {

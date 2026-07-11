@@ -53,7 +53,7 @@ func TestRuntimeProbeDoctorAlias(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "doctor", "--target", tmp, "--runtime", "codex", "--runtime-bin", "sh", "--skip-doctor", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--runtime", "codex", "--runtime-bin", "sh", "--skip-doctor", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime doctor alias: %v\nstderr=%s", err, stderr.String())
 	}
@@ -178,7 +178,7 @@ func TestRuntimeProbeCodexDoctorFailureJSON(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("runtime probe succeeded, want exit 1")
@@ -279,7 +279,7 @@ func TestRuntimeProbeSkipDoctorWarningsDoNotFail(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime probe warning-only failed: %v\nstderr=%s", err, stderr.String())
 	}
@@ -311,7 +311,7 @@ func TestRuntimeProbeCommands(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--commands"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime probe commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -351,7 +351,7 @@ func TestRuntimeProbeMissingTeamUsesSharedResolverError(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--runtime", "codex", "--skip-doctor", "--commands"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--runtime", "codex", "--skip-doctor", "--commands"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("runtime probe commands succeeded, want missing-team failure")
@@ -363,7 +363,7 @@ func TestRuntimeProbeMissingTeamUsesSharedResolverError(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("runtime probe missing-team commands stdout = %q, want empty", out.String())
 	}
-	for _, want := range []string{"--repo/--target", ".agent_team", "cwd ancestors", "AGENT_TEAM_ROOT"} {
+	for _, want := range []string{"--repo <repo>", ".agent_team", "cwd ancestors", "AGENT_TEAM_ROOT"} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("runtime probe missing-team stderr missing %q:\n%s", want, stderr.String())
 		}
@@ -510,7 +510,7 @@ func TestRuntimeProbeFormat(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--format", "{{.OK}} {{.Runtime.Runtime}} {{len .Issues}}"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--format", "{{.OK}} {{.Runtime.Runtime}} {{len .Issues}}"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime probe format: %v\nstderr=%s", err, stderr.String())
 	}
@@ -588,7 +588,7 @@ func TestRuntimeProbeRequireDaemonFailsWhenStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--require-daemon", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--require-daemon", "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("runtime probe succeeded, want daemon-required failure")
@@ -626,7 +626,7 @@ func TestRuntimeProbeWaitDaemonTimesOut(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--require-daemon", "--wait-daemon", "--timeout", "1ms", "--daemon-interval", "1ms", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--require-daemon", "--wait-daemon", "--timeout", "1ms", "--daemon-interval", "1ms", "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("runtime probe wait daemon succeeded, want timeout failure")
@@ -683,7 +683,7 @@ func TestRuntimeProbeStartDaemon(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--start-daemon", "--require-daemon", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--start-daemon", "--require-daemon", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime probe start daemon failed: %v\nstderr=%s", err, stderr.String())
 	}
@@ -719,7 +719,7 @@ func TestRuntimeProbeStartDaemonFailure(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--start-daemon", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--start-daemon", "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("runtime probe start daemon succeeded, want failure")
@@ -789,7 +789,7 @@ func TestRuntimeProbeOutputWritesDiagnosticFile(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--output", outPath})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--output", outPath})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime probe output failed: %v\nstderr=%s", err, stderr.String())
 	}
@@ -878,7 +878,7 @@ func TestRuntimeProbeCodexExecProbeSuccess(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--exec", "--exec-prompt-file", execPromptFile, "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--exec", "--exec-prompt-file", execPromptFile, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime probe exec failed: %v\nstderr=%s", err, stderr.String())
 	}
@@ -967,7 +967,7 @@ func TestRuntimeProbeCodexExecSocketCheckSuccess(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--start-daemon", "--exec-socket-check", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--start-daemon", "--exec-socket-check", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime probe exec socket check failed: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1043,7 +1043,7 @@ func TestRuntimeProbeCodexExecHTTPCheckSuccess(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--start-daemon", "--daemon-http-addr", "127.0.0.1:0", "--exec-http-check", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--start-daemon", "--daemon-http-addr", "127.0.0.1:0", "--exec-http-check", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime probe exec HTTP check failed: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1126,7 +1126,7 @@ func TestRuntimeProbeCodexDaemonCheckShortcut(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--codex-daemon-check", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--codex-daemon-check", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("runtime probe codex daemon check: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1168,7 +1168,7 @@ func TestRuntimeProbeCodexExecHTTPCheckRequiresHTTPURL(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--start-daemon", "--exec-http-check", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--start-daemon", "--exec-http-check", "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("runtime probe HTTP check succeeded unexpectedly")
@@ -1228,7 +1228,7 @@ func TestRuntimeProbeCodexExecSocketCheckFailure(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--start-daemon", "--exec-socket-check", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--start-daemon", "--exec-socket-check", "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("runtime probe socket check succeeded unexpectedly")
@@ -1292,7 +1292,7 @@ func TestRuntimeProbeCodexExecSocketCheckPermissionFailure(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--start-daemon", "--exec-socket-check", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--start-daemon", "--exec-socket-check", "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("runtime probe socket check succeeded unexpectedly")
@@ -1328,7 +1328,7 @@ func TestRuntimeProbeCodexExecProbeFailure(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--skip-doctor", "--exec", "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--skip-doctor", "--exec", "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("runtime probe exec succeeded, want exit 1")
@@ -1465,7 +1465,7 @@ func TestRuntimeProbeMissingBinaryFails(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"runtime", "probe", "--target", tmp, "--json"})
+	cmd.SetArgs([]string{"runtime", "probe", "--repo", tmp, "--json"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatalf("runtime probe missing binary succeeded")

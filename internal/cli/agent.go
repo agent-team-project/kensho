@@ -27,10 +27,9 @@ type agentInfo struct {
 
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "agent",
-		Aliases: []string{"agents"},
-		Short:   "List and inspect runnable agent definitions.",
-		Long:    "List and inspect runnable agent definitions loaded from .agent_team/agents.",
+		Use:   "agent",
+		Short: "List and inspect runnable agent definitions.",
+		Long:  "List and inspect runnable agent definitions loaded from .agent_team/agents.",
 	}
 	cmd.AddCommand(newAgentLsCmd())
 	cmd.AddCommand(newAgentShowCmd())

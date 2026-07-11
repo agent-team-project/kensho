@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"text/template"
 
@@ -18,7 +17,6 @@ func newReloadCmd() *cobra.Command {
 		jsonOut bool
 		format  string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "reload",
 		Short: "Reload daemon topology and reconcile runtime metadata.",
@@ -38,7 +36,6 @@ func newReloadCmd() *cobra.Command {
 			return runReload(cmd, target, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render reload result with a Go template, e.g. '{{len .Topology.Instances}} {{.Reconcile.Changed}}'.")
 	return cmd

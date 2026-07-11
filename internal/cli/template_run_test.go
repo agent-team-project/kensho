@@ -376,7 +376,7 @@ func TestTemplateRun_NoInputTicketlessSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read repo config: %v", err)
 	}
-	if !strings.Contains(string(repoCfg), `pm_tool = "none"`) {
+	if !strings.Contains(string(repoCfg), `provider = "none"`) {
 		t.Fatalf("ticketless template run config = %s", repoCfg)
 	}
 }
@@ -393,7 +393,7 @@ func TestTemplateRun_LinearNoInputFailsListingMissing(t *testing.T) {
 	cmd.SetArgs([]string{
 		"template", "run", "bundled", "manager",
 		"--target", target,
-		"--set", "team.pm_tool=linear",
+		"--set", "pm.provider=linear",
 		"--no-input",
 	})
 	err := cmd.Execute()

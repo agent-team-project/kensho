@@ -124,7 +124,7 @@ func TestValidate_ConditionalRequiredFields(t *testing.T) {
 				Key:               "linear.team_id",
 				Type:              TypeString,
 				Default:           "",
-				RequiredWhenKey:   "team.pm_tool",
+				RequiredWhenKey:   "pm.provider",
 				RequiredWhenValue: "linear",
 			},
 		},
@@ -136,7 +136,7 @@ func TestValidate_ConditionalRequiredFields(t *testing.T) {
 	badPair := &Manifest{
 		Template: Header{Name: "x", Version: "0.0.1"},
 		Parameters: []Parameter{
-			{Key: "linear.team_id", Type: TypeString, RequiredWhenKey: "team.pm_tool"},
+			{Key: "linear.team_id", Type: TypeString, RequiredWhenKey: "pm.provider"},
 		},
 	}
 	if err := badPair.Validate(); err == nil || !strings.Contains(err.Error(), "must be set together") {
@@ -146,7 +146,7 @@ func TestValidate_ConditionalRequiredFields(t *testing.T) {
 	badRequired := &Manifest{
 		Template: Header{Name: "x", Version: "0.0.1"},
 		Parameters: []Parameter{
-			{Key: "linear.team_id", Type: TypeString, Required: true, RequiredWhenKey: "team.pm_tool", RequiredWhenValue: "linear"},
+			{Key: "linear.team_id", Type: TypeString, Required: true, RequiredWhenKey: "pm.provider", RequiredWhenValue: "linear"},
 		},
 	}
 	if err := badRequired.Validate(); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
@@ -165,13 +165,6 @@ func TestBundledManifestPMProvidersAreConditional(t *testing.T) {
 	}
 	if pm.Default != "none" || pm.Pattern != "^(none|linear|github)$" {
 		t.Fatalf("pm.provider defaults = default:%v pattern:%q", pm.Default, pm.Pattern)
-	}
-	alias := m.FindParameter("team.pm_tool")
-	if alias == nil {
-		t.Fatal("bundled manifest missing team.pm_tool alias")
-	}
-	if alias.Default != "none" || alias.Pattern != "^(none|linear|github)$" {
-		t.Fatalf("team.pm_tool alias defaults = default:%v pattern:%q", alias.Default, alias.Pattern)
 	}
 	for _, tc := range []struct {
 		key      string
@@ -195,6 +188,24 @@ func TestBundledManifestPMProvidersAreConditional(t *testing.T) {
 		}
 		if p.Default != "" {
 			t.Fatalf("%s default = %#v, want empty string", key, p.Default)
+		}
+	}
+}
+
+func TestBundledAuditorIncludesMetricsFreeCompatCruftDimension(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "template", "agents", "auditor", "agent.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, want := range []string{"Compat cruft", "wrapper-only functions", "dual config paths", "superseded flags"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("auditor prompt missing compat-cruft instruction %q", want)
+		}
+	}
+	for _, forbidden := range []string{"productivity score", "filing quota", "target score"} {
+		if strings.Contains(strings.ToLower(text), forbidden) {
+			t.Fatalf("auditor prompt contains forbidden productivity target %q", forbidden)
 		}
 	}
 }

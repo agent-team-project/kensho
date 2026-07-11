@@ -29,7 +29,7 @@ description = "Owns delivery."
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "brief", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "brief", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance brief: %v\nstderr=%s", err, stderr.String())
 	}
@@ -143,7 +143,7 @@ pr = "https://github.example/pr/1"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"instance", "brief", "manager", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "brief", "manager", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance brief --json: %v\nstderr=%s", err, stderr.String())
 	}

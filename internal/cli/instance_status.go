@@ -220,7 +220,6 @@ func formatAge(d time.Duration) string {
 
 func newInstancePsCmd() *cobra.Command {
 	var target string
-	cwd, _ := os.Getwd()
 	c := &cobra.Command{
 		Use:   "ps",
 		Short: "List instances with their current status (Docker-ps style).",
@@ -237,7 +236,6 @@ func newInstancePsCmd() *cobra.Command {
 			return runInstancePs(cmd.OutOrStdout(), teamDir, time.Now())
 		},
 	}
-	c.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	return c
 }
 

@@ -55,7 +55,6 @@ func newDaemonStartCmd() *cobra.Command {
 		jsonOut      bool
 		format       string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "Boot agent-teamd in this repo (detached by default; foreground with --detach=false).",
@@ -106,7 +105,6 @@ func newDaemonStartCmd() *cobra.Command {
 			return runDaemonStartWithJSON(cmd, target, detach, readyTimeout, normalizedHTTPAddr, jsonOut, quiet)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&detach, "detach", true, "Background the daemon (writes log to .agent_team/daemon/agent-teamd.log).")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for detached daemon readiness (0 = no timeout).")
 	cmd.Flags().StringVar(&httpAddr, "http-addr", "", "Expose the daemon API on this loopback HTTP address, e.g. 127.0.0.1:0. Empty uses the default ephemeral loopback port.")
@@ -124,7 +122,6 @@ func newDaemonStopCmd() *cobra.Command {
 		jsonOut bool
 		format  string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "stop",
 		Short: "Gracefully stop the running agent-teamd (SIGTERM, then SIGKILL after timeout).",
@@ -156,7 +153,6 @@ func newDaemonStopCmd() *cobra.Command {
 			return runDaemonStopWithTimeoutJSON(cmd, target, timeout, jsonOut, quiet)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Second, "Grace period before SIGKILL escalation (0 = force immediately).")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use only the exit code.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
@@ -175,7 +171,6 @@ func newDaemonRestartCmd() *cobra.Command {
 		jsonOut      bool
 		format       string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "restart",
 		Short: "Restart agent-teamd, reconciling existing instance metadata on boot.",
@@ -232,7 +227,6 @@ func newDaemonRestartCmd() *cobra.Command {
 			return runDaemonRestartWithJSON(cmd, target, detach, timeout, readyTimeout, normalizedHTTPAddr, httpAddrExplicit, jsonOut, quiet)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&detach, "detach", true, "Background the restarted daemon (writes log to .agent_team/daemon/agent-teamd.log).")
 	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Second, "Grace period for stopping the old daemon before SIGKILL escalation (0 = force immediately).")
 	cmd.Flags().DurationVar(&readyTimeout, "ready-timeout", defaultDaemonReadyTimeout, "Maximum time to wait for restarted detached daemon readiness (0 = no timeout).")
@@ -255,7 +249,6 @@ func newDaemonStatusCmd() *cobra.Command {
 		interval time.Duration
 		format   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Print whether agent-teamd is running in this repo, and its pid if so.",
@@ -297,7 +290,7 @@ func newDaemonStatusCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team daemon status: %v\n", err)
 				return exitErr(2)
 			}
-			return runDaemonStatus(cmd, target, jsonOut, quiet, commands, operatorCommandScopeFromCommand(cmd, target, "target"), daemonStatusOptions{
+			return runDaemonStatus(cmd, target, jsonOut, quiet, commands, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName), daemonStatusOptions{
 				Wait:     wait,
 				Down:     down,
 				Timeout:  timeout,
@@ -305,7 +298,6 @@ func newDaemonStatusCmd() *cobra.Command {
 			}, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress output and use the exit code as a readiness probe.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands for the daemon state. agent-team follow-ups preserve the selected repo scope.")
@@ -323,7 +315,6 @@ func newDaemonReconcileCmd() *cobra.Command {
 		jsonOut bool
 		format  string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "reconcile",
 		Short: "Refresh daemon instance metadata against the live process table.",
@@ -342,7 +333,6 @@ func newDaemonReconcileCmd() *cobra.Command {
 			return runDaemonReconcile(cmd, target, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render reconcile result with a Go template, e.g. '{{.Changed}} {{len .Instances}}'.")
 	return cmd
@@ -356,7 +346,6 @@ func newDaemonLogsCmd() *cobra.Command {
 		since  string
 		grep   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "logs",
 		Short: "Show the agent-teamd daemon log.",
@@ -382,7 +371,6 @@ func newDaemonLogsCmd() *cobra.Command {
 			return runDaemonLog(cmd, target, logsOptions{Follow: follow, Tail: tailLines, TailSet: cmd.Flags().Changed("tail"), Since: sinceCutoff, Grep: grepPattern})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Tail the daemon log; print new bytes as they appear.")
 	cmd.Flags().StringVar(&tail, "tail", "0", "Show only the last N lines before returning or following (0 or all = all).")
 	cmd.Flags().StringVar(&since, "since", "", "Only show the daemon log if it was modified since a duration ago (for example 10m, 24h) or an RFC3339 timestamp.")
@@ -395,7 +383,6 @@ func newDaemonEnvCmd() *cobra.Command {
 		target  string
 		jsonOut bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "env",
 		Short: "Show the daemon launch environment snapshot with secrets redacted.",
@@ -403,7 +390,6 @@ func newDaemonEnvCmd() *cobra.Command {
 			return runDaemonEnv(cmd, target, jsonOut)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON with secret values redacted.")
 	return cmd
 }
@@ -541,7 +527,7 @@ func runDaemonStartWithJSON(cmd *cobra.Command, target string, detach bool, read
 			return err
 		}
 		// Foreground: re-exec the daemon directly so the user sees its logs.
-		args := []string{"--target", filepath.Dir(teamDir)}
+		args := []string{"--repo", filepath.Dir(teamDir)}
 		if strings.TrimSpace(httpAddr) != "" {
 			args = append(args, "--http-addr", httpAddr)
 		}
@@ -616,7 +602,7 @@ type daemonDetachedLaunch struct {
 var daemonStartDetachedLaunch = startDaemonDetachedLaunch
 
 func daemonStartDetached(teamDir, bin string, readyTimeout time.Duration, httpAddr string) (daemonLifecycleJSON, error) {
-	args := []string{bin, "--target", filepath.Dir(teamDir)}
+	args := []string{bin, "--repo", filepath.Dir(teamDir)}
 	if strings.TrimSpace(httpAddr) != "" {
 		args = append(args, "--http-addr", httpAddr)
 	}

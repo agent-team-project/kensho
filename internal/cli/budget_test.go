@@ -54,7 +54,7 @@ jobs_in_flight = 2
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"budget", "status", "--target", tmp, "--team", "delivery", "--json"})
+	cmd.SetArgs([]string{"budget", "status", "--repo", tmp, "--team", "delivery", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("budget status: %v\nstderr=%s", err, stderr.String())
 	}
@@ -84,7 +84,7 @@ func TestBudgetStatusNoBudgetsIsNoop(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"budget", "status", "--target", tmp})
+	cmd.SetArgs([]string{"budget", "status", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("budget status: %v\nstderr=%s", err, stderr.String())
 	}
@@ -96,7 +96,7 @@ func TestBudgetStatusNoBudgetsIsNoop(t *testing.T) {
 	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jsonCmd.SetOut(jsonOut)
 	jsonCmd.SetErr(jsonErr)
-	jsonCmd.SetArgs([]string{"budget", "status", "--target", tmp, "--json"})
+	jsonCmd.SetArgs([]string{"budget", "status", "--repo", tmp, "--json"})
 	if err := jsonCmd.Execute(); err != nil {
 		t.Fatalf("budget status json: %v\nstderr=%s", err, jsonErr.String())
 	}
@@ -132,7 +132,7 @@ allocation = "oversubscribe"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"budget", "status", "--target", tmp, "--team", "delivery"})
+	cmd.SetArgs([]string{"budget", "status", "--repo", tmp, "--team", "delivery"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("budget status: %v\nstderr=%s", err, stderr.String())
 	}
@@ -181,7 +181,7 @@ func TestBudgetStatusCommandReportsJobAllowanceFromLiveCodexLog(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"budget", "status", "--target", tmp, "--job", "squ-104", "--json"})
+	cmd.SetArgs([]string{"budget", "status", "--repo", tmp, "--job", "squ-104", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("budget status job: %v\nstderr=%s", err, stderr.String())
 	}

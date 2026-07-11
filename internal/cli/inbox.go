@@ -20,9 +20,8 @@ import (
 
 func newInboxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "inbox",
-		Aliases: []string{"mailbox"},
-		Short:   "Inspect and acknowledge daemon mailbox messages.",
+		Use:   "inbox",
+		Short: "Inspect and acknowledge daemon mailbox messages.",
 		Long: "Inspect daemon mailbox messages stored under .agent_team/daemon. " +
 			"The inbox commands read local files directly, so they work even when agent-teamd is not running.",
 	}
@@ -44,7 +43,6 @@ func newInboxCheckCmd() *cobra.Command {
 		jsonOut  bool
 		format   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "check [instance]",
 		Short: "Show unread messages for the current instance inbox.",
@@ -100,7 +98,6 @@ func newInboxCheckCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&self, "self", false, "Read the inbox for AGENT_TEAM_INSTANCE.")
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the N most recent unread messages (0 = all).")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the OLDEST unread message (the next valid ack); independent of --tail.")
@@ -120,7 +117,6 @@ func newInboxLsCmd() *cobra.Command {
 		jsonOut    bool
 		format     string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List inbox summaries by instance.",
@@ -169,7 +165,6 @@ func newInboxLsCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&teamName, "team", "", "Only list inboxes owned by this declared team.")
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only inboxes with unread messages.")
 	cmd.Flags().StringVar(&sortBy, "sort", "instance", "Sort inboxes by instance, unread, latest, or total.")
@@ -189,7 +184,6 @@ func newInboxShowCmd() *cobra.Command {
 		jsonOut    bool
 		format     string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "show <instance>",
 		Short: "Show messages for one instance inbox.",
@@ -233,7 +227,6 @@ func newInboxShowCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&unreadOnly, "unread", false, "Show only messages after the inbox cursor.")
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the N most recent matching messages (0 = all).")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print an inbox ack command for the OLDEST unread message (the next valid ack); independent of --tail.")
@@ -252,7 +245,6 @@ func newInboxAckCmd() *cobra.Command {
 		jsonOut  bool
 		format   string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "ack [instance] <message-id>|--all",
 		Short: "Acknowledge unread inbox messages in order.",
@@ -304,7 +296,6 @@ func newInboxAckCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&self, "self", false, "Acknowledge the inbox for AGENT_TEAM_INSTANCE.")
 	cmd.Flags().BoolVar(&all, "all", false, "Acknowledge every current message in the inbox.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the cursor update without writing it.")
@@ -325,7 +316,6 @@ func newInboxSendCmd() *cobra.Command {
 		jsonOut     bool
 		format      string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "send <to> [message...]",
 		Short: "Send a mailbox message to a daemon-managed instance.",
@@ -391,7 +381,7 @@ func newInboxSendCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox send: %s\n", daemon.MailboxUnknownTargetMessage(to, resolved.Suggestions))
 					return exitErr(2)
 				}
-				scope := operatorCommandScopeFromCommand(cmd, target, "target")
+				scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 				return renderScopedSendApplyCommand(cmd.OutOrStdout(), true, scopedSendApplyCommandOptions{
 					BaseArgs:       []string{"agent-team", "inbox", "send", to},
 					RepoFlag:       "repo",
@@ -409,7 +399,6 @@ func newInboxSendCmd() *cobra.Command {
 			return runSendWithClient(cmd.OutOrStdout(), cmd.ErrOrStderr(), client, to, body, opts)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&from, "from", "(cli)", "Sender label recorded with the message.")
 	cmd.Flags().StringVar(&message, "message", "", "Message text to send.")
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "Read message text from a file, or '-' for stdin.")
@@ -432,7 +421,6 @@ func newInboxPruneCmd() *cobra.Command {
 		jsonOut   bool
 		format    string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "prune <instance>...|--all",
 		Short: "Prune acknowledged inbox messages.",
@@ -518,7 +506,6 @@ func newInboxPruneCmd() *cobra.Command {
 			return renderInboxPruneResults(cmd.OutOrStdout(), results, jsonOut, tmpl)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&teamName, "team", "", "With --all, only prune inboxes owned by this declared team.")
 	cmd.Flags().BoolVar(&all, "all", false, "Prune every current inbox.")
 	cmd.Flags().DurationVar(&olderThan, "older-than", 0, "Only prune acknowledged messages older than this duration.")
@@ -1274,7 +1261,7 @@ func appendInboxRepoArgs(args []string, repoFlag, repo string, repoSet bool) []s
 	}
 	flag := strings.TrimSpace(repoFlag)
 	if flag == "" {
-		flag = "target"
+		flag = rootRepoFlagName
 	}
 	return append(args, "--"+flag, repo)
 }
@@ -1286,7 +1273,7 @@ func inboxRepoSet(cmd *cobra.Command) bool {
 	if flag := cmd.Root().PersistentFlags().Lookup(rootRepoFlagName); flag != nil && flag.Changed {
 		return true
 	}
-	return cmd.Flags().Changed("target")
+	return cmd.Flags().Changed(rootRepoFlagName)
 }
 
 func inboxRepoFlag(cmd *cobra.Command) string {

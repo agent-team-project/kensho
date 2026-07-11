@@ -62,7 +62,7 @@ resource-governance = "200"
 	jsonOut, jsonErr := &bytes.Buffer{}, &bytes.Buffer{}
 	jsonCmd.SetOut(jsonOut)
 	jsonCmd.SetErr(jsonErr)
-	jsonCmd.SetArgs([]string{"outcomes", "report", "--target", tmp, "--json"})
+	jsonCmd.SetArgs([]string{"outcomes", "report", "--repo", tmp, "--json"})
 	if err := jsonCmd.Execute(); err != nil {
 		t.Fatalf("outcomes report json: %v\nstderr=%s", err, jsonErr.String())
 	}
@@ -84,7 +84,7 @@ resource-governance = "200"
 	tableOut, tableErr := &bytes.Buffer{}, &bytes.Buffer{}
 	tableCmd.SetOut(tableOut)
 	tableCmd.SetErr(tableErr)
-	tableCmd.SetArgs([]string{"outcomes", "report", "--target", tmp})
+	tableCmd.SetArgs([]string{"outcomes", "report", "--repo", tmp})
 	if err := tableCmd.Execute(); err != nil {
 		t.Fatalf("outcomes report table: %v\nstderr=%s", err, tableErr.String())
 	}
@@ -102,7 +102,7 @@ resource-governance = "200"
 	epicOut, epicErr := &bytes.Buffer{}, &bytes.Buffer{}
 	epicCmd.SetOut(epicOut)
 	epicCmd.SetErr(epicErr)
-	epicCmd.SetArgs([]string{"outcomes", "report", "--target", tmp, "--by-epic"})
+	epicCmd.SetArgs([]string{"outcomes", "report", "--repo", tmp, "--by-epic"})
 	if err := epicCmd.Execute(); err != nil {
 		t.Fatalf("outcomes report by epic: %v\nstderr=%s", err, epicErr.String())
 	}

@@ -13,7 +13,7 @@ import (
 
 func TestDeploymentsLsText(t *testing.T) {
 	root := setupDeploymentsCommandRepo(t)
-	stdout, stderr, err := executeDeploymentsCommand("deployments", "ls", "--target", root)
+	stdout, stderr, err := executeDeploymentsCommand("deployments", "ls", "--repo", root)
 	if err != nil {
 		t.Fatalf("deployments ls: %v\nstderr=%s", err, stderr)
 	}
@@ -33,7 +33,7 @@ func TestDeploymentsLsText(t *testing.T) {
 
 func TestDeploymentsLsJSON(t *testing.T) {
 	root := setupDeploymentsCommandRepo(t)
-	stdout, stderr, err := executeDeploymentsCommand("deployments", "--target", root, "--json")
+	stdout, stderr, err := executeDeploymentsCommand("deployments", "--repo", root, "--json")
 	if err != nil {
 		t.Fatalf("deployments json: %v\nstderr=%s", err, stderr)
 	}
@@ -51,7 +51,7 @@ func TestDeploymentsLsJSON(t *testing.T) {
 
 func TestDeploymentsResolveNameAndAlias(t *testing.T) {
 	root := setupDeploymentsCommandRepo(t)
-	stdout, stderr, err := executeDeploymentsCommand("deployment", "resolve", "receiver", "--target", root)
+	stdout, stderr, err := executeDeploymentsCommand("deployments", "resolve", "receiver", "--repo", root)
 	if err != nil {
 		t.Fatalf("deployment resolve: %v\nstderr=%s", err, stderr)
 	}
@@ -59,7 +59,7 @@ func TestDeploymentsResolveNameAndAlias(t *testing.T) {
 		t.Fatalf("resolve receiver = %q, want %q", got, want)
 	}
 
-	stdout, stderr, err = executeDeploymentsCommand("deployments", "resolve", "local", "--target", root, "--format", "{{.Name}} {{.URI}}")
+	stdout, stderr, err = executeDeploymentsCommand("deployments", "resolve", "local", "--repo", root, "--format", "{{.Name}} {{.URI}}")
 	if err != nil {
 		t.Fatalf("deployments resolve format: %v\nstderr=%s", err, stderr)
 	}
@@ -70,7 +70,7 @@ func TestDeploymentsResolveNameAndAlias(t *testing.T) {
 
 func TestDeploymentsResolveMissing(t *testing.T) {
 	root := setupDeploymentsCommandRepo(t)
-	_, stderr, err := executeDeploymentsCommand("deployments", "resolve", "missing", "--target", root)
+	_, stderr, err := executeDeploymentsCommand("deployments", "resolve", "missing", "--repo", root)
 	if err == nil {
 		t.Fatal("deployments resolve missing succeeded")
 	}

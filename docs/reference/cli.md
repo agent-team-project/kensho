@@ -2,11 +2,9 @@
 
 This is a developer-oriented command map. Run `agent-team <command> --help` for exact flag help from the current binary.
 
-Most commands that read an existing `.agent_team/` tree accept the global
-`--repo <dir>` selector. Older commands may still expose `--target <dir>` for
-the repo root; when both are present, `--repo` wins. Commands that create or
-render into a destination, such as `init` and `template run`, keep `--target`
-as the output directory instead.
+Commands that read an existing `.agent_team/` tree use the global
+`--repo <dir>` selector. Commands that create or render into a destination,
+such as `init` and `template run`, retain semantic `--target <dir>` flags.
 
 ## Project Setup
 
@@ -20,7 +18,7 @@ as the output directory instead.
 | `agent-team template smoke [ref] [--strict] [--commands] [--format <template>] [--json]` | Render a template in a temp repo and run doctor, agent, pipeline, and team validation; add `--commands` for scoped follow-ups or `--strict` for CI checks |
 | `agent-team template run <ref> <agent>` | One-shot init plus run in a temp or target dir |
 | `agent-team upgrade --check\|--apply` | Compare current template lock to target or apply clean template changes; add `--apply --dry-run --commands` for the clean apply command |
-| `agent-team agent ls` / `agent-team agent show <agent>` | List or inspect runnable agent definitions installed under `.agent_team/agents`, including skills and agent-level `runtime` / `runtime_bin` defaults; `agents` is a plural alias |
+| `agent-team agent ls` / `agent-team agent show <agent>` | List or inspect runnable agent definitions installed under `.agent_team/agents`, including skills and agent-level `runtime` / `runtime_bin` defaults |
 | `agent-team agent doctor [agent\|--all]` | Validate installed agent definitions and agent-level runtime defaults; add `--strict` / `--strict-runtime` for CI checks or `--commands` for focused follow-ups |
 | `agent-team doctor [--canary [agent]] [--strict] [--commands]` | Validate local layout, durable job files, runtime availability, workflow wiring, daemon binary, and template provenance; add `--canary` after daemon restarts to dispatch a throwaway runtime smoke test |
 | `agent-team deployments ls` / `agent-team deployments resolve <name-or-uri>` | Read the projected deployment registry view and resolve names such as `self`, `local`, `.`, or route names to canonical `agt://` deployment URIs |
@@ -30,7 +28,6 @@ as the output directory instead.
 | `agent-team docs site [--commands] [--json]` | Show VitePress developer docs paths, local URL, and dev/build/preview commands |
 | `agent-team feedback submit\|flush\|ls\|show\|resolve` | Record local agent feedback under `.agent_team/feedback/items/`, retry retained routed delivery through the receiver daemon, list new or grouped reports, inspect one item, or audit its ticket/dismissal resolution |
 | `agent-team ticket create\|update\|comment\|close` | Create and update PM tickets through the configured Linear or GitHub provider; use `--body-file -` for stdin bodies and `--json` for provider result records |
-| `agent-team shortcuts [--all] [--format <template>] [--json]` | List top-level aliases and Docker-like shortcuts from the live command tree; add `--all` for nested command-group aliases |
 
 ## Runtime and Daemon
 
@@ -45,11 +42,11 @@ as the output directory instead.
 | `agent-team runtime` | Show selected LLM runtime profile; use `--runtime` / `--runtime-bin` to preview one-off overrides |
 | `agent-team runtime set` | Persist the repo default runtime profile in `.agent_team/config.toml`; add `--dry-run --commands` for the apply command |
 | `agent-team runtime unset` | Remove the repo default runtime profile from `.agent_team/config.toml`; add `--dry-run --commands` for the apply command |
-| `agent-team runtime profile` | Explicit profile view, with `show` as a shorter alias |
+| `agent-team runtime profile` | Explicit runtime profile view |
 | `agent-team runtime ls` | List supported runtime profiles, availability, capabilities, and probe/select command hints; add `--commands` to print scoped probe commands |
 | `agent-team runtime metadata ls [<instance>...]` | List raw persisted daemon runtime metadata without declared placeholders; filter by runtime/status/agent/instance, isolate stale or unhealthy records, sort/cap/template, summarize rows, or print drill-down commands with `--commands` |
 | `agent-team runtime metadata show <instance>` | Show one raw persisted daemon runtime metadata record with job ownership enrichment; add `--json` or `--format` for scripts, or `--commands` for inspect/logs/resume-plan follow-ups |
-| `agent-team runtime probe` | Probe runtime selection, daemon readiness, Codex doctor health, optional Codex exec readiness, preferred one-flag Codex daemon reachability with `--codex-daemon-check`, lower-level HTTP/socket checks, repo-scoped follow-up commands with `--commands`, and diagnostics with `--output`; aliases: `doctor`, `check` |
+| `agent-team runtime probe` | Probe runtime selection, daemon readiness, Codex doctor health, optional Codex exec readiness, preferred one-flag Codex daemon reachability with `--codex-daemon-check`, lower-level HTTP/socket checks, repo-scoped follow-up commands with `--commands`, and diagnostics with `--output` |
 | `agent-team adopt <instance>` | Adopt a live external runtime process into daemon metadata and return follow-up actions; add `--commands` for one follow-up command per line; `runtime adopt` remains available |
 | `agent-team resume-plan` | Show resume, attach, and log fallback commands from daemon metadata; filter by `--step`, `--action`, `--runtime-stale`, `--unhealthy`, `--managed`, `--can-managed`, or `--direct`, prefer clean Codex sidecars with `--last-message`, sort/limit large recovery lists, print repo-scoped commands with `--commands`, add `--fallbacks` to include every viable command per plan, or summarize with `--summary`; `runtime resume-plan` remains available |
 
@@ -66,24 +63,11 @@ as the output directory instead.
 | `agent-team inspect [instances...]` | Show runtime and state detail |
 | `agent-team logs [instance]` | Read/follow instance logs, use `--last-message` for clean Codex final responses, or `--clean` to hide known Codex diagnostics |
 | `agent-team stats` | Show CPU/RSS data |
-| `agent-team attach <instance>` | Interactive runtime resume handoff; `exec` is a Docker-like alias; add `--dry-run --commands` to print the safe apply command or unmanaged resume/log fallbacks |
+| `agent-team attach <instance>` | Interactive runtime resume handoff; add `--dry-run --commands` to print the safe apply command or unmanaged resume/log fallbacks |
 | `agent-team wait [instances...]` | Wait for lifecycle or phase conditions; add `--dry-run --commands` to print the scoped replay command for the selected instances |
 | `agent-team instance up\|down\|rm` | Namespaced lifecycle controls; `instance up --fresh` bypasses managed resume for a declared persistent instance; add `--dry-run --commands` to print matching `instance` apply commands |
 | `agent-team rm [instances...]` | Remove state and metadata; add `--dry-run --commands` to print the matching remove command when the preview has actionable work |
 | `agent-team prune` | Remove finished old metadata/state; add `--dry-run --commands` to print the matching prune apply command when the preview has actionable work |
-
-Shortcuts:
-
-| Shortcut | Equivalent |
-| --- | --- |
-| `agent-team up` | `agent-team start` |
-| `agent-team down` | `agent-team stop` |
-| `agent-team ls` | `agent-team ps` |
-| `agent-team top` | `agent-team stats` |
-| `agent-team exec` | `agent-team attach` |
-
-Collection groups also accept natural plural aliases: `agents`, `jobs`, `pipelines`, `queues`, `schedules`, and `teams`.
-Run `agent-team shortcuts` for the live top-level alias list, or `agent-team shortcuts --all` when scripts need nested aliases such as `job exec`, `pipeline top`, or `team start`.
 
 ## Topology and Convergence
 
@@ -108,7 +92,7 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 | --- | --- |
 | `agent-team job create <ticket>` | Create a durable job; add `--kind report --deliverable report:<path>` for report-only delivery contracts, `--dispatch --wait` for bounded create-and-run automation, `--commands` for dry-run apply commands, and `--wait --wait-next-state`/`--wait-step` for pipeline stage handoff |
 | `agent-team job ls` | List jobs; filter held state, hold deadlines, and mixed-runtime ownership; sort rows by fields including `runtime`, cap output with `--limit`, or print visible-row follow-ups with `--commands` |
-| `agent-team job show <job-id>` | Show job detail, runtime metadata, gate results, queue, quarantine, outbox, status previews, and actions; add `--events N --events-sort newest` for newest-first audit tails, `--commands` to print only repo-scoped follow-up commands; `inspect` is an alias |
+| `agent-team job show <job-id>` | Show job detail, runtime metadata, gate results, queue, quarantine, outbox, status previews, and actions; add `--events N --events-sort newest` for newest-first audit tails or `--commands` to print only repo-scoped follow-up commands |
 | `agent-team job gate set <job-id> <gate-name>` | Append an explicit `pass`/`fail` gate result with optional `--signature` and `--log-ref`; failed signatures are classified by the job pipeline's `infra_signatures` |
 | `agent-team job gates <job-id>` | Show latest per-name gate results from the append-only job gate log; add `--json` for machine-readable class/status data |
 | `agent-team job doctor` | Validate durable job TOML files, including filename/id ownership and persisted state invariants; `--commands` prints recovery commands, while `--quarantine --dry-run --commands` prints the scoped quarantine apply command |
@@ -125,7 +109,7 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 | `agent-team job start\|stop\|kill <job-id>` | Control a job's owning instance; add `--step` for a pipeline stage and `--dry-run --commands` for the selected lifecycle apply command |
 | `agent-team job snapshot <job-id>` | Capture one job's post-mortem metadata, provenance, gate results, event tails ordered with `--events-sort`, combined timeline rows, inboxes, queue/outbox ownership including quarantine, state files, optional log tails, formatted summary fields, or follow-up commands with `--commands` |
 | `agent-team job explain <job-id>` | Explain or watch pipeline step readiness, blockers, gates, and next actions; add `--state` or `--step` to focus one state or stage, or `--commands` for repo-scoped nested action commands |
-| `agent-team job watch <job-id>` | Continuous job explanation shortcut for next-step readiness, blockers, gates, and actions |
+| `agent-team job explain <job-id> --watch` | Continuously refresh next-step readiness, blockers, gates, and actions |
 | `agent-team job graph <job-id>` | Render the job's pipeline graph with durable step-state overlay, inferring the pipeline from the job file |
 | `agent-team job approve <job-id>` | Approve a blocked manual pipeline gate; add `--dry-run --commands` for the apply command or `--advance --wait --wait-next-state`/`--wait-step` for stage-aware handoff |
 | `agent-team job reject <job-id>` | Reject a blocked manual pipeline gate and mark it failed; add `--dry-run --commands` for the apply command |
@@ -194,7 +178,6 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 | Command | Purpose |
 | --- | --- |
 | `agent-team queue ls` | List active queue entries; filter queued dispatches with `--runtime` or `--reason lock_held`, sort rows with `--sort`, cap output with `--limit`, or print visible row actions with `--commands` |
-| `agent-team queue watch` | Continuous active queue list shortcut with the same filters and formatting as `queue ls --watch` |
 | `agent-team queue show <id>` | Inspect one active queue item, including resolved runtime metadata; add `--commands` to print only follow-up commands that preserve the selected repo scope |
 | `agent-team queue drain` | Dispatch ready pending entries; add `--dry-run --commands` to print the matching daemon drain command only when work is ready, preserving explicit repo scope |
 | `agent-team queue retry <id>` | Retry one entry; add `--dry-run --commands` to print the scoped apply command |
@@ -215,7 +198,6 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 | Command | Purpose |
 | --- | --- |
 | `agent-team outbox ls` | List or watch sandboxed agent outbox events; filter by state, type, source, or job, sort/cap rows, or print visible row actions with `--commands` |
-| `agent-team outbox watch` | Continuous outbox list shortcut with the same filters and formatting as `outbox ls --watch` |
 | `agent-team outbox show <id>` | Inspect one outbox event and its payload; add `--commands` to print only follow-up commands that preserve the selected repo scope |
 | `agent-team outbox drain` | Ask the daemon to publish pending outbox events through topology; `--dry-run` previews locally if the daemon is down, and `--commands` prints the scoped apply command when work is ready |
 | `agent-team outbox doctor` | Validate persisted outbox files without relying on normal listing paths; `--commands` prints recovery commands, while `--quarantine --dry-run --commands` prints the scoped quarantine apply command |
@@ -236,12 +218,12 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 | Command | Purpose |
 | --- | --- |
 | `agent-team pipeline ls` | List pipeline declarations |
-| `agent-team pipeline show <pipeline>` | Show one declaration; `inspect` is an alias |
+| `agent-team pipeline show <pipeline>` | Show one pipeline declaration |
 | `agent-team pipeline graph <pipeline>` | Render text, Mermaid, DOT, or JSON step graphs; add `--job <id>` to overlay durable job step state |
 | `agent-team pipeline doctor --all [--commands]` | Validate workflows; add `--strict` / `--strict-runtime` to fail on unavailable step or target-agent runtime defaults, or `--commands` for route-aware graph/detail follow-ups |
 | `agent-team pipeline run <pipeline> <ticket>` | Create pipeline job; `--commands` scripts dry-run previews, `--dispatch` accepts workspace/runtime overrides, and `--wait-next-state`/`--wait-step` can block for the first stage handoff |
 | `agent-team pipeline status` | Summarize or watch pipeline jobs plus owned queue/outbox and quarantine counts; sort rows and cap output with `--limit`; add `--commands` for one repo-scoped row action command per line |
-| `agent-team pipeline watch [<pipeline>]` | Continuous pipeline status shortcut with queue/outbox and quarantine counts |
+| `agent-team pipeline status [<pipeline>] --watch` | Continuously refresh pipeline status with queue/outbox and quarantine counts |
 | `agent-team pipeline triage [<pipeline>]` | Show pipeline-owned jobs needing attention, including queue/outbox quarantine and ready-step recovery hints; add `--commands` for repo-scoped attention-row recovery commands |
 | `agent-team pipeline explain <pipeline>` | Expand or watch pipeline jobs as per-step readiness, blockers, gates, and actions; sort and cap large histories with `--sort` and `--limit`, add `--step` to focus one stage, or `--commands` for repo-scoped flattened action commands |
 | `agent-team pipeline snapshot <pipeline>` | Capture one pipeline's status, provenance, explained jobs, inboxes, queue/outbox ownership including quarantine, bounded timeline rows via `--timeline`, dry-run advance previews, and formatted summary fields |
@@ -263,7 +245,6 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 | `agent-team pipeline send <pipeline>` | Send a mailbox message to pipeline-owned daemon-known instances; add `--dry-run --commands` to print the matching scoped send apply command |
 | `agent-team pipeline ps [<pipeline>\|--all]` | List daemon-aware instance rows for pipeline-owned jobs across all workflows by default |
 | `agent-team pipeline stats [<pipeline>\|--all]` | Show CPU and memory usage for pipeline-owned instances across all workflows by default; filter by `--runtime`, `--status`, `--phase`, or summarize with `--summary` |
-| `agent-team pipeline top [<pipeline>\|--all]` | `agent-team pipeline stats [<pipeline>\|--all]` |
 | `agent-team pipeline logs [<pipeline>]` | Read daemon-captured logs for pipeline-owned instances across all workflows by default |
 | `agent-team pipeline events [<pipeline>]` | Read, follow, or sort lifecycle events for pipeline-owned instances across all workflows by default |
 | `agent-team pipeline job-events [<pipeline>]` | Read, follow, or sort durable job audit events for pipeline-owned jobs across all workflows by default |
@@ -292,7 +273,7 @@ Run `agent-team shortcuts` for the live top-level alias list, or `agent-team sho
 | Command | Purpose |
 | --- | --- |
 | `agent-team team ls` | List teams |
-| `agent-team team show <team>` | Show team declaration; `inspect` is an alias |
+| `agent-team team show <team>` | Show one team declaration |
 | `agent-team team graph <team>` | Render team-owned instance, schedule, and pipeline wiring |
 | `agent-team team doctor --all [--commands]` | Validate team-owned workflow wiring; add `--strict` / `--strict-runtime` to fail on unavailable step or target-agent runtime defaults, or `--commands` for team graph/detail follow-ups |
 | `agent-team team overview <team>` | Scoped operator overview; filter action hints with `--source`, `--reason`, `--sort`, and `--limit`, add `--last-message` when runtime resume-plan hints should prefer clean Codex final-message fallbacks, add `--fallbacks` when runtime hints should call `resume-plan --commands --fallbacks`, or `--commands` for one scoped action command per line while preserving an explicit `--repo` selector |

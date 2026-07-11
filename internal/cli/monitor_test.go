@@ -22,7 +22,7 @@ func TestMonitorCommandJSONDoesNotExitUnhealthy(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"monitor", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --json should not fail on unhealthy fleet: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestMonitorLastMessageRewritesRuntimeHealthActions(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--target", tmp, "--last-message", "--json"})
+	cmd.SetArgs([]string{"monitor", "--repo", tmp, "--last-message", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor last-message json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -98,7 +98,7 @@ func TestMonitorLastMessageRewritesRuntimeHealthActions(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"monitor", "--target", tmp, "--last-message"})
+	text.SetArgs([]string{"monitor", "--repo", tmp, "--last-message"})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("monitor last-message text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -110,7 +110,7 @@ func TestMonitorLastMessageRewritesRuntimeHealthActions(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"monitor", "--target", tmp, "--summary", "--last-message", "--json"})
+	summary.SetArgs([]string{"monitor", "--repo", tmp, "--summary", "--last-message", "--json"})
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("monitor summary last-message json: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -252,7 +252,7 @@ ephemeral = true
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--target", tmp, "--last-message", "--plan", "--jobs", "--commands"})
+	cmd.SetArgs([]string{"monitor", "--repo", tmp, "--last-message", "--plan", "--jobs", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -277,7 +277,7 @@ ephemeral = true
 	fallbacksOut, fallbacksErr := &bytes.Buffer{}, &bytes.Buffer{}
 	fallbacks.SetOut(fallbacksOut)
 	fallbacks.SetErr(fallbacksErr)
-	fallbacks.SetArgs([]string{"monitor", "--target", tmp, "--fallbacks", "--plan", "--jobs", "--commands"})
+	fallbacks.SetArgs([]string{"monitor", "--repo", tmp, "--fallbacks", "--plan", "--jobs", "--commands"})
 	if err := fallbacks.Execute(); err != nil {
 		t.Fatalf("monitor fallback commands: %v\nstderr=%s", err, fallbacksErr.String())
 	}
@@ -295,7 +295,7 @@ func TestMonitorSummaryCommands(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--summary", "--target", tmp, "--commands"})
+	cmd.SetArgs([]string{"monitor", "--summary", "--repo", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --summary --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -316,7 +316,7 @@ func TestMonitorSummaryCommandsIncludesPlanCommand(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--summary", "--plan", "--action", "start", "--target", tmp, "--commands"})
+	cmd.SetArgs([]string{"monitor", "--summary", "--plan", "--action", "start", "--repo", tmp, "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --summary --plan --commands: %v\nstderr=%s", err, stderr.String())
 	}
@@ -500,10 +500,9 @@ func TestMonitorCommandsRejectsIncompatibleOutputModes(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "json", args: []string{"monitor", "--target", tmp, "--commands", "--json"}, want: wantCommandsModeConflict("--json")},
-		{name: "watch", args: []string{"monitor", "--target", tmp, "--commands", "--watch"}, want: wantCommandsModeConflict("--watch")},
+		{name: "json", args: []string{"monitor", "--repo", tmp, "--commands", "--json"}, want: wantCommandsModeConflict("--json")},
+		{name: "watch", args: []string{"monitor", "--repo", tmp, "--commands", "--watch"}, want: wantCommandsModeConflict("--watch")},
 		{name: "team resources", args: []string{"team", "monitor", "delivery", "--repo", tmp, "--resources"}, want: "--resources requires --summary"},
-		{name: "team watch", args: []string{"team", "watch", "delivery", "--repo", tmp, "--commands"}, want: wantCommandsModeConflict("--watch")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := NewRootCmd()
@@ -544,7 +543,7 @@ func TestMonitorReportsUnreadInboxSummary(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --json unread inbox: %v\nstderr=%s", err, stderr.String())
 	}
@@ -563,7 +562,7 @@ func TestMonitorReportsUnreadInboxSummary(t *testing.T) {
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)
 	filtered.SetErr(filteredErr)
-	filtered.SetArgs([]string{"monitor", "--json", "--instance", "manager", "--target", tmp})
+	filtered.SetArgs([]string{"monitor", "--json", "--instance", "manager", "--repo", tmp})
 	if err := filtered.Execute(); err != nil {
 		t.Fatalf("monitor --instance manager inbox: %v\nstderr=%s", err, filteredErr.String())
 	}
@@ -579,7 +578,7 @@ func TestMonitorReportsUnreadInboxSummary(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"monitor", "--target", tmp})
+	text.SetArgs([]string{"monitor", "--repo", tmp})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("monitor text unread inbox: %v\nstderr=%s", err, textErr.String())
 	}
@@ -625,7 +624,7 @@ func TestMonitorReportsQueueAndOutboxHealth(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --json queue/outbox health: %v\nstderr=%s", err, stderr.String())
 	}
@@ -656,7 +655,7 @@ func TestMonitorReportsQueueAndOutboxHealth(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"monitor", "--target", tmp})
+	text.SetArgs([]string{"monitor", "--repo", tmp})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("monitor text queue/outbox health: %v\nstderr=%s", err, textErr.String())
 	}
@@ -760,7 +759,7 @@ instances = ["other"]
 	watchOut, watchErr := &bytes.Buffer{}, &bytes.Buffer{}
 	watch.SetOut(watchOut)
 	watch.SetErr(watchErr)
-	watch.SetArgs([]string{"team", "watch", "delivery", "--repo", root, "--json", "--interval", "1ms"})
+	watch.SetArgs([]string{"team", "monitor", "delivery", "--repo", root, "--json", "--interval", "1ms"})
 	if err := watch.Execute(); err != nil {
 		t.Fatalf("team watch json outbox quarantine: %v\nstderr=%s", err, watchErr.String())
 	}
@@ -786,7 +785,7 @@ func TestMonitorSummaryJSONUsesHealthSnapshot(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--summary", "--json", "--agent", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--summary", "--json", "--agent", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --summary --json should not fail on unhealthy fleet: %v\nstderr: %s", err, stderr.String())
 	}
@@ -813,7 +812,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--target", root, "--json"})
+	cmd.SetArgs([]string{"monitor", "--repo", root, "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor runtime json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -835,7 +834,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	filteredOut, filteredErr := &bytes.Buffer{}, &bytes.Buffer{}
 	filtered.SetOut(filteredOut)
 	filtered.SetErr(filteredErr)
-	filtered.SetArgs([]string{"monitor", "--target", root, "--runtime", "codex", "--json"})
+	filtered.SetArgs([]string{"monitor", "--repo", root, "--runtime", "codex", "--json"})
 	if err := filtered.Execute(); err != nil {
 		t.Fatalf("monitor filtered runtime json: %v\nstderr=%s", err, filteredErr.String())
 	}
@@ -854,7 +853,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"monitor", "--summary", "--resources", "--runtime", "codex", "--json", "--target", root})
+	summary.SetArgs([]string{"monitor", "--summary", "--resources", "--runtime", "codex", "--json", "--repo", root})
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("monitor summary runtime json: %v\nstderr=%s", err, summaryErr.String())
 	}
@@ -870,7 +869,7 @@ func TestMonitorReportsRuntimeResumeCapabilities(t *testing.T) {
 	textOut, textErr := &bytes.Buffer{}, &bytes.Buffer{}
 	text.SetOut(textOut)
 	text.SetErr(textErr)
-	text.SetArgs([]string{"monitor", "--summary", "--target", root})
+	text.SetArgs([]string{"monitor", "--summary", "--repo", root})
 	if err := text.Execute(); err != nil {
 		t.Fatalf("monitor summary runtime text: %v\nstderr=%s", err, textErr.String())
 	}
@@ -917,7 +916,7 @@ func TestMonitorSummaryLatestJSONScopesHealthRows(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--summary", "--latest", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--summary", "--latest", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --summary --latest --json should not fail: %v\nstderr: %s", err, stderr.String())
 	}
@@ -980,7 +979,7 @@ func TestMonitorSummaryPlanJSONIncludesPlanSummary(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--summary", "--plan", "--json", "--agent", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--summary", "--plan", "--json", "--agent", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --summary --plan --json: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
@@ -1023,7 +1022,7 @@ description = "complete"
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--summary", "--resources", "--all", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--summary", "--resources", "--all", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --summary --resources --json: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
@@ -1093,7 +1092,7 @@ branch = "worker-squ-702"
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"monitor", "--summary", "--jobs", "--json", "--target", tmp})
+	summary.SetArgs([]string{"monitor", "--summary", "--jobs", "--json", "--repo", tmp})
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("monitor --summary --jobs --json: %v\nstdout=%s\nstderr=%s", err, summaryOut.String(), summaryErr.String())
 	}
@@ -1129,7 +1128,7 @@ branch = "worker-squ-702"
 	summaryTextOut, summaryTextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summaryText.SetOut(summaryTextOut)
 	summaryText.SetErr(summaryTextErr)
-	summaryText.SetArgs([]string{"monitor", "--summary", "--jobs", "--target", tmp})
+	summaryText.SetArgs([]string{"monitor", "--summary", "--jobs", "--repo", tmp})
 	if err := summaryText.Execute(); err != nil {
 		t.Fatalf("monitor --summary --jobs text: %v\nstdout=%s\nstderr=%s", err, summaryTextOut.String(), summaryTextErr.String())
 	}
@@ -1141,7 +1140,7 @@ branch = "worker-squ-702"
 	fullOut, fullErr := &bytes.Buffer{}, &bytes.Buffer{}
 	full.SetOut(fullOut)
 	full.SetErr(fullErr)
-	full.SetArgs([]string{"monitor", "--jobs", "--json", "--target", tmp})
+	full.SetArgs([]string{"monitor", "--jobs", "--json", "--repo", tmp})
 	if err := full.Execute(); err != nil {
 		t.Fatalf("monitor --jobs --json: %v\nstdout=%s\nstderr=%s", err, fullOut.String(), fullErr.String())
 	}
@@ -1177,7 +1176,7 @@ branch = "worker-squ-702"
 	fullTextOut, fullTextErr := &bytes.Buffer{}, &bytes.Buffer{}
 	fullText.SetOut(fullTextOut)
 	fullText.SetErr(fullTextErr)
-	fullText.SetArgs([]string{"monitor", "--jobs", "--target", tmp})
+	fullText.SetArgs([]string{"monitor", "--jobs", "--repo", tmp})
 	if err := fullText.Execute(); err != nil {
 		t.Fatalf("monitor --jobs text: %v\nstdout=%s\nstderr=%s", err, fullTextOut.String(), fullTextErr.String())
 	}
@@ -1203,7 +1202,7 @@ func TestMonitorSchedulesJSONIncludesForecast(t *testing.T) {
 	summaryOut, summaryErr := &bytes.Buffer{}, &bytes.Buffer{}
 	summary.SetOut(summaryOut)
 	summary.SetErr(summaryErr)
-	summary.SetArgs([]string{"monitor", "--summary", "--schedules", "--json", "--target", tmp})
+	summary.SetArgs([]string{"monitor", "--summary", "--schedules", "--json", "--repo", tmp})
 	if err := summary.Execute(); err != nil {
 		t.Fatalf("monitor --summary --schedules --json: %v\nstdout=%s\nstderr=%s", err, summaryOut.String(), summaryErr.String())
 	}
@@ -1222,7 +1221,7 @@ func TestMonitorSchedulesJSONIncludesForecast(t *testing.T) {
 	fullOut, fullErr := &bytes.Buffer{}, &bytes.Buffer{}
 	full.SetOut(fullOut)
 	full.SetErr(fullErr)
-	full.SetArgs([]string{"monitor", "--schedules", "--json", "--target", tmp})
+	full.SetArgs([]string{"monitor", "--schedules", "--json", "--repo", tmp})
 	if err := full.Execute(); err != nil {
 		t.Fatalf("monitor --schedules --json: %v\nstdout=%s\nstderr=%s", err, fullOut.String(), fullErr.String())
 	}
@@ -1263,7 +1262,7 @@ description = "fresh work"
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--summary", "--resources", "--stale", "--all", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--summary", "--resources", "--stale", "--all", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --summary --resources --stale --json: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
@@ -1312,7 +1311,7 @@ description = "fresh work"
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--summary", "--resources", "--unhealthy", "--all", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--summary", "--resources", "--unhealthy", "--all", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --summary --resources --unhealthy --json: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
@@ -1376,7 +1375,7 @@ func TestMonitorPlanJSONUsesFilters(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--json", "--plan", "--agent", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--json", "--plan", "--agent", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --json --plan: %v\nstderr: %s", err, stderr.String())
 	}
@@ -1409,7 +1408,7 @@ func TestMonitorPlanJSONFiltersByAction(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--json", "--plan", "--action", "on_demand", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--json", "--plan", "--action", "on_demand", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --json --plan --action on_demand: %v\nstderr: %s", err, stderr.String())
 	}
@@ -1455,7 +1454,7 @@ func TestMonitorCommandLastJSONLimitsRowsByLatestStarted(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--json", "--last", "2", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--json", "--last", "2", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --json --last 2: %v\nstderr: %s", err, stderr.String())
 	}
@@ -1486,7 +1485,7 @@ func TestMonitorPlanStopExtrasJSON(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--json", "--plan", "--stop-extras", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--json", "--plan", "--stop-extras", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --json --plan --stop-extras: %v\nstderr: %s", err, stderr.String())
 	}
@@ -1574,7 +1573,7 @@ func TestMonitorFormatRendersSnapshot(t *testing.T) {
 		"--plan",
 		"--instance", "manager",
 		"--format", "{{.Health.Healthy}}:{{len .Instances}}:{{.Health.Declared.Missing}}:{{.Plan.Summary.Total}}:{{.StatsError}}",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --format: %v\nstderr: %s", err, stderr.String())
@@ -1826,7 +1825,7 @@ func TestMonitorInstanceFilterJSONScopesPlanAndHealth(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--json", "--plan", "--instance", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--json", "--plan", "--instance", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --json --plan --instance: %v\nstderr: %s", err, stderr.String())
 	}
@@ -2054,7 +2053,7 @@ func TestMonitorEventsFilterByActionAndSince(t *testing.T) {
 		"--event-action", "stop",
 		"--since", "2026-06-17T12:01:00Z",
 		"--json",
-		"--target", tmp,
+		"--repo", tmp,
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor event filters: %v\nstderr=%s", err, stderr.String())
@@ -2631,7 +2630,7 @@ func TestMonitorSummaryEventsJSONIncludesEventSummary(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"monitor", "--summary", "--events", "5", "--event-action", "stop", "--since", "2026-06-17T12:01:00Z", "--json", "--agent", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"monitor", "--summary", "--events", "5", "--event-action", "stop", "--since", "2026-06-17T12:01:00Z", "--json", "--agent", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("monitor --summary --events --json: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}

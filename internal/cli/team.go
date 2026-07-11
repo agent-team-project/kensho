@@ -24,10 +24,9 @@ import (
 
 func newTeamCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "team",
-		Aliases: []string{"teams"},
-		Short:   "Inspect declared agent teams.",
-		Long:    "Inspect team declarations loaded from .agent_team/instances.toml.",
+		Use:   "team",
+		Short: "Inspect declared agent teams.",
+		Long:  "Inspect team declarations loaded from .agent_team/instances.toml.",
 	}
 	cmd.AddCommand(newTeamLsCmd())
 	cmd.AddCommand(newTeamShowCmd())
@@ -118,10 +117,9 @@ func newTeamShowCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "show <team>",
-		Aliases: []string{"inspect"},
-		Short:   "Show one declared team.",
-		Args:    cobra.ExactArgs(1),
+		Use:   "show <team>",
+		Short: "Show one declared team.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
@@ -202,7 +200,6 @@ func newTeamGraphCmd() *cobra.Command {
 func newTeamDoctorCmd() *cobra.Command {
 	var (
 		repo          string
-		targetRepo    string
 		all           bool
 		strict        bool
 		strictRuntime bool
@@ -249,13 +246,7 @@ func newTeamDoctorCmd() *cobra.Command {
 				strictRuntime = true
 			}
 			strictActionFlag := scopedDoctorStrictActionFlag(strict, strictRuntime)
-			selectedRepo := repo
-			repoFlag := "repo"
-			if cmd.Flags().Changed("target") && !cmd.Flags().Changed("repo") {
-				selectedRepo = targetRepo
-				repoFlag = "target"
-			}
-			teamDir, err := resolveTeamDir(cmd, selectedRepo)
+			teamDir, err := resolveTeamDir(cmd, repo)
 			if err != nil {
 				return err
 			}
@@ -268,7 +259,7 @@ func newTeamDoctorCmd() *cobra.Command {
 				if strictRuntime {
 					promoteAllTeamDoctorRuntimeWarnings(result)
 				}
-				return renderAllTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, commands, strictRuntime, strictActionFlag, tmpl, operatorCommandScopeFromCommand(cmd, selectedRepo, repoFlag))
+				return renderAllTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, commands, strictRuntime, strictActionFlag, tmpl, operatorCommandScopeFromCommand(cmd, repo, rootRepoFlagName))
 			}
 			result, err := collectTeamDoctor(teamDir, args[0])
 			if err != nil {
@@ -278,11 +269,10 @@ func newTeamDoctorCmd() *cobra.Command {
 			if strictRuntime {
 				promoteTeamDoctorRuntimeWarnings(result)
 			}
-			return renderTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, commands, strictRuntime, strictActionFlag, tmpl, operatorCommandScopeFromCommand(cmd, selectedRepo, repoFlag))
+			return renderTeamDoctor(cmd.OutOrStdout(), cmd.ErrOrStderr(), result, jsonOut, commands, strictRuntime, strictActionFlag, tmpl, operatorCommandScopeFromCommand(cmd, repo, rootRepoFlagName))
 		},
 	}
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
-	cmd.Flags().StringVar(&targetRepo, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&all, "all", false, "Validate all declared teams.")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Fail on all strict team doctor checks. Currently aliases --strict-runtime.")
 	cmd.Flags().BoolVar(&strictRuntime, "strict-runtime", false, "Fail when a team-owned step or target-agent runtime default cannot be resolved or is not discoverable.")
@@ -321,11 +311,10 @@ func newTeamRuntimeLsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ls <team>",
-		Aliases: []string{"list", "ps"},
-		Short:   "List daemon runtime metadata owned by one team.",
-		Long:    "List daemon-known runtime metadata owned by one declared team, including persistent members and live ephemeral children.",
-		Args:    cobra.ExactArgs(1),
+		Use:   "ls <team>",
+		Short: "List daemon runtime metadata owned by one team.",
+		Long:  "List daemon-known runtime metadata owned by one declared team, including persistent members and live ephemeral children.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && (jsonOut || summary) {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team runtime ls: --format cannot be combined with --json or --summary.")
@@ -1711,10 +1700,9 @@ func newTeamPsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "ps <team>",
-		Aliases: []string{"instances"},
-		Short:   "List instances owned by one team.",
-		Args:    cobra.ExactArgs(1),
+		Use:   "ps <team>",
+		Short: "List instances owned by one team.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if interval < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team ps: --interval must be >= 0.")
@@ -2593,11 +2581,10 @@ func newTeamHoldCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "hold <team> [reason...]",
-		Aliases: []string{"pause"},
-		Short:   "Hold pipeline jobs owned by one team.",
-		Long:    "Hold matching jobs in pipelines declared on one team without changing their lifecycle status.",
-		Args:    cobra.MinimumNArgs(1),
+		Use:   "hold <team> [reason...]",
+		Short: "Hold pipeline jobs owned by one team.",
+		Long:  "Hold matching jobs in pipelines declared on one team without changing their lifecycle status.",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team hold: --format cannot be combined with --json.")
@@ -2707,11 +2694,10 @@ func newTeamReleaseCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "release <team> [message...]",
-		Aliases: []string{"resume", "unpause"},
-		Short:   "Release held pipeline jobs owned by one team.",
-		Long:    "Release held jobs in pipelines declared on one team without changing their lifecycle status.",
-		Args:    cobra.MinimumNArgs(1),
+		Use:   "release <team> [message...]",
+		Short: "Release held pipeline jobs owned by one team.",
+		Long:  "Release held jobs in pipelines declared on one team without changing their lifecycle status.",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if format != "" && jsonOut {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team release: --format cannot be combined with --json.")
@@ -5767,9 +5753,8 @@ func newTeamStatsCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "stats <team> [<instance>...]",
-		Aliases: []string{"top"},
-		Short:   "Show CPU and memory usage for team-owned instances.",
+		Use:   "stats <team> [<instance>...]",
+		Short: "Show CPU and memory usage for team-owned instances.",
 		Long: "Show a one-shot or watchable resource snapshot for instances owned by one declared team. " +
 			"With no names, only running team-owned instances are shown. Use --all to include stopped, exited, crashed, and missing persistent team members.",
 		Args: cobra.MinimumNArgs(1),
@@ -7002,10 +6987,9 @@ func newTeamUpCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "up <team>",
-		Aliases: []string{"start"},
-		Short:   "Start or resume a team's declared persistent instances.",
-		Args:    cobra.ExactArgs(1),
+		Use:   "up <team>",
+		Short: "Start or resume a team's declared persistent instances.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tailLines, formatTemplate, err := validateTeamUpOptions(cmd, "agent-team team up", teamLifecycleUpOptions{
 				Wait:          wait,
@@ -7115,10 +7099,9 @@ func newTeamDownCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "down <team>",
-		Aliases: []string{"stop"},
-		Short:   "Stop a team's persistent instances and active ephemeral children.",
-		Args:    cobra.ExactArgs(1),
+		Use:   "down <team>",
+		Short: "Stop a team's persistent instances and active ephemeral children.",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			formatTemplate, err := validateTeamDownOptions(cmd, "agent-team team down", teamLifecycleDownOptions{
 				Wait:        wait,
@@ -7734,17 +7717,13 @@ func newTeamMonitorCmd() *cobra.Command {
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "monitor <team>",
-		Aliases: []string{"watch"},
-		Short:   "Show a combined operator snapshot for one team.",
+		Use:   "monitor <team>",
+		Short: "Show a combined operator snapshot for one team.",
 		Long: "Show a Docker-style operator snapshot scoped to one declared team, combining team health, " +
 			"team-owned queue and outbox recovery signals, inbox state, instance rows, daemon-managed process stats, " +
 			"and optional plan, job, schedule, and lifecycle event sections.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.CalledAs() == "watch" {
-				watch = true
-			}
 			if interval < 0 {
 				fmt.Fprintln(cmd.ErrOrStderr(), "agent-team team monitor: --interval must be >= 0.")
 				return exitErr(2)

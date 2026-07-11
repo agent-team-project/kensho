@@ -46,7 +46,7 @@ When you hit friction with the harness, tooling, or your instructions, run `agen
 
 1. **Confirm your instance name.** Re-read the spawn prompt. Compute your state dir: `.agent_team/state/<your-instance-name>/`. Create it if missing (`mkdir -p`).
 2. **Read the consumer repo's orientation docs** for project-wide conventions. Start with every applicable `AGENTS.md` (repo root, then any relevant subdirectories). If none exist, use the repo's README, contributor guide, or equivalent local instructions.
-3. **Read `.agent_team/config.toml`** for `[pm].provider`, falling back to legacy `[team].pm_tool` when `[pm].provider` is absent. Branch from that value:
+3. **Read `.agent_team/config.toml`** for `[pm].provider`. Branch from that value:
    - `linear`: use the `linear` skill for ticket reads/searches and read `linear.team_id`, `linear.ticket_prefix`, and `linear.projects` for routing. Use `agent-team ticket create|update|comment|close` for writes.
    - `github`: use the `github` skill for issue reads/searches and read `github.owner`, `github.repo`, project settings, labels, and state/column conventions for routing. Use `agent-team ticket create|update|comment|close` for writes.
    - `none`: do not query or mutate a PM provider. Treat durable job ids plus kickoff text as the work item.
@@ -62,7 +62,7 @@ When you hit friction with the harness, tooling, or your instructions, run `agen
 
 When a request maps to one discrete work item → one PR:
 
-1. **Confirm the configured PM provider** from `.agent_team/config.toml` before touching a ticket system. Use `[pm].provider` first and legacy `[team].pm_tool` only as a fallback.
+1. **Confirm the configured PM provider** from `.agent_team/config.toml` before touching a ticket system. Use `[pm].provider` as the sole source.
 2. **For Linear-backed repos**, confirm the ticket exists via the `linear` skill. If it doesn't, create it with `agent-team ticket create`, route it using provider-neutral options when available, and apply configured labels when they fit. Dispatch the worker with the Linear identifier or URL plus any scope-specific context the worker should know (conventions, related tickets, gotchas).
 3. **For GitHub-backed repos**, confirm the issue exists via the `github` skill. Use `[github].owner` and `[github].repo` as defaults for bare issue numbers; inspect labels, assignees, comments, and project status when configured. If the issue doesn't exist, create it with `agent-team ticket create`, apply configured labels when they fit, and use provider-neutral project/status options when available. Dispatch the worker with the issue URL or `owner/repo#number` plus any scope-specific context the worker should know, the ticket's observable acceptance criteria, and the exact PR trailer the worker must use: `Closes #<issue>` for a non-epic implementation ticket, or `Advances #<epic>` for design/slice work or epic-scoped slices. The daemon compiles these into the durable `[contract]` block; missing explicit criteria are allowed only as a deliverable/trailer floor for small jobs.
 4. **For ticketless repos** (`pm.provider = "none"`), don't fabricate a ticket or invoke a PM skill. Create or dispatch a durable job from the user's kickoff text, give it a clear job id/title, and pass enough context for the worker to implement and open a PR.
@@ -81,7 +81,7 @@ Pipelines route their `approve` step to you with `gate = "manual"`. When a job r
 1. **Read the evidence, not just the verdict.** `agent-team job gates <job-id>` shows machine-readable gate results (infra-vs-content classified); the reviewer's PR comment starts `REVIEW: APPROVE` or `REVIEW: BOUNCE` with hand-verified findings.
 2. **On APPROVE with green gates:** merge — `agent-team job merge <job-id>` when the pipeline declares a merge strategy, otherwise `gh pr merge`. Then close or update the PM ticket/issue with `agent-team ticket close` / `agent-team ticket update` (or update durable job state for ticketless work) and mark your step done (`job step <id> approve --status done --instance <you>`).
 3. **On BOUNCE:** `agent-team job bounce <job-id> --findings-file <path> --advance`. This re-queues the implement step with the findings appended to the kickoff — the one channel a fresh worker reliably reads. Never amend the branch yourself, and never re-dispatch with mail alone: a spawning worker may not read its inbox for a long time.
-4. **Infra-red is not a bounce.** A failing gate classified `infra` (disk, network, unrelated CI) means re-run, not re-implement — `job retry` or a fresh advance after the infra clears.
+4. **Infra-red is not a bounce.** A failing gate classified `infra` (disk, network, unrelated CI) means re-run, not re-implement — `job reopen` or a fresh advance after the infra clears.
 5. **If an approval artifact is required** (`approval_required` on the step), decide it explicitly: `agent-team approval approve|reject <id> --job <job-id> --notes "..."` — the decision, not a status mutation, is what unblocks the gate.
 
 ## Status emission

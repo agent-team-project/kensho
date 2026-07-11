@@ -19,8 +19,8 @@ import (
 
 	"github.com/agent-team-project/agent-team/internal/budget"
 	jobstore "github.com/agent-team-project/agent-team/internal/job"
-	"github.com/agent-team-project/agent-team/internal/linearwriteback"
 	"github.com/agent-team-project/agent-team/internal/origin"
+	"github.com/agent-team-project/agent-team/internal/pmprovider"
 	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/agent-team-project/agent-team/internal/topology"
 	"github.com/agent-team-project/agent-team/internal/usage"
@@ -2372,7 +2372,7 @@ func TestEvent_DirectDispatchWithJobIDWritesLinearInProgress(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
 	writeFixtureAgent(t, teamDir, "worker")
-	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[team]\npm_tool = \"linear\"\n\n[linear]\nteam_id = \"demo\"\nticket_prefix = \"SQU\"\nin_progress_state = \"In Progress\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[pm]\nprovider = \"linear\"\n\n[linear]\nteam_id = \"demo\"\nticket_prefix = \"SQU\"\nin_progress_state = \"In Progress\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	fake := newFakeSpawner(30 * time.Second)
@@ -2392,7 +2392,7 @@ func TestEvent_DirectDispatchWithJobIDWritesLinearInProgress(t *testing.T) {
 	}
 	found := false
 	for _, ev := range events {
-		if ev.Type == "linear_writeback_skipped" && ev.Data["action"] == string(linearwriteback.ActionDispatchInProgress) {
+		if ev.Type == "linear_writeback_skipped" && ev.Data["action"] == string(pmprovider.ActionDispatchInProgress) {
 			found = true
 			break
 		}
@@ -2409,7 +2409,7 @@ func TestEvent_ProbeDispatchMarksJobAndSkipsDeliverySideEffects(t *testing.T) {
 	t.Setenv("LINEAR_USER_API_KEY", "")
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
-	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[team]\npm_tool = \"linear\"\n\n[linear]\nteam_id = \"demo\"\nticket_prefix = \"SQU\"\nin_progress_state = \"In Progress\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("[pm]\nprovider = \"linear\"\n\n[linear]\nteam_id = \"demo\"\nticket_prefix = \"SQU\"\nin_progress_state = \"In Progress\"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	fake := newFakeSpawner(30 * time.Second)
@@ -2469,8 +2469,8 @@ func TestEvent_TicketDispatchCreatesJobAndExportsContext(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
 	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
-[team]
-pm_tool = "linear"
+[pm]
+provider = "linear"
 
 [linear]
 team_id = "team-1"
@@ -2505,7 +2505,7 @@ in_progress_state = "In Progress"
 	for _, ev := range events {
 		if ev.Type == "linear_writeback_skipped" &&
 			ev.Message == "no Linear API key found" &&
-			ev.Data["action"] == string(linearwriteback.ActionDispatchInProgress) &&
+			ev.Data["action"] == string(pmprovider.ActionDispatchInProgress) &&
 			ev.Data["state"] == "In Progress" {
 			foundLinearDispatch = true
 			break
@@ -4761,8 +4761,8 @@ func TestEvent_PipelineInitialDispatchRejectionWritesLinearFailureAttention(t *t
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
 	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte(`
-[team]
-pm_tool = "linear"
+[pm]
+provider = "linear"
 
 [linear]
 team_id = "team-1"
@@ -4821,7 +4821,7 @@ target = "worker"
 	for _, ev := range events {
 		if ev.Type == "linear_writeback_skipped" &&
 			ev.Message == "no Linear API key found" &&
-			ev.Data["action"] == string(linearwriteback.ActionFailureAttention) &&
+			ev.Data["action"] == string(pmprovider.ActionFailureAttention) &&
 			ev.Data["state"] == "Todo" {
 			found = true
 			break

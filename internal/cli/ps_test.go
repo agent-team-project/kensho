@@ -384,7 +384,7 @@ description = "waiting"
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"ps", "--all", "--target", tmp})
+	cmd.SetArgs([]string{"ps", "--all", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("ps --all: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestPsLastJSONShowsMostRecentlyStartedInstances(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"ps", "--last", "2", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"ps", "--last", "2", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("ps --last --json: %v", err)
 	}
@@ -449,7 +449,7 @@ func TestPsLatestJSONShowsMostRecentlyStartedInstance(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"ps", "--latest", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"ps", "--latest", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("ps --latest --json: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestPsLastHonorsExplicitSortAfterSelection(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"ps", "--last", "2", "--sort", "name", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"ps", "--last", "2", "--sort", "name", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("ps --last --sort name --json: %v", err)
 	}
@@ -612,7 +612,7 @@ description = "waiting"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"ps", "--unhealthy", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"ps", "--unhealthy", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("ps --unhealthy --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -647,7 +647,7 @@ func TestPsUnhealthyJSONIncludesRuntimeStaleRows(t *testing.T) {
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"ps", "--unhealthy", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"ps", "--unhealthy", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("ps --unhealthy --summary --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -663,7 +663,7 @@ func TestPsUnhealthyJSONIncludesRuntimeStaleRows(t *testing.T) {
 	stdout, stderr = &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"ps", "--unhealthy", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"ps", "--unhealthy", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("ps --unhealthy --json: %v\nstderr=%s", err, stderr.String())
 	}
@@ -701,7 +701,7 @@ description = "stale status only"
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"ps", "--runtime-stale", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"ps", "--runtime-stale", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("ps --runtime-stale --json: %v\nstderr=%s", err, stderr.String())
 	}

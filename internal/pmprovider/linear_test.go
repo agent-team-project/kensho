@@ -16,8 +16,8 @@ import (
 )
 
 func TestWriteBackSkipsWhenLinearDisabled(t *testing.T) {
-	teamDir := testTeamDir(t, `[team]
-pm_tool = "none"
+	teamDir := testTeamDir(t, `[pm]
+provider = "none"
 `)
 	j := testJob()
 	client := &Client{APIKey: "unused"}
@@ -211,8 +211,8 @@ func testTeamDir(t *testing.T, config string) string {
 
 func testLinearTeamDir(t *testing.T, extra string) string {
 	t.Helper()
-	return testTeamDir(t, `[team]
-pm_tool = "linear"
+	return testTeamDir(t, `[pm]
+provider = "linear"
 
 [linear]
 team_id = "team-1"

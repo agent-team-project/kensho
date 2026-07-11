@@ -15,11 +15,7 @@ func TestResolveVerbPath(t *testing.T) {
 		{"send with positionals", []string{"send", "manager", "hello"}, "send", true},
 		{"leading repo flag", []string{"--repo", "/x", "job", "show", "squ-1"}, "job.show", true},
 		{"leading repo flag eq", []string{"--repo=/x", "job", "show"}, "job.show", true},
-		// Aliases must resolve to their canonical verb — the round-6 finding.
-		{"alias ls", []string{"ls"}, "ps", true},
-		{"alias top", []string{"top"}, "stats", true},
-		{"alias up", []string{"up"}, "start", true},
-		{"alias down", []string{"down"}, "stop", true},
+		{"canonical stats", []string{"stats"}, "stats", true},
 		// Unknown verbs do not resolve.
 		{"unknown top-level", []string{"future-dangerous-verb"}, "", false},
 		{"unknown with positional", []string{"future-dangerous-verb", "worker"}, "", false},

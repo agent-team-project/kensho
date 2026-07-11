@@ -20,9 +20,8 @@ func BuildInfo() buildinfo.Info {
 }
 
 const (
-	rootRepoFlagName         = "repo"
-	repoFlagHelp             = "Repo root containing .agent_team."
-	legacyRepoTargetFlagHelp = "Repo root containing .agent_team (legacy; prefer global --repo)."
+	rootRepoFlagName = "repo"
+	repoFlagHelp     = "Repo root containing .agent_team."
 )
 
 // ExitCode is a sentinel error type used to signal a non-zero process exit
@@ -35,21 +34,15 @@ func (e ExitCode) Error() string { return fmt.Sprintf("exit %d", int(e)) }
 // NewRootCmd builds the root `agent-team` command with all subcommands attached.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "agent-team",
-		Short: "Declare and launch a custom set of LLM agents and skills, vendored into any repo.",
-		Long: "agent-team — declare and launch LLM agents and skills, vendored into any repo.\n\n" +
-			"Docker-like shortcuts:\n" +
-			"  agent-team up    = agent-team start\n" +
-			"  agent-team down  = agent-team stop\n" +
-			"  agent-team ls    = agent-team ps\n" +
-			"  agent-team top   = agent-team stats\n" +
-			"  agent-team exec  = agent-team attach",
+		Use:           "agent-team",
+		Short:         "Declare and launch a custom set of LLM agents and skills, vendored into any repo.",
+		Long:          "agent-team — declare and launch LLM agents and skills, vendored into any repo.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       Version,
 	}
 	root.SetVersionTemplate("agent-team " + BuildInfo().VersionLine() + "\n")
-	root.PersistentFlags().String(rootRepoFlagName, "", "Repo root containing .agent_team for commands that read repo state; overrides legacy repo-root --target flags.")
+	root.PersistentFlags().String(rootRepoFlagName, "", "Repo root containing .agent_team for commands that read repo state.")
 	root.AddCommand(newResolveVerbCmd())
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newUpgradeCmd())
@@ -107,7 +100,6 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newInstanceCmd())
 	root.AddCommand(newTemplateCmd())
-	root.AddCommand(newShortcutsCmd())
 	root.AddCommand(newDocsCmd())
 	root.AddCommand(newDaemonCmd())
 	root.AddCommand(newPsCmd())

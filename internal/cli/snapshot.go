@@ -35,7 +35,6 @@ func newSnapshotCmd() *cobra.Command {
 		scheduleLimit int
 		format        string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "snapshot",
 		Short: "Capture a read-only orchestration diagnostic report.",
@@ -103,7 +102,7 @@ func newSnapshotCmd() *cobra.Command {
 			})
 			switch {
 			case commandsOnly:
-				return renderSnapshotCommands(cmd.OutOrStdout(), snapshot, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderSnapshotCommands(cmd.OutOrStdout(), snapshot, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			case jsonOut || output == "-":
 				return writeSnapshotJSON(cmd.OutOrStdout(), snapshot)
 			case output != "":
@@ -121,7 +120,6 @@ func newSnapshotCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Write the full JSON snapshot to this file. Use '-' for stdout.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the full snapshot JSON to stdout.")
 	cmd.Flags().BoolVar(&noRedact, "no-redact", false, "Include raw payload values instead of redacting sensitive keys.")

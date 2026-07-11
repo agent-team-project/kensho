@@ -238,7 +238,8 @@ func TestClient_Instances(t *testing.T) {
 }
 
 func TestClient_Reconcile(t *testing.T) {
-	root := t.TempDir()
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
+	root := daemon.DaemonRoot(teamDir)
 	restorePIDLiveCheck := daemon.SetPidLiveCheckForTest(func(pid int) bool { return false })
 	defer restorePIDLiveCheck()
 
@@ -251,7 +252,8 @@ func TestClient_Reconcile(t *testing.T) {
 		t.Fatalf("write metadata: %v", err)
 	}
 	m := daemon.NewInstanceManager(root, nil)
-	c, cleanup := newTestClient(t, daemon.Handler(m, nil, nil, ""))
+	resolver := daemon.NewEventResolver(m, teamDir, nil)
+	c, cleanup := newTestClient(t, daemon.Handler(m, nil, resolver, teamDir))
 	defer cleanup()
 
 	resp, err := c.Reconcile()

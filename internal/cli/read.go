@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/agent-team-project/agent-team/internal/addressing"
@@ -21,7 +20,6 @@ type readOptions struct {
 
 func newReadCmd() *cobra.Command {
 	var opts readOptions
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "read <agt-uri>",
 		Short: "Read a daemon resource by canonical agt:// URI.",
@@ -33,7 +31,6 @@ func newReadCmd() *cobra.Command {
 			return runReadCommand(cmd, opts, args[0])
 		},
 	}
-	cmd.Flags().StringVar(&opts.Target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&opts.JSON, "json", false, "Emit the full machine-readable resource envelope.")
 	return cmd
 }

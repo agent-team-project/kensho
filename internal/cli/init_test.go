@@ -105,7 +105,7 @@ func TestInit_DefaultTemplate(t *testing.T) {
 	if !strings.Contains(body, `ticket_prefix = "TST"`) {
 		t.Errorf("config.toml missing ticket_prefix: %s", body)
 	}
-	if !strings.Contains(body, `pm_tool = "linear"`) {
+	if !strings.Contains(body, `provider = "linear"`) {
 		t.Errorf("config.toml should auto-enable Linear when linear.* is set: %s", body)
 	}
 	if !strings.Contains(body, `team = []`) {
@@ -429,7 +429,6 @@ func TestInit_DefaultTemplateNoFlagsTicketless(t *testing.T) {
 	body := string(cfg)
 	for _, want := range []string{
 		`provider = "none"`,
-		`pm_tool = "none"`,
 		`team_id = ""`,
 		`ticket_prefix = ""`,
 		`team = []`,
@@ -623,7 +622,7 @@ func TestInit_GitHubConfigGuide(t *testing.T) {
 	body := string(cfg)
 	for _, want := range []string{
 		`provider = "github"`,
-		`pm_tool = "github"`,
+		`provider = "github"`,
 		`owner = "acme"`,
 		`repo = "widgets"`,
 		`PM provider: "github"`,
@@ -1060,7 +1059,7 @@ func TestInit_LinearNoInputFailsListingMissing(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	cmd.SetArgs([]string{"init", "--target", tmp, "--set", "team.pm_tool=linear", "--no-input"})
+	cmd.SetArgs([]string{"init", "--target", tmp, "--set", "pm.provider=linear", "--no-input"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error: Linear params missing under --no-input")
@@ -1108,7 +1107,7 @@ func TestInit_PMProviderLinearNoInputFailsListingMissing(t *testing.T) {
 	}
 }
 
-func TestInit_PMProviderLinearSyncsLegacyAlias(t *testing.T) {
+func TestInit_PMProviderLinearWritesSingleSource(t *testing.T) {
 	tmp := t.TempDir()
 	cmd := NewRootCmd()
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
@@ -1128,10 +1127,8 @@ func TestInit_PMProviderLinearSyncsLegacyAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(cfg)
-	for _, want := range []string{`provider = "linear"`, `pm_tool = "linear"`} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("config missing %q:\n%s", want, body)
-		}
+	if got := strings.Count(body, `provider = "linear"`); got != 1 {
+		t.Fatalf("provider declaration count = %d, want one:\n%s", got, body)
 	}
 }
 
@@ -1163,7 +1160,7 @@ func TestInit_PromptFlow(t *testing.T) {
 	cmd.SetErr(errOut)
 	// Linear mode has two conditionally required params; supply each on its own input line.
 	cmd.SetIn(strings.NewReader("uuid-from-prompt\nABC\n"))
-	cmd.SetArgs([]string{"init", "--target", tmp, "--set", "team.pm_tool=linear"})
+	cmd.SetArgs([]string{"init", "--target", tmp, "--set", "pm.provider=linear"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init: %v\nstderr: %s", err, errOut.String())
 	}
@@ -1179,7 +1176,7 @@ func TestInit_PromptFlow(t *testing.T) {
 		t.Errorf("missing ticket_prefix from prompt: %s", body)
 	}
 	if !strings.Contains(body, `provider = "linear"`) {
-		t.Errorf("missing pm.provider alias from prompt: %s", body)
+		t.Errorf("missing pm.provider from prompt: %s", body)
 	}
 	// stdout should show the prompts.
 	if !strings.Contains(out.String(), "This template requires the following parameters") {
@@ -1270,12 +1267,12 @@ func TestInitOutputFlagValidation(t *testing.T) {
 		},
 		{
 			name: "machine output no prompt",
-			args: []string{"init", "--json", "--target", t.TempDir(), "--set", "team.pm_tool=linear"},
+			args: []string{"init", "--json", "--target", t.TempDir(), "--set", "pm.provider=linear"},
 			want: "machine-readable output requested but required parameters are missing",
 		},
 		{
 			name: "dry-run no prompt",
-			args: []string{"init", "--dry-run", "--target", t.TempDir(), "--set", "team.pm_tool=linear"},
+			args: []string{"init", "--dry-run", "--target", t.TempDir(), "--set", "pm.provider=linear"},
 			want: "--dry-run requested but required parameters are missing",
 		},
 		{

@@ -1,12 +1,37 @@
 # Changelog
 
+## Unreleased — v0.5.0
+
+### Breaking changes and migration
+
+- Project-manager configuration now has one source: `[pm].provider`. Replace
+  `[team].pm_tool = "linear"` with `[pm] provider = "linear"` (or `github` /
+  `none`) before upgrading.
+- Repo-scoped commands now use the root-level `--repo <dir>` flag exclusively.
+  Replace repo-root `--target <dir>` with `--repo <dir>`. The remaining
+  `--target` flags are semantic: the creation destination for `init` and
+  `template run`, and the target agent for job operations.
+- Cobra command aliases and the `shortcuts` command were removed. Scripts must
+  use canonical names such as `start`, `stop`, `ps`, `stats`, `attach`,
+  `job reopen`, `pipeline status --watch`, and singular command groups.
+- `send --allow-missing` was removed because canonical mailbox delivery already
+  handles known destinations. Team-, pipeline-, and job-scoped queueing retain
+  their distinct `--allow-missing` behavior.
+- Go integrations must use the single `runtimeshim.Install` API, the list-aware
+  `loader.ParseFrontmatter`, `pmprovider` directly, and
+  `daemon.ReconcileWithTopology`. The wrapper-only APIs and packages from the
+  pre-v1 compatibility period no longer exist.
+- Runtime authority is baked into each generated shim from topology. The unused
+  launch-environment authority allowlist path was removed; no replacement env
+  variable is required.
+
 ## v0.4.0 — 2026-07-05
 
 The self-improving release. Three teams now ship in the bundled topology, four autonomous loops run on cadence, and two of the headline fixes in this release were found by the system itself.
 
 ### Pluggable PM providers
 
-- **`internal/pmprovider` seam** — intake, board write-back, and doctor consume a provider interface; Linear moved behind it with zero behavior change. `[pm] provider = "linear" | "github" | "none"` (`team.pm_tool` remains as a legacy alias). (SQU-86, #90)
+- **`internal/pmprovider` seam** — intake, board write-back, and doctor consume a provider interface; Linear moved behind it with zero behavior change. `[pm] provider = "linear" | "github" | "none"`. (SQU-86, #90)
 - **GitHub provider** — Issues/Projects implement the same interface end to end: column-move intake, board write-back to issue state/labels/column, a `github` skill mirroring the linear skill's verbs, and provider-aware bundled agent prompts. The seam is proven by its second implementation. (SQU-96, #92)
 
 ### Three teams, four loops
@@ -72,7 +97,7 @@ The board-as-control-plane release. Driven almost entirely by day-1 field feedba
 
 ### Template & onboarding
 
-- **Ticketless quickstart**: `init` with zero flags produces a working team (`pm_tool = "none"` default); Linear params required only when Linear is selected; quickstart docs. (SQU-58, #66)
+- **Ticketless quickstart**: `init` with zero flags produces a working team (`provider = "none"` default); Linear params required only when Linear is selected; quickstart docs. (SQU-58, #66)
 - Evidence-based agent-prompt authoring pass: inbox-first startup, bounce awareness, gate reporting, staleness refresh, trailer ownership; stale model pins removed. (SQU-63)
 - Narrative guides for messaging, board control, and observability. (SQU-78, #81)
 - Feedback-channel contract for operating teams (`documentation/feedback-channel.md`).

@@ -236,7 +236,6 @@ func newQueueQuarantineLsCmd() *cobra.Command {
 		jsonOut      bool
 		format       string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List quarantined queue files.",
@@ -300,12 +299,11 @@ func newQueueQuarantineLsCmd() *cobra.Command {
 			}
 			items = prepareQueueQuarantineItems(items, sortMode, limit)
 			if commands {
-				return renderQueueQuarantineListCommands(cmd.OutOrStdout(), items, nil, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderQueueQuarantineListCommands(cmd.OutOrStdout(), items, nil, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return renderQueueQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by queue state: pending or dead.")
 	cmd.Flags().StringSliceVar(&instances, "instance", nil, "Filter by target instance name; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&eventTypes, "event-type", nil, "Filter by event type; repeat or comma-separate values.")
@@ -328,7 +326,6 @@ func newQueueQuarantineShowCmd() *cobra.Command {
 		format   string
 		commands bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "show <quarantine-path>",
 		Short: "Show one quarantined queue file.",
@@ -356,12 +353,11 @@ func newQueueQuarantineShowCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			if commands {
-				return renderQueueQuarantineCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderQueueQuarantineCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return renderQueueQuarantineShow(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the quarantined queue file as JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the quarantined queue file with a Go template, e.g. '{{.ID}} {{.State}}'.")
@@ -384,7 +380,6 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 		format      string
 		commands    bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "restore [quarantine-path]",
 		Short: "Restore validated quarantined queue files.",
@@ -420,7 +415,7 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if restoreAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine restore: --all cannot be combined with a path.")
@@ -479,7 +474,6 @@ func newQueueQuarantineRestoreCmd() *cobra.Command {
 			return renderQueueQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&restoreAll, "all", false, "Restore all matching restorable quarantined files instead of one path.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the restore without moving files.")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite an existing active queue file with the same restore path.")
@@ -513,7 +507,6 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 		format       string
 		commands     bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "drop [quarantine-path]",
 		Short: "Drop quarantined queue files after inspection.",
@@ -557,7 +550,7 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if dropAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team queue quarantine drop: --all cannot be combined with a path.")
@@ -618,7 +611,6 @@ func newQueueQuarantineDropCmd() *cobra.Command {
 			return renderQueueQuarantineDrop(cmd.OutOrStdout(), []queueQuarantineDropResult{result}, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching quarantined files instead of one path.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview quarantined files that would be dropped.")
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by queue state: pending or dead.")

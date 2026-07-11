@@ -23,8 +23,7 @@ in_progress_state = "In Progress"
 
 `linear.team_id` and `linear.ticket_prefix` are required in Linear mode.
 `linear.agent_column` names the status column that dispatches work. The
-template default is `Ready for Agent`. Legacy configs may still carry
-`[team].pm_tool = "linear"`, but new setup should use `[pm].provider`.
+template default is `Ready for Agent`.
 
 ## Configure GitHub Mode
 

@@ -70,8 +70,8 @@ where the current implementation has landed.
 - `go build -o bin/agent-team ./cmd/agent-team`
 - `go build -o bin/agent-teamd ./cmd/agent-teamd`
 - `agent-team init ... --no-input`
-- `AGENT_TEAM_RUNTIME=codex agent-team runtime --target .`
-- `agent-team doctor --target .`
+- `AGENT_TEAM_RUNTIME=codex agent-team runtime --repo .`
+- `agent-team doctor --repo .`
 
 Result: all passed. Runtime reported Codex available at
 `/opt/homebrew/bin/codex`, with direct runs and daemon dispatch supported.
@@ -210,8 +210,8 @@ Validated:
 
 - status skill `set` and `show`
 - `agent-team job reconcile status --dry-run --json`
-- `agent-team send manager --message ... --allow-missing --json`
-- `agent-team send manager --message ... --dry-run --allow-missing --json`
+- `agent-team send manager --message ... --json`
+- `agent-team send manager --message ... --dry-run --json`
 - `agent-team channels`
 - `agent-team channel publish '#standup' ...`
 
@@ -319,7 +319,7 @@ The same command succeeds when forwarding `--skip-git-repo-check`.
 
 Suggested improvement:
 
-- For Codex `template run` without `--target`, either initialize a temporary
+- For Codex `template run` without `--repo`, either initialize a temporary
   Git repo, automatically add `--skip-git-repo-check`, or document the required
   forwarded flag in the Codex runtime section.
 

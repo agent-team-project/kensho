@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"text/template"
 	"time"
@@ -36,7 +35,6 @@ func newExtendCmd() *cobra.Command {
 		jsonOut bool
 		format  string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "extend <instance>",
 		Short: "Extend a running instance watchdog deadline.",
@@ -88,7 +86,6 @@ func newExtendCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().DurationVar(&by, "by", 0, "Amount to add to the running watchdog deadline, for example 30m.")
 	cmd.Flags().StringVar(&actor, "actor", "cli", "Actor label recorded in lifecycle/audit events.")
 	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output and use only the exit code.")

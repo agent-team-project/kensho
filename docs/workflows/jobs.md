@@ -365,16 +365,16 @@ scripts should print only the matching note apply command.
 ## Retrying Jobs
 
 ```sh
-agent-team job retry squ-42 --dry-run --dispatch --commands
-agent-team job retry squ-42 --dry-run --dispatch
-agent-team job retry squ-42 --dispatch
-agent-team job retry squ-42 --dispatch --wait --wait-status running --wait-timeout 30s
-agent-team job retry squ-42 --dispatch --wait --wait-next-state running --wait-step implement --wait-timeout 30s
+agent-team job reopen squ-42 --dry-run --dispatch --commands
+agent-team job reopen squ-42 --dry-run --dispatch
+agent-team job reopen squ-42 --dispatch
+agent-team job reopen squ-42 --dispatch --wait --wait-status running --wait-timeout 30s
+agent-team job reopen squ-42 --dispatch --wait --wait-next-state running --wait-step implement --wait-timeout 30s
 ```
 
 For normal jobs this reopens the job and can dispatch a fresh attempt.
-`job reopen` is the canonical command and `job retry` is an alias; `--commands`
-prints the same spelling used for the dry-run.
+`job reopen` is the sole command; `--commands` prints the corresponding apply
+command for the dry-run.
 
 For pipeline jobs it resets the first failed step whose dependencies are
 satisfied, then advances work. Add `--wait` when recovery automation should
@@ -522,7 +522,7 @@ Triage reports:
 Triage rows include action hints such as:
 
 ```sh
-agent-team job retry squ-42 --dispatch
+agent-team job reopen squ-42 --dispatch
 agent-team job queue retry squ-42 --all --sort attempts --limit 10
 agent-team job queue quarantine squ-42 --summary --json
 agent-team job queue quarantine squ-42

@@ -36,7 +36,7 @@ func TestInstancePs_NoState(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"instance", "ps", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "ps", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance ps: %v", err)
 	}
@@ -91,7 +91,7 @@ ask_to = "user"
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"instance", "ps", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "ps", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance ps: %v", err)
 	}
@@ -137,7 +137,7 @@ description = "waiting"
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"instance", "ps", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "ps", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance ps: %v", err)
 	}
@@ -177,7 +177,7 @@ description = "fine"
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"instance", "ps", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "ps", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance ps: %v", err)
 	}
@@ -211,7 +211,7 @@ branch = "tst-9"
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"instance", "show", "worker-x", "--target", tmp})
+	cmd.SetArgs([]string{"instance", "show", "worker-x", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("instance show: %v", err)
 	}

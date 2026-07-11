@@ -74,7 +74,7 @@ git init
 git config user.name "Agent Team Demo"
 git config user.email agent-team-demo@example.com
 
-agent-team init --minimal --set pm.provider=none --set team.pm_tool=none --no-input
+agent-team init --minimal --set pm.provider=none --no-input
 git add .agent_team
 git commit -m "Add agent team"
 agent-team doctor --commands

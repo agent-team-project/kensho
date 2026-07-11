@@ -75,29 +75,9 @@ var (
 	adoptedPollInterval = time.Second
 )
 
-// Reconcile walks on-disk metadata and reconciles each entry against the live
-// process table. This is the crash-only design from `documentation/orchestrator.md`
-// Open Q #3: we don't try to auto-restart anything; we surface accurate state
-// so callers (humans, /v1/instances) can decide.
-//
-// Outcomes per record:
-//
-//   - status was running, PID alive   -> stays running (adopted; the daemon
-//     can't Wait() on a process it didn't fork, so we just track the
-//     metadata; the user must explicitly stop or remove)
-//   - status was running, PID gone    -> mark exited (ExitedAt = now)
-//   - status was stopped              -> leave as stopped
-//   - status was exited / crashed     -> leave as-is
-//
-// Returns the updated set so the caller can populate the in-memory map.
-func Reconcile(daemonRoot string, m *InstanceManager) error {
-	return reconcileCrashOnly(daemonRoot, m, "", nil)
-}
-
 // ReconcileWithTopology performs the crash-only reconcile pass, then applies
-// declared restart policy for persistent instances. The legacy Reconcile entry
-// point intentionally remains crash-only so restart=never keeps the old
-// behavior and tests/callers that do not opt into topology are unchanged.
+// declared restart policy for persistent instances. This is the sole daemon
+// and operator reconciliation entry point.
 func ReconcileWithTopology(teamDir string, m *InstanceManager, topo *topology.Topology) error {
 	daemonRoot := DaemonRoot(teamDir)
 	if err := reconcileCrashOnly(daemonRoot, m, teamDir, topo); err != nil {

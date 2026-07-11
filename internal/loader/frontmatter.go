@@ -2,33 +2,18 @@ package loader
 
 import "strings"
 
-// FrontmatterFields is the parsed-frontmatter form callers that need list
-// values use. The string subset (scalars + block scalars) is in `Scalars`
-// for compatibility with the original parser; list-valued keys appear in
-// `Lists`. We don't try to be a general YAML parser — this is the small
-// subset agents actually use.
+// FrontmatterFields contains the scalar, block-scalar, and list values parsed
+// from agent frontmatter. We don't try to be a general YAML parser — this is
+// the small subset agents actually use.
 type FrontmatterFields struct {
 	Scalars map[string]string
 	Lists   map[string][]string
 }
 
 // ParseFrontmatter splits a markdown file with `---`-delimited YAML
-// frontmatter into (scalar map, body). List-typed keys (e.g. `subscribes:`)
-// are not returned by this function — callers that need them use
-// ParseFrontmatterRich.
-//
-// Supports the subset of YAML actually used in agent frontmatter:
-// scalar values and block scalars (`key: |`). Lists and nested mappings
-// are skipped. Behaviourally mirrors the Python loader's `parse_frontmatter`.
-func ParseFrontmatter(text string) (map[string]string, string) {
-	rich, body := ParseFrontmatterRich(text)
-	return rich.Scalars, body
-}
-
-// ParseFrontmatterRich is the list-aware variant of ParseFrontmatter. It
-// returns a FrontmatterFields with both scalar and list-valued keys.
-// Behaviourally identical to ParseFrontmatter for the scalar subset.
-func ParseFrontmatterRich(text string) (FrontmatterFields, string) {
+// frontmatter and returns the scalar, block-scalar, and list values used by
+// agent definitions.
+func ParseFrontmatter(text string) (FrontmatterFields, string) {
 	empty := FrontmatterFields{Scalars: map[string]string{}, Lists: map[string][]string{}}
 	if !strings.HasPrefix(text, "---\n") {
 		return empty, text
@@ -36,20 +21,16 @@ func ParseFrontmatterRich(text string) (FrontmatterFields, string) {
 	endIdx := strings.Index(text[4:], "\n---\n")
 	if endIdx == -1 {
 		if strings.HasSuffix(text, "\n---") {
-			return parseYAMLSubsetRich(text[4 : len(text)-4]), ""
+			return parseFrontmatterFields(text[4 : len(text)-4]), ""
 		}
 		return empty, text
 	}
 	fmText := text[4 : 4+endIdx]
 	body := text[4+endIdx+5:]
-	return parseYAMLSubsetRich(fmText), body
+	return parseFrontmatterFields(fmText), body
 }
 
-func parseYAMLSubset(text string) map[string]string {
-	return parseYAMLSubsetRich(text).Scalars
-}
-
-func parseYAMLSubsetRich(text string) FrontmatterFields {
+func parseFrontmatterFields(text string) FrontmatterFields {
 	result := FrontmatterFields{
 		Scalars: map[string]string{},
 		Lists:   map[string][]string{},
@@ -109,8 +90,8 @@ func parseYAMLSubsetRich(text string) FrontmatterFields {
 		// `key:` with no scalar value on the same line — could be a list of
 		// `- item` entries on the following lines. Walk forward consuming
 		// indented `- ...` lines; if we find at least one, this is a list.
-		// Otherwise drop the key (matches the Python parser's behaviour for
-		// nested mappings, which we don't support).
+		// Otherwise drop the key; nested mappings are not part of the supported
+		// agent-frontmatter subset.
 		if val == "" {
 			items, consumed := parseListBlock(lines[i+1:])
 			if items != nil {

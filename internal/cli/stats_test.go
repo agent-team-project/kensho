@@ -413,7 +413,7 @@ func TestStatsCommandUsesLocalMetadataWhenDaemonStopped(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stats", "--all", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"stats", "--all", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stats local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -446,7 +446,7 @@ func TestStatsCommandLastJSONLimitsRowsByLatestStarted(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stats", "--json", "--last", "2", "--target", tmp})
+	cmd.SetArgs([]string{"stats", "--json", "--last", "2", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stats --json --last 2: %v\nstderr=%s", err, stderr.String())
 	}
@@ -878,7 +878,7 @@ func TestStatsCommandRuntimeFilterUsesLocalMetadataWhenDaemonStopped(t *testing.
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stats", "--json", "--runtime", "codex", "--target", tmp})
+	cmd.SetArgs([]string{"stats", "--json", "--runtime", "codex", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stats --runtime local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -920,7 +920,7 @@ description = "needs input"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stats", "--json", "--phase", "blocked", "--target", tmp})
+	cmd.SetArgs([]string{"stats", "--json", "--phase", "blocked", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stats --phase local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -963,7 +963,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stats", "--json", "--stale", "--target", tmp})
+	cmd.SetArgs([]string{"stats", "--json", "--stale", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stats --stale local metadata: %v\nstderr=%s", err, stderr.String())
 	}
@@ -1007,7 +1007,7 @@ description = "fresh"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"stats", "--json", "--unhealthy", "--target", tmp})
+	cmd.SetArgs([]string{"stats", "--json", "--unhealthy", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("stats --unhealthy local metadata: %v\nstderr=%s", err, stderr.String())
 	}

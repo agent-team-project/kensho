@@ -49,11 +49,9 @@ func newStartCmd() *cobra.Command {
 		jsonOut        bool
 		format         string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "start [<instance>...]",
-		Aliases: []string{"up"},
-		Short:   "Start agent-teamd if needed, then start or resume instances.",
+		Use:   "start [<instance>...]",
+		Short: "Start agent-teamd if needed, then start or resume instances.",
 		Long: "Docker-like convenience command for the common lifecycle path. It starts the per-repo " +
 			"daemon in the background when needed. With no args, it brings up declared persistent instances from " +
 			"instances.toml; explicit names may also resume daemon-known ad-hoc instances.",
@@ -248,7 +246,6 @@ func newStartCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Override the default kickoff prompt.")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read kickoff prompt from a file, or '-' for stdin.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Start or resume every declared persistent and daemon-known instance.")
@@ -302,11 +299,9 @@ func newStopCmd() *cobra.Command {
 		jsonOut        bool
 		format         string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
-		Use:     "stop [<instance>...]",
-		Aliases: []string{"down"},
-		Short:   "Stop running instances.",
+		Use:   "stop [<instance>...]",
+		Short: "Stop running instances.",
 		Long: "Docker-like convenience alias for `agent-team instance down`. With no args, stops running declared " +
 			"persistent instances. Use --all to stop every daemon-managed running instance, including ad-hoc and ephemeral work.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -374,7 +369,6 @@ func newStopCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Stop every daemon-managed running instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Stop the most recently started running instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Stop the N most recently started running instances after other filters (0 = all).")
@@ -423,7 +417,6 @@ func newKillCmd() *cobra.Command {
 		jsonOut        bool
 		format         string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "kill [<instance>...]",
 		Short: "Force-stop running instances.",
@@ -494,7 +487,6 @@ func newKillCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Force-stop every daemon-managed running instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Force-stop the most recently started running instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Force-stop the N most recently started running instances after other filters (0 = all).")
@@ -547,7 +539,6 @@ func newRestartCmd() *cobra.Command {
 		jsonOut        bool
 		format         string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "restart [<instance>...]",
 		Short: "Restart or resume instances.",
@@ -741,7 +732,6 @@ func newRestartCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Override the default kickoff prompt for instances started fresh.")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "Read kickoff prompt from a file, or '-' for stdin.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Restart or resume every declared persistent and daemon-known instance.")
@@ -802,7 +792,7 @@ func validateLifecycleCommandsFlag(cmd *cobra.Command, dryRun, commands, jsonOut
 }
 
 func scopedLifecycleCommandOptions(cmd *cobra.Command, target string, opts lifecycleCommandOptions) lifecycleCommandOptions {
-	scope := operatorCommandScopeFromCommand(cmd, target, "target")
+	scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 	opts.TargetFlag = "--repo"
 	opts.Target = scope.Repo
 	opts.TargetSet = scope.Set
@@ -838,7 +828,6 @@ func newStatusCmd() *cobra.Command {
 		strictTopology   bool
 		format           string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show daemon health and the current instance table.",
@@ -974,7 +963,7 @@ func newStatusCmd() *cobra.Command {
 					EventFilters:     eventFilters,
 				}
 				if commands {
-					scope := operatorCommandScopeFromCommand(cmd, target, "target")
+					scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 					return runStatusSummaryCommands(out, teamDir, time.Now(), summaryOpts, statusSummaryCommandOptions{
 						Scope: scope,
 						Plan: planCommandOptions{
@@ -996,7 +985,7 @@ func newStatusCmd() *cobra.Command {
 				return runStatusSummaryWithOptions(out, teamDir, time.Now(), jsonOut, summaryOpts)
 			}
 			if commands {
-				return runStatusCommands(out, teamDir, time.Now(), opts, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return runStatusCommands(out, teamDir, time.Now(), opts, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			if jsonOut {
 				return runStatusJSONWithOptions(out, teamDir, time.Now(), opts)
@@ -1007,7 +996,6 @@ func newStatusCmd() *cobra.Command {
 			return runStatusWithOptions(out, teamDir, time.Now(), opts)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print daemon and health remediation commands, one per line. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().BoolVar(&summary, "summary", false, "Show a compact non-failing fleet health summary instead of the full instance table.")
@@ -1441,7 +1429,6 @@ func newInspectCmd() *cobra.Command {
 		unhealthyOnly    bool
 		format           string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "inspect [<instance>...]",
 		Short: "Show an instance's runtime, state, and topology.",
@@ -1488,7 +1475,6 @@ func newInspectCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Inspect every visible instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Inspect the most recently started visible instance after other filters.")
@@ -1647,7 +1633,6 @@ func newRmCmd() *cobra.Command {
 		summary        bool
 		format         string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "rm [<instance>...]",
 		Short: "Remove instance state and daemon metadata.",
@@ -1726,7 +1711,6 @@ func newRmCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Remove every daemon-known instance. Can combine with --agent, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy.")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation; if the daemon is running, stop a running instance before removal.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview matching removals without deleting state or daemon metadata.")
@@ -1766,7 +1750,6 @@ func newPruneCmd() *cobra.Command {
 		summary        bool
 		format         string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "prune",
 		Short: "Remove finished daemon-managed instances.",
@@ -1847,7 +1830,6 @@ func newPruneCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "Only remove matching instances for this agent. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&runtimeFilters, "runtime", nil, "Only remove matching instances for this runtime: claude, codex, or docker. Can repeat or comma-separate.")
 	cmd.Flags().StringSliceVar(&statusFilters, "status", nil, "Only remove finished instances in this lifecycle status: exited or crashed. Can repeat or comma-separate.")
@@ -1905,7 +1887,6 @@ func newWaitCmd() *cobra.Command {
 		summary        bool
 		format         string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "wait [<instance>...]",
 		Short: "Wait for daemon-managed instances to reach a lifecycle condition.",
@@ -2108,7 +2089,7 @@ func newWaitCmd() *cobra.Command {
 				if commands {
 					return renderWaitCommands(cmd.OutOrStdout(), results, waitCommandOptions{
 						BaseArgs:    []string{"agent-team", "wait"},
-						Scope:       operatorCommandScopeFromCommand(cmd, target, "target"),
+						Scope:       operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName),
 						Until:       until,
 						UntilSet:    cmd.Flags().Changed("until"),
 						UntilPhases: untilPhases,
@@ -2158,7 +2139,6 @@ func newWaitCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&all, "all", "a", false, "Wait for every daemon-known instance.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Wait for the most recently started daemon-known instance after other filters.")
 	cmd.Flags().IntVarP(&last, "last", "n", 0, "Wait for the N most recently started daemon-known instances after other filters (0 = all).")

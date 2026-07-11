@@ -1,7 +1,6 @@
 package loader
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,9 +97,6 @@ func TestLoadAgent_MissingFile(t *testing.T) {
 	_, err := LoadAgent(agentDir, teamDir)
 	if err == nil {
 		t.Fatal("expected error for missing agent.md")
-	}
-	if !errors.Is(err, ErrAgentLoad) {
-		t.Errorf("expected AgentLoadError, got %T", err)
 	}
 	if !strings.Contains(err.Error(), "missing") {
 		t.Errorf("error message=%q", err.Error())

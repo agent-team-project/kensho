@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/signal"
 	"sort"
 	"strconv"
@@ -45,7 +44,6 @@ func newEventsCmd() *cobra.Command {
 		unhealthyOnly    bool
 		sinceRaw         string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "events",
 		Short: "Show daemon lifecycle events.",
@@ -139,7 +137,6 @@ func newEventsCmd() *cobra.Command {
 			return runEvents(ctx, cmd.OutOrStdout(), client, eventsOptions{Follow: follow, Tail: tail, JSON: jsonOut, Summary: summary, Sort: sortMode, Format: formatTemplate, Filters: filters})
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Keep streaming new lifecycle events.")
 	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the last N events before returning or following (0 = all). With non-following filters, N applies after filtering.")
 	cmd.Flags().BoolVar(&latest, "latest", false, "Show events for the most recently started daemon-known instance after other filters.")

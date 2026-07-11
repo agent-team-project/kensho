@@ -11,8 +11,6 @@ import (
 
 const BinDirName = "bin"
 
-const EnvAuthorityAllowlist = "AGENT_TEAM_AUTHORITY_ALLOWLIST"
-
 type Spec struct {
 	Command string
 	Skill   string
@@ -27,8 +25,7 @@ type Options struct {
 	// shim. When false the shim is a pass-through (instances that declare no
 	// authority). When true the resolved AuthorityAllowlist is embedded as a
 	// literal in the script — the decision and the list are NOT read from the
-	// environment, so an agent cannot widen its own authority by unsetting or
-	// overriding AGENT_TEAM_AUTHORITY_ALLOWLIST.
+	// environment, so an agent cannot widen its own authority.
 	EnforceAuthority bool
 	// AuthorityAllowlist is the resolved verb allowlist baked into the shim
 	// when EnforceAuthority is true.
@@ -44,11 +41,7 @@ var DefaultSpecs = []Spec{
 	{Command: "channel.sh", Skill: "channel", Script: filepath.Join("scripts", "channel.sh")},
 }
 
-func Install(root string, skillPaths map[string]string) (string, error) {
-	return InstallWithOptions(root, skillPaths, Options{})
-}
-
-func InstallWithOptions(root string, skillPaths map[string]string, opts Options) (string, error) {
+func Install(root string, skillPaths map[string]string, opts Options) (string, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return "", fmt.Errorf("runtime shim root is required")
@@ -81,18 +74,6 @@ func InstallWithOptions(root string, skillPaths map[string]string, opts Options)
 		}
 	}
 	return binDir, nil
-}
-
-func WithAuthorityAllowlist(env []string, allow []string) []string {
-	out := append([]string(nil), env...)
-	if envHasKey(out, EnvAuthorityAllowlist) {
-		return out
-	}
-	allow = normalizeAllowlist(allow)
-	if len(allow) == 0 {
-		return out
-	}
-	return append(out, EnvAuthorityAllowlist+"="+strings.Join(allow, ","))
 }
 
 func PrependPath(env []string, dir string) []string {
@@ -196,7 +177,7 @@ func agentTeamShimBody(real string, opts Options) string {
 	// No declared authority => the shim is a pass-through. This decision is
 	// baked into the generated script at install time; it is never read from
 	// the (caller-controlled) environment, so an agent cannot reach the
-	// pass-through branch by unsetting AGENT_TEAM_AUTHORITY_ALLOWLIST.
+	// pass-through branch through caller-controlled launch state.
 	if !opts.EnforceAuthority {
 		return "#!/bin/sh\n" +
 			"exec " + shellQuote(real) + " \"$@\"\n"
@@ -205,8 +186,7 @@ func agentTeamShimBody(real string, opts Options) string {
 	return "#!/bin/sh\n" +
 		"REAL_AGENT_TEAM=" + shellQuote(real) + "\n" +
 		"# Closed-world enforcement baked in at install time; the allowlist is a\n" +
-		"# script literal, NOT read from the environment (tamper-proof against\n" +
-		"# env -u / AGENT_TEAM_AUTHORITY_ALLOWLIST=* self-widening).\n" +
+		"# script literal, NOT read from the environment.\n" +
 		"AUTHORITY_ALLOWLIST=" + shellQuote(baked) + "\n" +
 		"\n" +
 		"# Resolve the invocation to its canonical dotted verb via the REAL\n" +
@@ -257,16 +237,6 @@ func shimAllowCondition(strict bool) string {
 		return "authority_allowed \"$verb\""
 	}
 	return "always_allowed \"$verb\" || authority_allowed \"$verb\""
-}
-
-func envHasKey(env []string, key string) bool {
-	prefix := key + "="
-	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizeAllowlist(values []string) []string {

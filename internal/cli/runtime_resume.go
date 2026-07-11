@@ -222,7 +222,6 @@ func newRuntimeResumePlanCommand(cfg runtimeResumePlanCommandConfig) *cobra.Comm
 	if cfg.RepoFlag {
 		cmd.Flags().StringVar(&target, "repo", cwd, repoFlagHelp)
 	} else {
-		cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	}
 	cmd.Flags().StringVar(&jobID, "job", "", "Select the instance recorded on or associated with this job id.")
 	cmd.Flags().StringVar(&stepID, "step", "", "Only include plans for this pipeline step id.")
@@ -1154,7 +1153,7 @@ func appendRuntimeResumeCommandTargetArgs(args []string, opts runtimeResumeComma
 	}
 	flag := strings.TrimSpace(opts.TargetFlag)
 	if flag == "" {
-		flag = "--target"
+		flag = "--repo"
 	}
 	return append(args, flag, opts.Target)
 }

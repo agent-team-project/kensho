@@ -23,7 +23,6 @@ func newUICmd() *cobra.Command {
 		target string
 		once   bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "ui",
 		Short: "Open the read-only terminal command center.",
@@ -60,7 +59,6 @@ func newUICmd() *cobra.Command {
 			return tui.Run(cmd.Context(), options)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&once, "once", false, "Load one snapshot, render a plain 120x30 Overview frame, and exit.")
 	return cmd
 }

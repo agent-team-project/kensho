@@ -158,8 +158,7 @@ func newTicketCloseCmd() *cobra.Command {
 }
 
 func newTicketCommandOptions() *ticketCommandOptions {
-	cwd, _ := os.Getwd()
-	return &ticketCommandOptions{repo: cwd}
+	return &ticketCommandOptions{repo: "."}
 }
 
 func addTicketCommonFlags(cmd *cobra.Command, opts *ticketCommandOptions) {

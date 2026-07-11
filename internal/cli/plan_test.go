@@ -42,7 +42,7 @@ func TestPlanJSONShowsTopologyAndDaemonMetadata(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -88,7 +88,7 @@ func TestPlanBundledFullProfileTopologyCanary(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --summary --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -127,7 +127,7 @@ func TestPlanMarksStoppedCodexMetadataUnsupported(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--json", "--action", "unsupported", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--json", "--action", "unsupported", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --json --action unsupported: %v\nstderr: %s", err, stderr.String())
 	}
@@ -182,7 +182,7 @@ restart = "on-failure"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--json", "--action", "restart", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--json", "--action", "restart", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --action restart: %v\nstderr: %s", err, stderr.String())
 	}
@@ -224,7 +224,7 @@ restart = "always"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"sync", "--dry-run", "--json", "--action", "restart", "--target", tmp})
+	cmd.SetArgs([]string{"sync", "--dry-run", "--json", "--action", "restart", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sync --dry-run --action restart: %v\nstderr: %s", err, stderr.String())
 	}
@@ -259,7 +259,7 @@ func TestPlanFiltersRowsByRuntime(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--json", "--runtime", "codex", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--json", "--runtime", "codex", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --runtime codex: %v\nstderr: %s", err, stderr.String())
 	}
@@ -282,7 +282,7 @@ func TestPlanSummaryJSONShowsAggregateCounts(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--summary", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--summary", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --summary --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -329,7 +329,7 @@ func TestPlanStopExtrasMarksOnlyRunningExtras(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--stop-extras", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--stop-extras", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --stop-extras --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -373,7 +373,7 @@ func TestPlanStopExtrasKeepsDeclaredEphemeralChildren(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--stop-extras", "--json", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--stop-extras", "--json", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --stop-extras --json: %v\nstderr: %s", err, stderr.String())
 	}
@@ -411,7 +411,7 @@ description = "ready"
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--json", "--phase", "blocked", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--json", "--phase", "blocked", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --json --phase blocked: %v\nstderr: %s", err, stderr.String())
 	}
@@ -447,7 +447,7 @@ func TestPlanJSONFiltersByAction(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--json", "--action", "start", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--json", "--action", "start", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --json --action start: %v\nstderr: %s", err, stderr.String())
 	}
@@ -483,7 +483,7 @@ func TestPlanStopExtrasFiltersByAction(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--stop-extras", "--json", "--action", "stop", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--stop-extras", "--json", "--action", "stop", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --stop-extras --json --action stop: %v\nstderr: %s", err, stderr.String())
 	}
@@ -528,7 +528,7 @@ func TestPlanJSONFiltersByAgentAndStatus(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--json", "--agent", "manager", "--status", "stopped", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--json", "--agent", "manager", "--status", "stopped", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --json with filters: %v\nstderr: %s", err, stderr.String())
 	}
@@ -577,7 +577,7 @@ func TestPlanJSONFiltersByInstance(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--json", "--instance", "manager", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--json", "--instance", "manager", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --json --instance: %v\nstderr: %s", err, stderr.String())
 	}
@@ -613,7 +613,7 @@ func TestPlanFormatPrintsFilteredRows(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--format", "{{.Instance}}:{{.Agent}}:{{.Status}}:{{.Action}}", "--agent", "manager", "--status", "stopped", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--format", "{{.Instance}}:{{.Agent}}:{{.Status}}:{{.Action}}", "--agent", "manager", "--status", "stopped", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --format: %v\nstderr: %s", err, stderr.String())
 	}
@@ -642,7 +642,7 @@ func TestPlanCommandsPrintsFilteredSyncPreview(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--target", tmp, "--stop-extras", "--runtime", "codex", "--action", "stop", "--commands"})
+	cmd.SetArgs([]string{"plan", "--repo", tmp, "--stop-extras", "--runtime", "codex", "--action", "stop", "--commands"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan --commands: %v\nstderr: %s", err, stderr.String())
 	}
@@ -667,7 +667,7 @@ func TestPlanCommandsPrintsFilteredSyncPreview(t *testing.T) {
 	noActionOut, noActionErr := &bytes.Buffer{}, &bytes.Buffer{}
 	noAction.SetOut(noActionOut)
 	noAction.SetErr(noActionErr)
-	noAction.SetArgs([]string{"plan", "--target", tmp, "--action", "keep", "--commands"})
+	noAction.SetArgs([]string{"plan", "--repo", tmp, "--action", "keep", "--commands"})
 	if err := noAction.Execute(); err != nil {
 		t.Fatalf("plan --commands no actionable rows: %v\nstderr: %s", err, noActionErr.String())
 	}
@@ -713,7 +713,7 @@ func TestPlanTextRendersTableAndSummary(t *testing.T) {
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"plan", "--target", tmp})
+	cmd.SetArgs([]string{"plan", "--repo", tmp})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("plan: %v\nstderr: %s", err, stderr.String())
 	}

@@ -199,7 +199,7 @@ func TestEvent_PipelineStepFailureSurvivesCleanRuntimeExitAndPreservesRetryEvide
 	}); err != nil {
 		t.Fatalf("write research-manager metadata: %v", err)
 	}
-	if err := Reconcile(root, m); err != nil {
+	if err := reconcileCrashOnly(root, m, "", nil); err != nil {
 		t.Fatalf("adopt research-manager metadata: %v", err)
 	}
 	top := mustParseCustomTopo(t, `

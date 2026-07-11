@@ -231,7 +231,6 @@ func newOutboxQuarantineLsCmd() *cobra.Command {
 		jsonOut      bool
 		format       string
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List quarantined outbox files.",
@@ -295,12 +294,11 @@ func newOutboxQuarantineLsCmd() *cobra.Command {
 			}
 			items = prepareOutboxQuarantineItems(items, sortMode, limit)
 			if commands {
-				return renderOutboxQuarantineListCommands(cmd.OutOrStdout(), items, nil, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderOutboxQuarantineListCommands(cmd.OutOrStdout(), items, nil, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return renderOutboxQuarantineList(cmd.OutOrStdout(), items, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().StringVar(&stateFilter, "state", "", "Filter by outbox state: pending, processed, or failed.")
 	cmd.Flags().StringSliceVar(&types, "type", nil, "Filter by event type; repeat or comma-separate values.")
 	cmd.Flags().StringSliceVar(&sources, "source", nil, "Filter by source agent/instance; repeat or comma-separate values.")
@@ -323,7 +321,6 @@ func newOutboxQuarantineShowCmd() *cobra.Command {
 		format   string
 		commands bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "show <quarantine-path>",
 		Short: "Show one quarantined outbox file.",
@@ -351,12 +348,11 @@ func newOutboxQuarantineShowCmd() *cobra.Command {
 				return exitErr(1)
 			}
 			if commands {
-				return renderOutboxQuarantineCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, target, "target"))
+				return renderOutboxQuarantineCommands(cmd.OutOrStdout(), result, operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName))
 			}
 			return renderOutboxQuarantineShow(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the quarantined outbox file as JSON.")
 	cmd.Flags().BoolVar(&commands, "commands", false, "Print only recommended follow-up commands. agent-team follow-ups preserve the selected repo scope.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the quarantined outbox file with a Go template, e.g. '{{.ID}} {{.State}}'.")
@@ -379,7 +375,6 @@ func newOutboxQuarantineRestoreCmd() *cobra.Command {
 		format      string
 		commands    bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "restore [quarantine-path]",
 		Short: "Restore validated quarantined outbox files.",
@@ -415,7 +410,7 @@ func newOutboxQuarantineRestoreCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if restoreAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox quarantine restore: --all cannot be combined with a path.")
@@ -474,7 +469,6 @@ func newOutboxQuarantineRestoreCmd() *cobra.Command {
 			return renderOutboxQuarantineRestore(cmd.OutOrStdout(), result, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&restoreAll, "all", false, "Restore all matching restorable quarantined files instead of one path.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview the restore without moving files.")
 	cmd.Flags().BoolVar(&force, "force", false, "Overwrite an existing active outbox file with the same restore path.")
@@ -508,7 +502,6 @@ func newOutboxQuarantineDropCmd() *cobra.Command {
 		format       string
 		commands     bool
 	)
-	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
 		Use:   "drop [quarantine-path]",
 		Short: "Drop quarantined outbox files after inspection.",
@@ -552,7 +545,7 @@ func newOutboxQuarantineDropCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			scope := operatorCommandScopeFromCommand(cmd, target, "target")
+			scope := operatorCommandScopeFromCommand(cmd, target, rootRepoFlagName)
 			if dropAll {
 				if len(args) != 0 {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team outbox quarantine drop: --all cannot be combined with a path.")
@@ -613,7 +606,6 @@ func newOutboxQuarantineDropCmd() *cobra.Command {
 			return renderOutboxQuarantineDrop(cmd.OutOrStdout(), []outboxQuarantineDropResult{result}, jsonOut, formatTemplate)
 		},
 	}
-	cmd.Flags().StringVar(&target, "target", cwd, legacyRepoTargetFlagHelp)
 	cmd.Flags().BoolVar(&dropAll, "all", false, "Drop all matching quarantined files instead of one path.")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview quarantined files that would be dropped.")
 	cmd.Flags().StringVar(&stateFilter, "state", "", "With --all, filter by outbox state: pending, processed, or failed.")
