@@ -215,7 +215,12 @@ delivers runtime-enriched fields such as `status`, `job_status`,
 `completed_step`, and `step_status`, but those values cannot define static
 manager ownership: topology validation rejects a compatible owner trigger that
 depends on them. Use `match.pipeline` and/or `match.target` to partition manager
-routes instead.
+routes instead. Validation checks both possible stable payload shapes for each
+completion event: `manager_gate_ready` absent (false) and present as `true`.
+Every shape must resolve exactly one persistent owner. Missing or ambiguous
+routes are structural errors even when `[authority]` is omitted or configured
+for audit; only effective allowlist denials remain non-blocking outside enforce
+mode.
 
 ```toml
 [[instances.research-manager.triggers]]

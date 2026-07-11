@@ -4622,6 +4622,13 @@ repo = "kensho"
 		t.Fatalf("write config: %v", err)
 	}
 	top := mustParseCustomTopo(t, `
+[instances.docs-manager]
+agent = "manager"
+
+[[instances.docs-manager.triggers]]
+event = "job.completed"
+match.pipeline = "docs_freshness"
+
 [instances.docs-writer]
 agent = "worker"
 ephemeral = true
@@ -4657,7 +4664,7 @@ time_budget = "45m"
 max_attempts = 1
 
 [teams.docs]
-instances = ["docs-writer"]
+instances = ["docs-manager", "docs-writer"]
 pipelines = ["docs_freshness"]
 schedules = ["docs-freshness"]
 `)
@@ -5101,6 +5108,13 @@ func TestEvent_PipelineInitialManualGateBlocksWithoutDispatch(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)
 	top, err := topology.Parse([]byte(`
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [instances.worker]
 agent = "worker"
 ephemeral = true
@@ -5114,8 +5128,12 @@ trigger.event = "ticket.created"
 
 [[pipelines.ticket_to_pr.steps]]
 id = "approval"
-target = "worker"
+target = "manager"
 gate = "manual"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
 `))
 	if err != nil {
 		t.Fatalf("parse topology: %v", err)

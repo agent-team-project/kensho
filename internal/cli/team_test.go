@@ -4127,6 +4127,10 @@ func TestTeamApproveManualGateScopesToTeam(t *testing.T) {
 event        = "agent.dispatch"
 match.target = "manager"
 
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
@@ -4156,6 +4160,10 @@ gate = "manual"
 [teams.delivery]
 instances = ["manager", "worker"]
 pipelines = ["ticket_to_pr"]
+
+[teams.ops]
+instances = ["manager", "worker"]
+pipelines = ["ops_review"]
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -4396,6 +4404,10 @@ func TestTeamRejectManualGateScopesToTeam(t *testing.T) {
 event        = "agent.dispatch"
 match.target = "manager"
 
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
@@ -4425,6 +4437,10 @@ gate = "manual"
 [teams.delivery]
 instances = ["manager", "worker"]
 pipelines = ["ticket_to_pr"]
+
+[teams.ops]
+instances = ["manager", "worker"]
+pipelines = ["ops_review"]
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

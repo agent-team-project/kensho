@@ -1939,7 +1939,7 @@ func (t *Topology) ValidateAuthoritySatisfiability() error {
 }
 
 func validatePipelineAuthoritySatisfiability(t *Topology) error {
-	if t == nil || t.Authority == nil || !t.Authority.Configured() {
+	if t == nil {
 		return nil
 	}
 	for _, pipeline := range t.SortedPipelines() {
@@ -1954,7 +1954,7 @@ func validatePipelineAuthoritySatisfiability(t *Topology) error {
 		if err != nil {
 			return err
 		}
-		if !t.Authority.Enforced() {
+		if t.Authority == nil || !t.Authority.Configured() || !t.Authority.Enforced() {
 			continue
 		}
 		for _, route := range routes {
@@ -2034,16 +2034,18 @@ func (t *Topology) resolvePipelineManagers(pipeline *Pipeline) ([]pipelineManage
 		if owner.Ephemeral {
 			return nil, true, fmt.Errorf("pipeline %q: unsupported managing instance %q from manual gate: owner must be persistent", pipeline.Name, owner.Name)
 		}
-		payload := ManagerCompletionTriggerPayload(pipeline.Name, owner.Name, true)
-		if candidate, fields, ok := t.unsupportedPersistentCompletionOwner(EventJobStepCompleted, payload); ok {
-			return nil, true, unsupportedDynamicCompletionOwnerError(pipeline.Name, EventJobStepCompleted, candidate, fields)
-		}
-		candidates := t.persistentCompletionCandidates(EventJobStepCompleted, payload)
-		if len(candidates) == 0 {
-			return nil, true, fmt.Errorf("pipeline %q: unsupported owner %q: no persistent instance trigger matches job.step_completed for target %q", pipeline.Name, owner.Name, owner.Name)
-		}
-		if len(candidates) != 1 || candidates[0] != owner.Name {
-			return nil, true, fmt.Errorf("pipeline %q: ambiguous completion owner for job.step_completed target %q: matched %s", pipeline.Name, owner.Name, strings.Join(candidates, ", "))
+		for _, managerGateReady := range []bool{false, true} {
+			payload := ManagerCompletionTriggerPayload(pipeline.Name, owner.Name, managerGateReady)
+			if candidate, fields, ok := t.unsupportedPersistentCompletionOwner(EventJobStepCompleted, payload); ok {
+				return nil, true, fmt.Errorf("%v (manager_gate_ready=%t)", unsupportedDynamicCompletionOwnerError(pipeline.Name, EventJobStepCompleted, candidate, fields), managerGateReady)
+			}
+			candidates := t.persistentCompletionCandidates(EventJobStepCompleted, payload)
+			if len(candidates) == 0 {
+				return nil, true, fmt.Errorf("pipeline %q: unsupported owner %q: no persistent instance trigger matches job.step_completed for target %q when manager_gate_ready=%t", pipeline.Name, owner.Name, owner.Name, managerGateReady)
+			}
+			if len(candidates) != 1 || candidates[0] != owner.Name {
+				return nil, true, fmt.Errorf("pipeline %q: ambiguous completion owner for job.step_completed target %q when manager_gate_ready=%t: matched %s", pipeline.Name, owner.Name, managerGateReady, strings.Join(candidates, ", "))
+			}
 		}
 		routes = append(routes, pipelineManagerRoute{
 			owner: owner,
@@ -2054,26 +2056,32 @@ func (t *Topology) resolvePipelineManagers(pipeline *Pipeline) ([]pipelineManage
 	}
 
 	if len(terminalVerbs) > 0 {
-		payload := ManagerCompletionTriggerPayload(pipeline.Name, terminalTarget, false)
-		if candidate, fields, ok := t.unsupportedPersistentCompletionOwner(EventJobCompleted, payload); ok {
-			return nil, true, unsupportedDynamicCompletionOwnerError(pipeline.Name, EventJobCompleted, candidate, fields)
-		}
-		candidates := t.persistentCompletionCandidates(EventJobCompleted, payload)
-		if len(candidates) == 0 {
-			return nil, true, fmt.Errorf("pipeline %q: unsupported managing instance for %s: no persistent instance trigger matches job.completed with pipeline %q", pipeline.Name, pipelineCompletionManagerDuty(pipeline), pipeline.Name)
-		}
-		if len(candidates) != 1 {
-			return nil, true, fmt.Errorf("pipeline %q: ambiguous completion owner for %s: matched %s", pipeline.Name, pipelineCompletionManagerDuty(pipeline), strings.Join(candidates, ", "))
+		terminalOwners := map[string]bool{}
+		for _, managerGateReady := range []bool{false, true} {
+			payload := ManagerCompletionTriggerPayload(pipeline.Name, terminalTarget, managerGateReady)
+			if candidate, fields, ok := t.unsupportedPersistentCompletionOwner(EventJobCompleted, payload); ok {
+				return nil, true, fmt.Errorf("%v (manager_gate_ready=%t)", unsupportedDynamicCompletionOwnerError(pipeline.Name, EventJobCompleted, candidate, fields), managerGateReady)
+			}
+			candidates := t.persistentCompletionCandidates(EventJobCompleted, payload)
+			if len(candidates) == 0 {
+				return nil, true, fmt.Errorf("pipeline %q: unsupported managing instance for %s: no persistent instance trigger matches job.completed with pipeline %q when manager_gate_ready=%t", pipeline.Name, pipelineCompletionManagerDuty(pipeline), pipeline.Name, managerGateReady)
+			}
+			if len(candidates) != 1 {
+				return nil, true, fmt.Errorf("pipeline %q: ambiguous completion owner for %s when manager_gate_ready=%t: matched %s", pipeline.Name, pipelineCompletionManagerDuty(pipeline), managerGateReady, strings.Join(candidates, ", "))
+			}
+			terminalOwners[candidates[0]] = true
 		}
 		verbs := terminalVerbs
 		if len(owners) == 0 {
 			verbs = append(pipelineCoreManagerRequiredVerbs(), terminalVerbs...)
 		}
-		routes = append(routes, pipelineManagerRoute{
-			owner: t.Instances[candidates[0]],
-			duty:  pipelineCompletionManagerDuty(pipeline),
-			verbs: verbs,
-		})
+		for _, name := range sortedStringKeys(terminalOwners) {
+			routes = append(routes, pipelineManagerRoute{
+				owner: t.Instances[name],
+				duty:  pipelineCompletionManagerDuty(pipeline),
+				verbs: verbs,
+			})
+		}
 	}
 	return routes, true, nil
 }

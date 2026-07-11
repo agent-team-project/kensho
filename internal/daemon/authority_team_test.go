@@ -160,6 +160,100 @@ allow = ["read"]
 	}
 }
 
+func TestGH403TerminalReadyGateCompletionOwnerMatrixMatchesRuntimePayload(t *testing.T) {
+	topologyBody := `
+[instances.frontend-manager]
+agent = "manager"
+
+[[instances.frontend-manager.triggers]]
+event = "job.step_completed"
+match.target = "frontend-manager"
+
+[[instances.frontend-manager.triggers]]
+event = "job.completed"
+match.pipeline = "managed"
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[pipelines.managed]
+trigger.event = "work.ready"
+reap_worktree = "on_merge"
+
+[[pipelines.managed.steps]]
+id = "implement"
+target = "worker"
+
+[[pipelines.managed.steps]]
+id = "decide"
+target = "frontend-manager"
+after = ["implement"]
+gate = "manual"
+
+[teams.frontend]
+instances = ["frontend-manager", "worker"]
+pipelines = ["managed"]
+`
+	j := &jobstore.Job{
+		ID:       "gh-403-terminal-ready",
+		Pipeline: "managed",
+		Status:   jobstore.StatusFailed,
+		Steps: []jobstore.Step{
+			{ID: "implement", Target: "worker", Status: jobstore.StatusDone},
+			{ID: "decide", Target: "frontend-manager", Status: jobstore.StatusBlocked, Gate: jobstore.StepGateManual, After: []string{"implement"}},
+		},
+	}
+	payload := managerCompletionPayload(j, &j.Steps[0], nil, jobstore.StatusFailed)
+	if ready, ok := payload["manager_gate_ready"].(bool); !ok || !ready {
+		t.Fatalf("manager completion payload manager_gate_ready = %#v, want true: %#v", payload["manager_gate_ready"], payload)
+	}
+
+	for _, policy := range []struct {
+		name string
+		body string
+	}{
+		{name: "no authority"},
+		{name: "empty audit", body: `
+[authority]
+enforcement = "audit"
+`},
+		{name: "enforce", body: `
+[authority]
+enforcement = "enforce"
+
+[authority.instances.frontend-manager]
+allow = ["event.publish", "job.*:team"]
+`},
+	} {
+		t.Run(policy.name, func(t *testing.T) {
+			body := topologyBody + policy.body
+			top, err := topology.Parse([]byte(body))
+			if err != nil {
+				t.Fatalf("parse valid completion-owner topology: %v", err)
+			}
+			trace := top.Trace(topology.EventJobCompleted, payload)
+			if got := trace.MatchedInstanceNames(); len(got) != 1 || got[0] != "frontend-manager" {
+				t.Fatalf("terminal ready-gate payload matched instances = %v, want only frontend-manager: %+v", got, trace.Entries)
+			}
+
+			mutated := body + `
+[instances.gate-ready-manager]
+agent = "manager"
+
+[[instances.gate-ready-manager.triggers]]
+event = "job.completed"
+match.pipeline = "managed"
+match.manager_gate_ready = "true"
+`
+			_, err = topology.Parse([]byte(mutated))
+			if err == nil || !strings.Contains(err.Error(), "ambiguous completion owner") || !strings.Contains(err.Error(), "manager_gate_ready=true") {
+				t.Fatalf("parse terminal ready-gate mutation error = %v, want precise true-variant ambiguity", err)
+			}
+		})
+	}
+}
+
 func writeAuthorityTargetJob(t *testing.T, teamDir, ticket, team string) {
 	t.Helper()
 	j, err := jobstore.New(ticket, "worker", "authority scope test", time.Now().UTC())

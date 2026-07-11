@@ -414,6 +414,13 @@ func TestTopologyShowJSONMirrorsDaemonTopology(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := `
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "job.completed"
+match.pipeline = "ticket_to_pr"
+
 [instances.worker]
 agent = "worker"
 ephemeral = true
@@ -462,7 +469,7 @@ scope = "team"
 
 [teams.delivery]
 description = "Delivery team"
-instances = ["worker", "reviewer"]
+instances = ["manager", "worker", "reviewer"]
 pipelines = ["ticket_to_pr"]
 schedules = ["nightly"]
 channels = ["delivery"]
@@ -517,6 +524,21 @@ load_weight = 2.5
 	var shown map[string]any
 	if err := json.Unmarshal(out.Bytes(), &shown); err != nil {
 		t.Fatalf("decode topology show json: %v\nbody=%s", err, out.String())
+	}
+	// The typed daemon client materializes zero-valued runtime counters while
+	// the raw endpoint omits them for persistent instances. Ignore only those
+	// client defaults before asserting that every daemon field survives.
+	rawInstances, _ := raw["instances"].([]any)
+	shownInstances, _ := shown["instances"].([]any)
+	for i := 0; i < len(rawInstances) && i < len(shownInstances); i++ {
+		rawInstance, _ := rawInstances[i].(map[string]any)
+		shownInstance, _ := shownInstances[i].(map[string]any)
+		if _, ok := rawInstance["running"]; !ok {
+			delete(shownInstance, "running")
+		}
+		if _, ok := rawInstance["queued"]; !ok {
+			delete(shownInstance, "queued")
+		}
 	}
 	if !reflect.DeepEqual(shown, raw) {
 		want, _ := json.MarshalIndent(raw, "", "  ")

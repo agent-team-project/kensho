@@ -551,6 +551,9 @@ replicas = 2
 [instances.manager]
 agent = "manager"
 
+[[instances.manager.triggers]]
+event = "job.completed"
+
 [instances.comms]
 agent = "comms"
 

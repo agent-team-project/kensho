@@ -194,10 +194,13 @@ Important layering rules:
   daemon. Ownership triggers may constrain only the stable completion payload
   fields produced by `ManagerCompletionTriggerPayload`; a compatible trigger
   that depends on runtime-enriched job or step fields is rejected as an
-  unsupported dynamic owner. Missing or ambiguous routes are rejected in both
-  audit and enforce modes. Under enforcement, each route's mandatory job
-  mutations are also evaluated through the runtime authority composer, so
-  scope-unsatisfiable manager paths are rejected before daemon activation.
+  unsupported dynamic owner. Both absent/false and true `manager_gate_ready`
+  payload shapes must resolve exactly one owner for `job.step_completed` and
+  `job.completed`. Missing or ambiguous routes are rejected whether authority
+  is omitted, audit-only, or enforced. Under enforcement, each route's
+  mandatory job mutations are also evaluated through the runtime authority
+  composer, so scope-unsatisfiable manager paths are rejected before daemon
+  activation.
 
 ## Contributor Checks
 

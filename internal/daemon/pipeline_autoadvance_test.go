@@ -233,6 +233,10 @@ workspace = "repo"
 id = "review"
 target = "worker"
 after = ["verify"]
+
+[teams.research]
+instances = ["research-manager", "worker"]
+pipelines = ["research_study"]
 `)
 	resolver := NewEventResolver(m, teamDir, top)
 	srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
@@ -383,6 +387,10 @@ id = "approve"
 target = "manager"
 after = ["review"]
 gate = "manual"
+
+[teams.delivery]
+instances = ["manager", "worker", "reviewer"]
+pipelines = ["ticket_to_pr"]
 `)
 	fake := newSequencedFakeSpawner(eventShortFakeRuntime, eventShortFakeRuntime, 30*time.Second)
 	m := NewInstanceManager(root, fake.spawn)
@@ -438,6 +446,13 @@ func TestEvent_ProbePipelineSkipsReviewAndCompletesOnImplementExit(t *testing.T)
 	root := t.TempDir()
 	teamDir := autoAdvanceTeamDir(t)
 	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [instances.worker]
 agent = "worker"
 ephemeral = true
@@ -467,9 +482,13 @@ after = ["implement"]
 
 [[pipelines.ticket_to_pr.steps]]
 id = "approve"
-target = "reviewer"
+target = "manager"
 after = ["review"]
 gate = "manual"
+
+[teams.delivery]
+instances = ["manager", "worker", "reviewer"]
+pipelines = ["ticket_to_pr"]
 `)
 
 	fake := newFakeSpawner(eventShortFakeRuntime)
@@ -520,8 +539,8 @@ gate = "manual"
 	if err != nil {
 		t.Fatalf("read manager messages: %v", err)
 	}
-	if len(messages) != 0 {
-		t.Fatalf("manager messages = %+v, want none for probe", messages)
+	if len(messages) != 1 || !strings.Contains(messages[0].Body, `"event":"job.step_completed"`) || !strings.Contains(messages[0].Body, `"job":"squ-94"`) {
+		t.Fatalf("manager messages = %+v, want one completion-owner notification for the skipped probe pipeline", messages)
 	}
 }
 
@@ -637,7 +656,15 @@ target = "worker"
 func TestEvent_PipelineAutoAdvanceStopsAtManualGate(t *testing.T) {
 	root := t.TempDir()
 	teamDir := autoAdvanceTeamDir(t)
+	writeFixtureAgent(t, teamDir, "manager")
 	top := mustParseCustomTopo(t, `
+[instances.manager]
+agent = "manager"
+
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [instances.worker]
 agent = "worker"
 ephemeral = true
@@ -662,9 +689,13 @@ target = "worker"
 
 [[pipelines.ticket_to_pr.steps]]
 id = "approve"
-target = "reviewer"
+target = "manager"
 after = ["implement"]
 gate = "manual"
+
+[teams.delivery]
+instances = ["manager", "worker", "reviewer"]
+pipelines = ["ticket_to_pr"]
 `)
 
 	fake := newFakeSpawner(eventShortFakeRuntime)
@@ -681,8 +712,11 @@ gate = "manual"
 	if err := waitForEventReaper(t, m, "worker-squ-93"); err != nil {
 		t.Fatalf("wait worker reaper: %v", err)
 	}
-	if fake.callCount() != 1 {
-		t.Fatalf("spawn calls=%d, want 1 (manual gate must block auto-advance)", fake.callCount())
+	if fake.callCount() != 2 {
+		t.Fatalf("spawn calls=%d, want worker plus persistent manager wake (manual gate step must remain undispatched)", fake.callCount())
+	}
+	if err := waitForEventReaper(t, m, "manager"); err != nil {
+		t.Fatalf("wait manager reaper: %v", err)
 	}
 	j, err := jobstore.Read(teamDir, "squ-93")
 	if err != nil {

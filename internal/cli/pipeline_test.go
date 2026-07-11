@@ -5088,6 +5088,10 @@ func TestPipelineManualGateRequiresOperatorApproval(t *testing.T) {
 event        = "agent.dispatch"
 match.target = "manager"
 
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
@@ -5100,6 +5104,10 @@ id = "review"
 target = "manager"
 after = ["implement"]
 gate = "manual"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -5224,6 +5232,10 @@ func TestPipelineApproveManualGate(t *testing.T) {
 event        = "agent.dispatch"
 match.target = "manager"
 
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
@@ -5236,6 +5248,10 @@ id = "review"
 target = "manager"
 after = ["implement"]
 gate = "manual"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -5472,6 +5488,10 @@ func setupManualGateApprovalRepo(t *testing.T, includeTeam bool) (root string, m
 		t.Fatal(err)
 	}
 	topologyText := topoFixture + `
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
@@ -5481,17 +5501,19 @@ target = "worker"
 
 [[pipelines.ticket_to_pr.steps]]
 id = "review"
-target = "worker"
+target = "manager"
 after = ["implement"]
 gate = "manual"
 `
+	team := "fixture"
 	if includeTeam {
-		topologyText += `
-[teams.delivery]
-instances = ["worker"]
-pipelines = ["ticket_to_pr"]
-`
+		team = "delivery"
 	}
+	topologyText += fmt.Sprintf(`
+[teams.%s]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
+`, team)
 	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topologyText), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -5625,6 +5647,10 @@ func TestPipelineRejectManualGate(t *testing.T) {
 event        = "agent.dispatch"
 payload.target = "manager"
 
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
@@ -5637,6 +5663,10 @@ id = "review"
 target = "manager"
 after = ["implement"]
 gate = "manual"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -5737,6 +5767,10 @@ func TestPipelineRejectManualGateBatch(t *testing.T) {
 event        = "agent.dispatch"
 payload.target = "manager"
 
+[[instances.manager.triggers]]
+event = "job.step_completed"
+match.target = "manager"
+
 [pipelines.ticket_to_pr]
 trigger.event = "ticket.created"
 
@@ -5749,6 +5783,10 @@ id = "review"
 target = "manager"
 after = ["implement"]
 gate = "manual"
+
+[teams.delivery]
+instances = ["manager", "worker"]
+pipelines = ["ticket_to_pr"]
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,10 @@ description = "Coordinates product-facing work."
 event = "agent.dispatch"
 match.target = "product-manager"
 
+[[instances.product-manager.triggers]]
+event = "job.step_completed"
+match.target = "product-manager"
+
 [instances.product-worker]
 agent = "worker"
 ephemeral = true
@@ -24,6 +28,10 @@ description = "Coordinates platform work."
 
 [[instances.platform-manager.triggers]]
 event = "agent.dispatch"
+match.target = "platform-manager"
+
+[[instances.platform-manager.triggers]]
+event = "job.step_completed"
 match.target = "platform-manager"
 
 [instances.platform-worker]

@@ -11,6 +11,10 @@ match.target = "incident-manager"
 event = "schedule"
 match.target = "incident-manager"
 
+[[instances.incident-manager.triggers]]
+event = "job.step_completed"
+match.target = "incident-manager"
+
 [instances.incident-worker]
 agent = "worker"
 ephemeral = true
