@@ -314,6 +314,18 @@ time_budget  = "45m"
 # budget_notice levels are the normal pacing mechanism.
 # hard_multiplier = 1.5
 max_attempts = 1
+instructions = """
+If a job threads a declared per-instance field through to runtime launches,
+treat the launch paths as one enumerable class. Before coding, enumerate every
+applicable member: daemon event, HTTP, and pipeline dispatch; direct `run`
+(interactive, `--no-daemon`, ad-hoc `--name`, and `--runtime`/`--runtime-bin`
+overrides); `run --detach`; `instance up`; `template run`; managed resume for
+every runtime; and dynamic dispatch payload overrides. Add a test for each
+applicable path proving the field lands, or proving that a conflicting
+combination is explicitly rejected. In the PR body, disclose every applicable
+path left uncovered and why. Evidence from one member does not establish the
+class.
+"""
 
 [[pipelines.platform_ticket_to_pr.steps]]
 id           = "verify"

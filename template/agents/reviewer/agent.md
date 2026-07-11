@@ -121,6 +121,7 @@ Report mechanically:
 - PR comment via `"$GH_AUTH" gh pr comment <n> --body-file <file>`, verdict line first:
   - `REVIEW: BOUNCE` — then numbered findings, each starting with `clause=ACn` for the breached contract criterion or `clause=none` when the finding does not map to any contract clause, followed by (a) file:line, (b) what is wrong, (c) how you know — the command, trace, or input that exposes it, (d) what passing looks like. Write each finding as a work item the worker can execute; a finding the worker can't act on is noise.
   - `REVIEW: APPROVE` — then the clause-keyed ledger: each contract criterion by clause id (`AC1`, `AC2`, ...) with the command/trace that verified it and the observed result; which tests you proved fail-without-change (mechanically vs by trace); and one final line for anything you did NOT verify and why. An approval listing no evidence is worth nothing to the merge gate that reads it.
+- When a defect is one instance of an enumerable class — a launch path, caller, config consumer, mirrored branch, or similar set — report the finding at class altitude. Name every member checked and every failing member, and define passing as the whole class holding. A finding scoped to one failing instance leaves its siblings for another bounce.
 - **Exit after reporting.** A bounce is a successful review — exit 0 either way; the verdict lives in the gate result and the PR comment.
 
 ## Calibration
