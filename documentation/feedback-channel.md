@@ -2,9 +2,12 @@
 
 How operating teams (today: the coral-virtual-graph deployment) get observations, requests, and incidents to the agent-team maintainers — and what happens on the other end. This channel is itself agent-operated on both sides; the contract below is what makes that work without either side blocking on the other being awake.
 
-## The channel: Linear tickets in the SQU workspace
+## The channel: GitHub issues in `agent-team-project/kensho`
 
-One ticket per observation. The maintainer side watches the workspace continuously (a polling monitor while a session is live; the board itself once column-driven dispatch lands — see SQU-67), so a filed ticket typically gets triaged within minutes and answered via ticket comments. Comments on your ticket are the reply channel — no side channels, everything durable and auditable.
+One issue per observation. The maintainer side watches the configured GitHub
+Project continuously, so a filed issue is triaged and answered through durable
+issue comments. Comments on your issue are the reply channel — no side
+channels, everything auditable.
 
 ## Labels
 
@@ -30,29 +33,32 @@ One ticket per observation. The maintainer side watches the workspace continuous
 The tiers above are for humans and supervising sessions. Individual agents inside a deployment have their own zero-friction path (SQU-79/SQU-80):
 
 - **Capture** — any agent, mid-job: `agent-team feedback submit "<one sentence>"`. The harness stamps instance, agent, job, ticket, pipeline step, runtime, build identity, and source origin automatically; a fingerprint groups near-duplicate reports so frequency data accrues without anyone counting. The store is local (`.agent_team/feedback/`) and PM-provider-free — no credentials, works in worktrees, works in `[pm].provider = "none"` repos.
-- **Triage** — the `feedback-triage` schedule (every 12 hours by default) spawns an ephemeral manager running the `triage-feedback` skill: it clusters new feedback plus system pain signals (repeated bounces, infra-signature repeats, watchdog kills), then materializes tickets, folds evidence into existing ones, or dismisses with a recorded reason — and resolves every store item so nothing is re-litigated.
+- **Triage** — this repo's `feedback-triage` schedule runs every 2 hours (the bundled full profile defaults to 24 hours) and spawns an ephemeral manager running the `triage-feedback` skill: it clusters new feedback plus system pain signals (repeated bounces, infra-signature repeats, watchdog kills), then materializes tickets, folds evidence into existing ones, or dismisses with a recorded reason — and resolves every store item so nothing is re-litigated.
 - **Routing** — `[feedback]` in `config.toml` declares named destinations (`[feedback.routes.<name>]` with local `type`/`root` or legacy `kind`/`team_key`/`label` metadata). Deployment-local issues go to the deployment's own board; framework issues go to the `upstream` route (this workspace); other projects' issues go to their named route. Triage materializes and folds tickets only through `agent-team ticket create|comment|update|close`; the target repo's `[pm].provider` decides whether that lands in Linear or GitHub. Materialized tickets land in Backlog — never any team's agent-dispatch column — and non-local routes are capped per sweep. Non-local tickets also carry `source-project:<project.id>` plus the `agent-team-origin: ...` footer so maintainers can trace which deployment filed them.
 
 Net effect: an observation a worker had at 3am inside a worktree becomes, at most a week later, either a well-formed ticket on the right board or a recorded dismissal — instead of evaporating at reap.
 
 ### Quickstart for operating teams: route your agents' framework feedback here
 
-Add to your repo's `.agent_team/config.toml`. With this repository still configured as `[pm].provider = "linear"`, the triage skill calls `agent-team ticket ...` and the ticket verb routes framework feedback to the SQU workspace:
+Add a route to your repo's `.agent_team/config.toml`. This repository uses
+`[pm].provider = "github"`; once feedback reaches its checkout, the
+provider-routed ticket verb creates or updates issues in
+`agent-team-project/kensho`:
 
 ```toml
 [feedback]
 upstream = "agent-team"
 
 [feedback.routes.agent-team]
-kind     = "linear"
-team_key = "SQU"
-label    = "feedback"
+type  = "local"
+root  = "/path/to/kensho"
+label = "feedback"
 ```
 
-Your agents submit locally (`agent-team feedback submit "<sentence>"` — no credentials, works in worktrees); your own triage schedule decides what is deployment-local versus framework-level and files the latter into our Backlog, batched. Anything urgent should still be a directly-filed `incident` ticket — the triage loop is periodic by design (12h default), and incidents should not wait for it.
+Your agents submit locally (`agent-team feedback submit "<sentence>"` — no credentials, works in worktrees); your own triage schedule decides what is deployment-local versus framework-level and files the latter into our Backlog, batched. Anything urgent should still be a directly-filed `incident` issue — the triage loop is periodic by design, and incidents should not wait for it.
 
-For immediate machine-local delivery to another checked-out repo, use a local
-route instead of a Linear route:
+For immediate machine-local delivery to another checked-out repo, use the local
+route shown above:
 
 ```toml
 [feedback.routes.agent-team]

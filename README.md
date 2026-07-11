@@ -20,8 +20,8 @@ Command shapes and file schemas are product surface, but still allowed to move.
 **Hosted docs:** [agent-team.readthedocs.io](https://agent-team.readthedocs.io) · **Community:** [Discord](https://discord.gg/sBrPh3Amc)
 
 Read [The Self-Improving Configuration](./docs/experiment.md) for the live
-delivery/platform/quality/pr/docs topology, autonomous loops, budget model, and
-ticket/PR evidence behind the current experiment.
+eight-team topology, autonomous loops, budget model, and ticket/PR evidence
+behind the current experiment.
 
 ## What It Is
 
@@ -61,7 +61,7 @@ dispatching real agent work. See [Getting Started](./docs/getting-started.md)
 for the full install and runtime-auth walkthrough.
 
 ```sh
-git clone https://github.com/agent-team-project/agent-team.git
+git clone https://github.com/agent-team-project/kensho.git agent-team
 cd agent-team
 
 go build -o bin/agent-team ./cmd/agent-team
@@ -121,8 +121,8 @@ verifier, reviewer, and the ticket-to-PR pipeline. `agent-team init --minimal`
 selects that path explicitly, and `agent-team init --minimal --dry-run ...`
 previews the template, profile, and PM provider before writing `.agent_team/`.
 Use `agent-team init --profile full` when you explicitly want the full
-self-dogfood topology with release, docs, comms, quality, sentinel, and
-product-verifier loops.
+self-dogfood topology with release, research, frontend, docs, comms, quality,
+sentinel, and product-verifier loops.
 
 For a no-LLM local orchestration walkthrough, run the fake-runtime demo from the
 source checkout:
@@ -148,6 +148,9 @@ The full self-dogfood profile currently includes:
 | `quality` | Architecture debt audits, harness review, org review, sentinels, and product verification. |
 | `pr` | Public digest, release-announcement, and community-feedback agents. |
 | `docs` | Docs-writing agents and the docs-freshness sweep. |
+| `release` | The manually approved prepare, verify, ship, asset-check, and announcement train. |
+| `research` | Preregistered studies, independent evidence verification/review, and cross-study learning. |
+| `frontend` | Advisor-backed terminal-interface slices, deterministic TUI verification, and eventual clean web cutover. |
 
 The core delivery loop is event-driven:
 
@@ -165,18 +168,28 @@ delivery path:
 
 | Loop | Cadence | Purpose |
 | --- | --- | --- |
-| Feedback triage | 12h | Cluster agent feedback and file, fold, or dismiss follow-up tickets. |
-| Debt sweep | 24h | Audit one subsystem and file at most three evidence-backed tech-debt tickets. |
-| Harness review | 12h | Turn bounce patterns, failures, and feedback into prompt/skill improvement tickets. |
-| Org review | 3d | Read outcomes, spend, capacity, cycle-time, and feedback trends; propose strategic process/topology/prompt/budget tickets. |
-| Sentinel | 6h | Check post-merge public surfaces and submit incident feedback when they fail. |
-| Product verify | 24h | Compare daemon UI data with CLI ground truth and file capped product feedback. |
+| Feedback triage | 2h | Cluster agent feedback and file, fold, or dismiss follow-up tickets. |
+| Debt sweep | 4h | Audit one subsystem and file at most three evidence-backed tech-debt tickets. |
+| Harness review | 3h | Turn bounce patterns, failures, and feedback into prompt/skill improvement tickets. |
+| Org review | 12h | Read outcomes, spend, capacity, cycle-time, and feedback trends; propose strategic process/topology/prompt/budget tickets. |
+| Sentinel | 3h | Check post-merge public surfaces and submit incident feedback when they fail. |
+| Product verify | 4h | Compare daemon UI data with CLI ground truth and file capped product feedback. |
 | Discord digest | 24h | Draft or publish a shipped-work digest through the sanctioned comms path. |
-| Docs freshness | 24h | Audit docs against the shipped binary, latest release, repo identity, and quickstart. |
+| Docs freshness | 6h | Audit docs against the shipped binary, latest release, repo identity, and quickstart. |
+| Research reconcile | 2h | Reconcile the study portfolio and dispatch only graph-safe evidence work. |
+| Research evidence audit | 84h | Check terminal studies against frozen preregistrations, durable gates, and artifact digests. |
+| Frontend reconcile | 2h | Reconcile accepted terminal-interface slices against the TUI parity contract. |
 
 Budgets and watchdogs are part of the model. Topology can declare per-team,
 per-job, and per-step token/time allowances; the daemon records usage, sends
 soft budget notices, and can opt into hard cutoffs for runaway work.
+
+The first terminal-interface slice is available now. With a local daemon
+running, `agent-team ui` opens a keyboard-complete, read-only Overview;
+`agent-team ui --once` prints the same ground truth without entering the
+interactive program. This v0.5.0 slice is deliberately narrow: later TUI views,
+actions, full CLI parity, and removal of the embedded web dashboard remain in
+the frontend workstream.
 
 ## Architecture
 
@@ -209,7 +222,7 @@ go install github.com/agent-team-project/agent-team/cmd/agent-teamd@latest
 From a release tarball:
 
 ```sh
-curl -fsSL https://github.com/agent-team-project/agent-team/releases/latest/download/agent-team_<version>_darwin_arm64.tar.gz \
+curl -fsSL https://github.com/agent-team-project/kensho/releases/latest/download/agent-team_<version>_darwin_arm64.tar.gz \
   | tar -xz -C /usr/local/bin agent-team agent-teamd
 ```
 

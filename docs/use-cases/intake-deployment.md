@@ -225,13 +225,13 @@ Verify a published image before pinning it in deployment manifests:
 
 ```sh
 cosign verify \
-  --certificate-identity-regexp 'https://github.com/agent-team-project/agent-team/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
+  --certificate-identity-regexp 'https://github.com/agent-team-project/kensho/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/agent-team-project/agent-team:latest
 
 cosign verify-attestation \
   --type slsaprovenance \
-  --certificate-identity-regexp 'https://github.com/agent-team-project/agent-team/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
+  --certificate-identity-regexp 'https://github.com/agent-team-project/kensho/.github/workflows/container.yml@refs/(heads/main|tags/v.*)' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/agent-team-project/agent-team:latest
 ```

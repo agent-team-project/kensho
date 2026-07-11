@@ -17,7 +17,9 @@ features:
   - title: File-backed orchestration
     details: Templates, jobs, topology, queues, schedules, and runtime state live under each repo's .agent_team directory.
   - title: Self-improving configuration
-    details: This repo dogfoods five declared teams, scheduled feedback, audit, communication, and docs-freshness loops, budget constraints, and review gates.
+    details: This repo dogfoods eight declared teams and eleven schedules across delivery, audit, research, frontend, communication, and docs freshness, with budget constraints and review gates.
+  - title: Terminal-first operations
+    details: The tested read-only TUI Overview uses the same typed daemon client as the CLI; later views, actions, and the clean web cutover remain gated work.
   - title: Docker-like CLI control
     details: Start, stop, restart, inspect, monitor, attach, and repair agent instances through a per-repo daemon.
   - title: Durable work units

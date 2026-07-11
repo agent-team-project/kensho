@@ -1,10 +1,10 @@
-# The harness-review loop: a weekly sweep of the team's own steering surfaces
+# The harness-review loop: an eight-hourly sweep of the team's own steering surfaces
 # (agent prompts, skills, pipeline instructions) driven by operational
 # evidence — bounce-finding classes, attention events, feedback, failure
 # patterns. Proposes improvement tickets (label `harness`, Backlog only);
 # never edits prompts directly. See the review-harness skill.
 [schedules.harness-review]
-every = "8h" # daily while the fleet + prompts evolve fast; revisit at stability
+every = "8h"
 
 [schedules.harness-review.payload]
 kind = "harness_review"
