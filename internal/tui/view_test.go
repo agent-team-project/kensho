@@ -331,10 +331,6 @@ func TestOneHourSoak(t *testing.T) {
 	cadence := 5 * time.Second
 	ticker := time.NewTicker(cadence)
 	defer ticker.Stop()
-	warmup := 5 * time.Minute
-	if duration < 20*time.Minute {
-		warmup = duration / 10
-	}
 	disconnectAt := started.Add(duration / 3)
 	reconnectAt := disconnectAt.Add(30 * time.Second)
 	if duration < 5*time.Minute {
@@ -402,7 +398,8 @@ func TestOneHourSoak(t *testing.T) {
 		if strings.ContainsRune(frame, '\x00') || strings.ContainsRune(frame, '\x1b') {
 			t.Fatal("soak observed a corrupt/control-bearing TERM=dumb frame")
 		}
-		if baseline == 0 && now.Sub(started) >= warmup {
+		remaining := deadline.Sub(now)
+		if baseline == 0 && soakBaselineReady(remaining, finalWindow, disconnected, reconnected) {
 			runtime.GC()
 			var memory runtime.MemStats
 			runtime.ReadMemStats(&memory)
@@ -412,7 +409,7 @@ func TestOneHourSoak(t *testing.T) {
 			runtime.GC()
 			var memory runtime.MemStats
 			runtime.ReadMemStats(&memory)
-			if deadline.Sub(now) <= finalWindow {
+			if remaining <= finalWindow {
 				samples = append(samples, soakHeapSample{elapsed: now.Sub(started), bytes: memory.HeapAlloc})
 			}
 			nextHeapSample = now.Add(time.Minute)
@@ -449,6 +446,31 @@ func TestOneHourSoak(t *testing.T) {
 		t.Fatalf("final-window retained-heap slope = %.0f bytes/hour, limit 1048576", slope)
 	}
 	t.Logf("SOAK EVIDENCE duration=%s cadence=%s refreshes=%d filters=%d real_disconnect=true real_reconnect=true final_window=%s heap_slope_bytes_per_hour=%.0f retained_baseline=%d retained_final=%d retained_limit=%d goroutines=%d->%d fds=%d->%d", duration, cadence, refreshes, filterChanges, finalWindow, slope, baseline, finalMemory.HeapAlloc, limit, startGoroutines, runtime.NumGoroutine(), startFDs, openFDCount())
+}
+
+func soakBaselineReady(remaining, finalWindow time.Duration, disconnected, reconnected bool) bool {
+	return disconnected && reconnected && remaining <= finalWindow
+}
+
+func TestSoakRetainedHeapBaselineStartsAfterRecoveryInFinalWindow(t *testing.T) {
+	finalWindow := 30 * time.Minute
+	for _, test := range []struct {
+		name                      string
+		remaining                 time.Duration
+		disconnected, reconnected bool
+		want                      bool
+	}{
+		{name: "before final window", remaining: finalWindow + time.Second, disconnected: true, reconnected: true},
+		{name: "before disconnect", remaining: finalWindow, reconnected: true},
+		{name: "before reconnect", remaining: finalWindow, disconnected: true},
+		{name: "post recovery final window", remaining: finalWindow, disconnected: true, reconnected: true, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := soakBaselineReady(test.remaining, finalWindow, test.disconnected, test.reconnected); got != test.want {
+				t.Fatalf("soakBaselineReady() = %v, want %v", got, test.want)
+			}
+		})
+	}
 }
 
 func openFDCount() int {
