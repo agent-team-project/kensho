@@ -80,3 +80,27 @@ The runner writes:
 - `target/agent-evidence/logs/<job>/<gate>.log` - full combined stdout/stderr for each gate.
 
 The verifier does not edit product files. It writes evidence artifacts and temporary checkout state only.
+
+## Base-broken discriminator
+
+After a gate fails, the runner resolves the remote default branch through
+`refs/remotes/origin/HEAD`, computes its merge-base with the worker commit, and
+reruns only that failed gate in a detached checkout of the merge-base. For a
+plain `go test <packages>` gate, the rerun is narrowed to the failed packages
+and anchored top-level test names parsed from the head log. A non-zero base
+run counts as reproduction only when at least one of those named tests fails
+again, so a package missing at the base cannot become a false infra result.
+
+- If the scoped gate also fails at the merge-base, the result records
+  `class: infra` and `signature: base-broken`. The pipeline's semantic
+  `base_broken` infra signature makes the durable job gate classification agree.
+- If the scoped gate passes at the merge-base, the original failure signature
+  is preserved, so existing signature-based classification is unchanged.
+- If the remote default branch, merge-base, or base checkout is unavailable,
+  the original failure signature is preserved and the evidence contains both
+  an `unavailable` comparison result and a warning.
+
+Every failed gate receives a `base_comparison` object in the JSON evidence. A
+completed comparison includes the default-branch ref, merge-base commit,
+scoped command, exit status, duration, signature, and base log path. Passing
+gate records are unchanged and do not trigger a base checkout.

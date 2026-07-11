@@ -8,6 +8,7 @@ import datetime as dt
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -57,17 +58,36 @@ def main(argv: list[str]) -> int:
     results: list[dict[str, Any]] = []
     status = "pass"
     gate_evidence_root = evidence_dir / "gates" / safe_name(job_id or commit[:12])
+    base_state: dict[str, Any] = {}
     try:
         for index, gate in enumerate(gates, start=1):
             result = run_gate(gate, index, len(gates), checkout, logs_dir, gate_evidence_root, evidence_dir, repo)
+            if result["status"] == "fail":
+                compare_failed_gate(
+                    result,
+                    gate,
+                    repo,
+                    commit,
+                    temp_root,
+                    logs_dir,
+                    gate_evidence_root,
+                    evidence_dir,
+                    base_state,
+                    warnings,
+                )
             results.append(result)
             if result["status"] != "pass":
                 status = "fail"
     finally:
         if args.keep_worktree:
             warnings.append(f"temporary worktree preserved at {checkout}")
+            if base_state.get("checkout_added"):
+                warnings.append(f"temporary base worktree preserved at {base_state['checkout']}")
         else:
-            remove_temp_worktree(repo, checkout, temp_root, warnings)
+            if base_state.get("checkout_added"):
+                remove_temp_worktree(repo, Path(base_state["checkout"]), warnings)
+            remove_temp_worktree(repo, checkout, warnings)
+            shutil.rmtree(temp_root, ignore_errors=True)
 
     finished_at = utc_now()
     summary = summarize(job_id, status, results)
@@ -366,6 +386,7 @@ def run_gate(
             log.write(line)
             if line.strip():
                 tail.append(line.strip())
+        proc.stdout.close()
         exit_code = proc.wait()
     duration_ms = int((time.monotonic() - start_time) * 1000)
     status = "pass" if exit_code == 0 else "fail"
@@ -386,6 +407,229 @@ def run_gate(
     if evidence_refs:
         result["evidence_refs"] = evidence_refs
     return result
+
+
+def compare_failed_gate(
+    result: dict[str, Any],
+    gate: dict[str, str],
+    repo: Path,
+    commit: str,
+    temp_root: Path,
+    logs_dir: Path,
+    gate_evidence_root: Path,
+    evidence_dir: Path,
+    base_state: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    prepare_base_checkout(repo, commit, temp_root, base_state)
+    if reason := base_state.get("unavailable_reason"):
+        warning = f"base comparison unavailable for {gate['name']}: {reason}"
+        warnings.append(warning)
+        result["base_comparison"] = {
+            "status": "unavailable",
+            "reason": reason,
+        }
+        return
+
+    base_checkout = Path(base_state["checkout"])
+    head_log = logs_dir / f"{safe_name(gate['name'])}.log"
+    base_log = logs_dir / f"{safe_name(gate['name'])}.base.log"
+    command = base_comparison_command(gate["command"], head_log)
+    gate_evidence_dir = gate_evidence_root / safe_name(gate["name"]) / "base"
+    gate_evidence_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.setdefault("CI", "1")
+    env["AGENT_TEAM_EVIDENCE_DIR"] = str(evidence_dir)
+    env["AGENT_TEAM_GATE_EVIDENCE_DIR"] = str(gate_evidence_dir)
+    env["AGENT_TEAM_GATE_LOG"] = str(base_log)
+    env["AGENT_TEAM_GATE_NAME"] = gate["name"]
+
+    print(f"verify: base comparison start {gate['name']}: {command}", flush=True)
+    exit_code, duration_ms, tail = run_logged_command(
+        command,
+        base_checkout,
+        base_log,
+        env,
+        f"{gate['name']}(base)",
+    )
+    base_status = "pass" if exit_code == 0 else "fail"
+    print(f"verify: base comparison {base_status} {gate['name']} ({duration_ms}ms)", flush=True)
+    head_failed_tests = failed_go_test_names(head_log) if is_simple_go_test_command(gate["command"]) else []
+    base_failed_tests = failed_go_test_names(base_log) if head_failed_tests else []
+    reproduced = exit_code != 0 and (
+        not head_failed_tests or bool(set(head_failed_tests).intersection(base_failed_tests))
+    )
+    comparison = {
+        "status": base_status,
+        "reproduced": reproduced,
+        "default_branch": base_state["default_branch"],
+        "merge_base": base_state["merge_base"],
+        "command": command,
+        "exit_code": exit_code,
+        "duration_ms": duration_ms,
+        "log_path": relpath(base_log, repo),
+        "signature": "" if exit_code == 0 else failure_signature(exit_code, tail),
+    }
+    if head_failed_tests:
+        comparison["head_failed_tests"] = head_failed_tests
+        comparison["base_failed_tests"] = base_failed_tests
+    if exit_code != 0 and not reproduced:
+        comparison["reason"] = "the failed Go tests from the worker commit did not fail at the merge-base"
+    if reproduced:
+        comparison["head_signature"] = result["signature"]
+        result["class"] = "infra"
+        result["signature"] = "base-broken"
+    result["base_comparison"] = comparison
+    evidence_refs = collect_evidence_refs(gate_evidence_root / safe_name(gate["name"]), repo)
+    if evidence_refs:
+        result["evidence_refs"] = evidence_refs
+
+
+def prepare_base_checkout(repo: Path, commit: str, temp_root: Path, state: dict[str, Any]) -> None:
+    if state.get("initialized"):
+        return
+    state["initialized"] = True
+    default_branch, reason = resolve_default_branch(repo)
+    if reason:
+        state["unavailable_reason"] = reason
+        return
+    merge_base_proc = subprocess.run(
+        ["git", "-C", str(repo), "merge-base", commit, default_branch],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    merge_base = merge_base_proc.stdout.strip()
+    if merge_base_proc.returncode != 0 or not merge_base:
+        state["unavailable_reason"] = (
+            f"no merge-base between {commit[:12]} and {default_branch}: "
+            f"{last_line(merge_base_proc.stderr) or merge_base_proc.returncode}"
+        )
+        return
+    checkout = temp_root / "base"
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "worktree", "add", "--detach", str(checkout), merge_base],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        state["unavailable_reason"] = f"base checkout failed: {last_line(proc.stderr) or proc.returncode}"
+        return
+    state.update(
+        {
+            "default_branch": default_branch,
+            "merge_base": merge_base,
+            "checkout": str(checkout),
+            "checkout_added": True,
+        }
+    )
+
+
+def resolve_default_branch(repo: Path) -> tuple[str, str]:
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    default_branch = proc.stdout.strip()
+    if proc.returncode != 0 or not default_branch:
+        return "", "remote default branch ref refs/remotes/origin/HEAD is unavailable"
+    if not rev_parse(repo, default_branch):
+        return "", f"remote default branch {default_branch} does not resolve to a commit"
+    return default_branch, ""
+
+
+def base_comparison_command(command: str, head_log: Path) -> str:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return command
+    if len(tokens) < 3 or tokens[:2] != ["go", "test"]:
+        return command
+    package_args = tokens[2:]
+    if any(token.startswith("-") or re.search(r"[|&;<>()$`]", token) for token in package_args):
+        return command
+    try:
+        log = head_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return command
+    tests = failed_go_test_names_from_text(log)
+    packages = sorted(
+        {
+            match
+            for match in re.findall(r"^FAIL\s+(\S+)(?:\s+[\d.]+s)?\s*$", log, flags=re.MULTILINE)
+            if match != "FAIL"
+        }
+    )
+    if not packages:
+        return command
+    scoped = ["go", "test"]
+    if tests:
+        pattern = "^(?:" + "|".join(re.escape(test) for test in tests) + ")$"
+        scoped.extend(["-run", pattern])
+    scoped.extend(packages)
+    return shlex.join(scoped)
+
+
+def is_simple_go_test_command(command: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    return len(tokens) >= 3 and tokens[:2] == ["go", "test"]
+
+
+def failed_go_test_names(log_path: Path) -> list[str]:
+    try:
+        log = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    return failed_go_test_names_from_text(log)
+
+
+def failed_go_test_names_from_text(log: str) -> list[str]:
+    return sorted(
+        {
+            match.split("/", 1)[0]
+            for match in re.findall(r"^\s*--- FAIL: ([^\s(]+)", log, flags=re.MULTILINE)
+        }
+    )
+
+
+def run_logged_command(
+    command: str,
+    cwd: Path,
+    log_path: Path,
+    env: dict[str, str],
+    prefix: str,
+) -> tuple[int, int, list[str]]:
+    start_time = time.monotonic()
+    tail: deque[str] = deque(maxlen=20)
+    with log_path.open("w", encoding="utf-8") as log:
+        proc = subprocess.Popen(
+            command,
+            cwd=cwd,
+            shell=True,
+            executable="/bin/bash",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            sys.stdout.write(f"{prefix}: {line}")
+            sys.stdout.flush()
+            log.write(line)
+            if line.strip():
+                tail.append(line.strip())
+        proc.stdout.close()
+        exit_code = proc.wait()
+    return exit_code, int((time.monotonic() - start_time) * 1000), list(tail)
 
 
 def record_gate_results(job_id: str, repo: Path, results: list[dict[str, Any]], warnings: list[str]) -> None:
@@ -444,7 +688,7 @@ def complete_step(job_id: str, pipeline_step: str, repo: Path, status: str, summ
         raise SystemExit(message)
 
 
-def remove_temp_worktree(repo: Path, checkout: Path, temp_root: Path, warnings: list[str]) -> None:
+def remove_temp_worktree(repo: Path, checkout: Path, warnings: list[str]) -> None:
     proc = subprocess.run(
         ["git", "-C", str(repo), "worktree", "remove", "--force", str(checkout)],
         text=True,
@@ -453,7 +697,6 @@ def remove_temp_worktree(repo: Path, checkout: Path, temp_root: Path, warnings: 
     )
     if proc.returncode != 0:
         warnings.append(f"temporary worktree removal failed: {last_line(proc.stderr) or proc.returncode}")
-    shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def summarize(job_id: str, status: str, results: list[dict[str, Any]]) -> str:

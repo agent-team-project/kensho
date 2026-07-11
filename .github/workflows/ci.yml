@@ -71,6 +71,9 @@ jobs:
       - name: Test Discord delivery ceiling
         run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/skills/comms/test_discord_delivery.py
 
+      - name: Test verifier base comparison
+        run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/skills/verify/test_verify.py
+
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)
