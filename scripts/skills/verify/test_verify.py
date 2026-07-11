@@ -252,6 +252,53 @@ class VerifyBaseComparisonTest(unittest.TestCase):
             ],
         )
 
+    def test_go_compile_failure_reproduced_at_merge_base_is_infra(self) -> None:
+        (self.repo / "go.mod").write_text("module example.com/compilefail\n\ngo 1.22\n", encoding="utf-8")
+        (self.repo / "broken.go").write_text(
+            "package compilefail\n\nfunc broken( {\n",
+            encoding="utf-8",
+        )
+        self.git("add", "go.mod", "broken.go")
+        self.git("commit", "-m", "base has compile failure")
+        self.configure_origin_head()
+        (self.repo / "note.txt").write_text("unrelated head change\n", encoding="utf-8")
+        self.git("add", "note.txt")
+        self.git("commit", "-m", "add unrelated head change")
+
+        evidence = self.run_verify(self.git("rev-parse", "HEAD"), "go test ./...")
+
+        gate = evidence["gates"][0]
+        comparison = gate["base_comparison"]
+        self.assertEqual(gate["class"], "infra")
+        self.assertEqual(gate["signature"], "base-broken")
+        self.assertTrue(comparison["reproduced"])
+        self.assertEqual(comparison["reproduction_basis"], "exit-code-and-full-output-fingerprint")
+        self.assertEqual(comparison["head_failure_identities"], [])
+        self.assertEqual(comparison["base_failure_identities"], [])
+        self.assertEqual(comparison["head_output_fingerprint"], comparison["base_output_fingerprint"])
+
+    def test_distinct_go_compile_failure_preserves_head_signature(self) -> None:
+        (self.repo / "go.mod").write_text("module example.com/compilefail\n\ngo 1.22\n", encoding="utf-8")
+        broken = self.repo / "broken.go"
+        broken.write_text("package compilefail\n\nfunc broken( {\n", encoding="utf-8")
+        self.git("add", "go.mod", "broken.go")
+        self.git("commit", "-m", "base has compile failure")
+        self.configure_origin_head()
+        broken.write_text("package compilefail\n\nfunc broken() { missing }\n", encoding="utf-8")
+        self.git("add", "broken.go")
+        self.git("commit", "-m", "replace with head compile failure")
+
+        evidence = self.run_verify(self.git("rev-parse", "HEAD"), "go test ./...")
+
+        gate = evidence["gates"][0]
+        comparison = gate["base_comparison"]
+        self.assertNotIn("class", gate)
+        self.assertNotEqual(gate["signature"], "base-broken")
+        self.assertFalse(comparison["reproduced"])
+        self.assertEqual(comparison["reproduction_basis"], "exit-code-and-full-output-fingerprint")
+        self.assertNotEqual(comparison["head_output_fingerprint"], comparison["base_output_fingerprint"])
+        self.assertIn("fingerprint differs", comparison["reason"])
+
     def test_fresh_remote_default_ignores_stale_local_tracking_ref(self) -> None:
         broken_base = self.commit_gate(1, "base broken")
         self.configure_origin_head()

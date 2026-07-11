@@ -92,9 +92,12 @@ and anchored top-level test names parsed from the head log. Go failures carry
 package/test identities, including complete subtest paths, and a non-zero base
 run counts as reproduction only when every head identity appears at the
 merge-base. Only the scoped rerun's `-run` expression is anchored at top-level
-parent tests. If any head failure lacks a package/test identity, the comparison
-declines to classify it as reproduced. This prevents an old failing test or
-subtest from hiding a new head-only regression.
+parent tests. A Go compile or build failure with no test identities instead
+requires the same exit code and a non-empty SHA-256 fingerprint of the entire
+ANSI-stripped output. Partially identified Go failures remain ambiguous and do
+not use the fingerprint fallback. This prevents an old failing test or subtest
+from hiding a new head-only regression while still recognizing an identical
+pre-existing compile failure.
 
 For other runners, complete `unittest` or `pytest` failure identities use the
 same head-subset rule. If no complete structured identities are available, the

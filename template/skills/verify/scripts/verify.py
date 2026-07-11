@@ -466,14 +466,26 @@ def compare_failed_gate(
     if is_go_test:
         head_identities, head_identities_complete = go_failure_identities(head_log)
         base_identities, base_identities_complete = go_failure_identities(base_log)
-        reproduced = (
-            exit_code != 0
-            and exit_code == result["exit_code"]
-            and head_identities_complete
-            and bool(head_identities)
-            and set(head_identities).issubset(base_identities)
-        )
-        reproduction_basis = "go-test-identity-subset"
+        if head_identities_complete and head_identities:
+            reproduced = (
+                exit_code != 0
+                and exit_code == result["exit_code"]
+                and set(head_identities).issubset(base_identities)
+            )
+            reproduction_basis = "go-test-identity-subset"
+        elif not head_identities:
+            head_fingerprint = full_output_fingerprint(head_log)
+            base_fingerprint = full_output_fingerprint(base_log)
+            reproduced = (
+                exit_code != 0
+                and exit_code == result["exit_code"]
+                and bool(head_fingerprint)
+                and head_fingerprint == base_fingerprint
+            )
+            reproduction_basis = "exit-code-and-full-output-fingerprint"
+        else:
+            reproduced = False
+            reproduction_basis = "go-test-identity-subset"
     else:
         head_identities, head_identities_complete = structured_failure_identities(head_log)
         base_identities, base_identities_complete = structured_failure_identities(base_log)
@@ -517,7 +529,7 @@ def compare_failed_gate(
         comparison["head_output_fingerprint"] = head_fingerprint
         comparison["base_output_fingerprint"] = base_fingerprint
     if exit_code != 0 and not reproduced:
-        if is_go_test and not head_identities_complete:
+        if is_go_test and head_identities and not head_identities_complete:
             comparison["reason"] = "the worker Go failure did not expose complete package/test identities"
         elif reproduction_basis == "go-test-identity-subset":
             comparison["reason"] = "one or more worker package/test failures did not reproduce at the merge-base"
