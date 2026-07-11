@@ -4378,6 +4378,111 @@ tokens_per_day = 100
 	}
 }
 
+func TestGH403DirectDispatchAdoptionPreservesPipelineOwningTeam(t *testing.T) {
+	root := t.TempDir()
+	teamDir := fixtureTeamDir(t)
+	top := mustParseCustomTopo(t, `
+[instances.alpha-manager]
+agent = "manager"
+
+[instances.beta-manager]
+agent = "manager"
+
+[[instances.beta-manager.triggers]]
+event = "job.step_completed"
+match.pipeline = "beta"
+match.target = "beta-manager"
+
+[instances.shared-worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.shared-worker.triggers]]
+event = "ticket.created"
+
+[pipelines.beta]
+trigger.event = "ticket.created"
+
+[[pipelines.beta.steps]]
+id = "implement"
+target = "shared-worker"
+workspace = "repo"
+
+[[pipelines.beta.steps]]
+id = "approve"
+target = "beta-manager"
+after = ["implement"]
+gate = "manual"
+
+[teams.alpha]
+instances = ["alpha-manager", "shared-worker"]
+
+[teams.beta]
+instances = ["beta-manager", "shared-worker"]
+pipelines = ["beta"]
+
+[authority]
+enforcement = "enforce"
+
+[authority.instances.alpha-manager]
+allow = ["job.bounce:team"]
+
+[authority.instances.beta-manager]
+allow = ["event.publish", "job.bounce:team", "job.step:team", "job.gate.*:team"]
+`)
+	fake := newFakeSpawner(30 * time.Second)
+	mgr := NewInstanceManager(root, fake.spawn)
+	resolver := NewEventResolver(mgr, teamDir, top)
+	const child = "shared-worker-gh-403-direct"
+	defer func() {
+		_, _ = mgr.Stop(child)
+		_ = waitForEventReaper(t, mgr, child)
+	}()
+
+	outcomes, err := resolver.Event("ticket.created", map[string]any{
+		"ticket":    "GH-403-DIRECT",
+		"name":      child,
+		"kickoff":   "exercise direct dispatch adoption",
+		"workspace": "repo",
+	})
+	if err != nil {
+		t.Fatalf("Event: %v", err)
+	}
+	if len(outcomes) != 1 || outcomes[0].Action != "dispatched" || outcomes[0].InstanceID != child {
+		t.Fatalf("outcomes = %+v, want adopted direct dispatch", outcomes)
+	}
+
+	j, err := jobstore.Read(teamDir, "gh-403-direct")
+	if err != nil {
+		t.Fatalf("read adopted pipeline job: %v", err)
+	}
+	if j.Pipeline != "beta" {
+		t.Fatalf("adopted job pipeline = %q, want beta", j.Pipeline)
+	}
+	if j.Origin.Team != "beta" {
+		t.Fatalf("adopted pipeline job origin team = %q, want beta; origin=%+v", j.Origin.Team, j.Origin)
+	}
+
+	if err := AuditAuthority(AuthorityAuditOptions{
+		TeamDir:   teamDir,
+		Topology:  top,
+		Actor:     origin.Envelope{Team: "beta", Instance: "beta-manager", Agent: "manager"},
+		Verb:      "job.bounce",
+		TargetJob: j.ID,
+	}); err != nil {
+		t.Fatalf("validated beta manager denied its adopted beta pipeline job: %v", err)
+	}
+	if err := AuditAuthority(AuthorityAuditOptions{
+		TeamDir:   teamDir,
+		Topology:  top,
+		Actor:     origin.Envelope{Team: "alpha", Instance: "alpha-manager", Agent: "manager"},
+		Verb:      "job.bounce",
+		TargetJob: j.ID,
+	}); err == nil {
+		t.Fatal("cross-team alpha manager authorized for adopted beta pipeline job")
+	}
+}
+
 func TestEvent_OriginAgentIsResolvedTemplateNotTargetAlias(t *testing.T) {
 	// SQU-92 round-3 finding: a declared instance alias (platform-reviewer)
 	// must stamp origin.agent with its resolved agent template (reviewer) so

@@ -202,6 +202,9 @@ func (r *EventResolver) pipelineReentryNoop(pipeline *topology.Pipeline, eventTy
 
 func (r *EventResolver) hydratePipelineJob(j *jobstore.Job, pipeline *topology.Pipeline, payload map[string]any) {
 	j.Pipeline = pipeline.Name
+	if team := r.teamForPipeline(pipeline.Name); team != "" {
+		j.Origin.Team = team
+	}
 	if kind := payloadJobKind(payload); kind != "" {
 		j.Kind = kind
 	}
