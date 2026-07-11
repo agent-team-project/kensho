@@ -114,9 +114,6 @@ def write_repo(root: Path, project_id: str) -> None:
             [pm]
             provider = "none"
 
-            [pm]
-            provider = "none"
-
             [runtime]
             kind = "codex"
             """
