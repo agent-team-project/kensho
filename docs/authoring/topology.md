@@ -346,11 +346,13 @@ agent-team doctor
 ```
 
 `topology validate` is also run by this repository's TOML CI gate. In addition
-to schema and reference errors, it rejects a managed pipeline when its manual
-decision, merge, or reap-policy owner is missing or ambiguous, cannot receive
-the daemon's completion event, or cannot satisfiably perform the pipeline's
-required job mutations after instance, agent, team, and scope rules are
-composed.
+to schema and reference errors, it independently resolves every manual-decision
+and terminal merge/reap route and rejects missing or ambiguous completion-event
+owners in both authority modes. With `enforcement = "enforce"`, it also rejects
+an owner that cannot satisfiably perform its route's required job mutations
+after instance, agent, team, and scope rules are composed. Audit mode keeps
+those grant denials observable and non-blocking, but does not make an ambiguous
+or unsupported topology structurally valid.
 
 The remaining commands catch missing agents, unrouteable pipeline steps, and
 runtime team ownership problems.

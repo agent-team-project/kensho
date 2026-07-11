@@ -97,6 +97,10 @@ agent = "manager"
 event = "job.step_completed"
 match.target = "frontend-manager"
 
+[[instances.frontend-manager.triggers]]
+event = "job.completed"
+match.pipeline = "managed"
+
 [instances.worker]
 agent = "worker"
 ephemeral = true

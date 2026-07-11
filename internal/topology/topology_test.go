@@ -451,6 +451,38 @@ match.source = "daemon:completion"`, 1)
 		}
 	})
 
+	t.Run("manual and terminal owners are validated independently", func(t *testing.T) {
+		body := managedPipelineAuthorityFixture("frontend-manager", "frontend", "on_merge", `
+[authority.instances.frontend-manager]
+allow = ["event.publish", "job.bounce:team", "job.step:team", "job.gate.*:team", "job.approve:team", "job.reject:team"]
+
+[authority.instances.terminal-manager]
+allow = ["read"]
+`)
+		body = strings.Replace(body, `
+[[instances.frontend-manager.triggers]]
+event = "job.completed"
+match.pipeline = "managed"
+`, "\n", 1)
+		body = strings.Replace(body, `[instances.worker]`, `[instances.terminal-manager]
+agent = "manager"
+
+[[instances.terminal-manager.triggers]]
+event = "job.completed"
+match.pipeline = "managed"
+
+[instances.worker]`, 1)
+		body = strings.Replace(body, `instances = ["frontend-manager", "worker"]`, `instances = ["frontend-manager", "terminal-manager", "worker"]`, 1)
+
+		_, err := Parse([]byte(body))
+		assertAuthoritySatisfiabilityError(t, err, `pipeline "managed"`, `owner "terminal-manager"`, `reap_worktree "on_merge"`, `"job.merge:team"`, `[authority.instances.terminal-manager].allow`)
+
+		valid := strings.Replace(body, `allow = ["read"]`, `allow = ["read", "job.merge:team"]`, 1)
+		if _, err := Parse([]byte(valid)); err != nil {
+			t.Fatalf("Parse independently authorized manual and terminal owners: %v", err)
+		}
+	})
+
 	t.Run("manual gate requires approve and reject authority", func(t *testing.T) {
 		base := managedPipelineAuthorityFixture("frontend-manager", "frontend", "on_merge", `
 [authority.instances.frontend-manager]
@@ -532,6 +564,37 @@ allow = ["event.publish", "job.*:team"]
 		assertAuthoritySatisfiabilityError(t, err, `ambiguous completion owner`, `catch-all-manager, frontend-manager`)
 	})
 
+	t.Run("audit still rejects ambiguous manager routing", func(t *testing.T) {
+		body := managedPipelineAuthorityFixture("frontend-manager", "frontend", "on_merge", `
+[authority.instances.frontend-manager]
+allow = ["read"]
+`)
+		body = strings.Replace(body, `enforcement = "enforce"`, `enforcement = "audit"`, 1)
+		body += `
+[instances.catch-all-manager]
+agent = "manager"
+
+[[instances.catch-all-manager.triggers]]
+event = "job.step_completed"
+
+[authority.instances.catch-all-manager]
+allow = ["read"]
+`
+		_, err := Parse([]byte(body))
+		assertAuthoritySatisfiabilityError(t, err, `pipeline "managed"`, `ambiguous completion owner`, `catch-all-manager, frontend-manager`)
+	})
+
+	t.Run("audit still rejects unsupported manager routing", func(t *testing.T) {
+		body := managedPipelineAuthorityFixture("frontend-manager", "frontend", "on_merge", `
+[authority.instances.frontend-manager]
+allow = ["read"]
+`)
+		body = strings.Replace(body, `enforcement = "enforce"`, `enforcement = "audit"`, 1)
+		body = strings.Replace(body, `event = "job.step_completed"`, `event = "schedule"`, 1)
+		_, err := Parse([]byte(body))
+		assertAuthoritySatisfiabilityError(t, err, `pipeline "managed"`, `unsupported owner "frontend-manager"`, `no persistent instance trigger matches job.step_completed`)
+	})
+
 	t.Run("unsupported completion owner", func(t *testing.T) {
 		body := managedPipelineAuthorityFixture("frontend-manager", "frontend", "on_merge", `
 [authority.instances.frontend-manager]
@@ -590,6 +653,10 @@ agent = "manager"
 [[instances.%[1]s.triggers]]
 event = "job.step_completed"
 match.target = "%[1]s"
+
+[[instances.%[1]s.triggers]]
+event = "job.completed"
+match.pipeline = "managed"
 
 [instances.worker]
 agent = "worker"
