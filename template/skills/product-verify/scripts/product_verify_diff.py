@@ -407,9 +407,9 @@ def run_json_command(args: list[str]) -> Any:
 def fetch_cli_data(agent_team_bin: str, repo: Path) -> dict[str, Any]:
     repo_arg = str(repo)
     return {
-        "instances": run_json_command([agent_team_bin, "ps", "--json", "--target", repo_arg]),
-        "jobs": run_json_command([agent_team_bin, "job", "ls", "--json", "--repo", repo_arg]),
-        "topology": run_json_command([agent_team_bin, "topology", "show", "--json", "--target", repo_arg]),
+        "instances": run_json_command([agent_team_bin, "--repo", repo_arg, "ps", "--json"]),
+        "jobs": run_json_command([agent_team_bin, "--repo", repo_arg, "job", "ls", "--json"]),
+        "topology": run_json_command([agent_team_bin, "--repo", repo_arg, "topology", "show", "--json"]),
     }
 
 
