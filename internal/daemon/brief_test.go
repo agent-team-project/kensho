@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -54,5 +56,21 @@ func TestValidateInstanceBriefTextRejectsInvalidUTF8(t *testing.T) {
 	}
 	if err := validateInstanceBriefText("invalid \xff brief"); err == nil {
 		t.Fatal("invalid UTF-8 brief was accepted")
+	}
+}
+
+func TestGenerateAndWriteInstanceBriefRejectsInvalidUTF8BeforeWrite(t *testing.T) {
+	teamDir := t.TempDir()
+	instance := "manager-\xff"
+	brief, err := GenerateAndWriteInstanceBrief(teamDir, instance, BriefOptions{})
+	if err == nil || err.Error() != "brief: rendered text is not valid UTF-8" {
+		t.Fatalf("GenerateAndWriteInstanceBrief() error = %v, want invalid UTF-8 error", err)
+	}
+	if brief != nil {
+		t.Fatalf("GenerateAndWriteInstanceBrief() brief = %+v, want nil", brief)
+	}
+	stateDir := filepath.Join(teamDir, "state", instance)
+	if _, statErr := os.Stat(stateDir); !os.IsNotExist(statErr) {
+		t.Fatalf("brief state dir created before UTF-8 validation: stat error = %v", statErr)
 	}
 }
