@@ -16,9 +16,11 @@ Playwright, or Chromium is unavailable, the browser pass skips cleanly.
 
 The original v1 data diff remains part of the loop. It fetches daemon UI data
 endpoints (`/v1/instances`, `/v1/jobs`, and `/v1/topology`) with the operator
-token, reads the same state through the CLI, and diffs explicit equivalence
-projections. Any mismatch is filed as `agent-team feedback submit --category
-bug`.
+token, reads the same state through the CLI with the global repo selector
+(`agent-team --repo <repo> ps --json`, `agent-team --repo <repo> job ls
+--json`, and `agent-team --repo <repo> topology show --json`), and diffs
+explicit equivalence projections. Any mismatch is filed as `agent-team feedback
+submit --category bug`.
 
 For instance rows, the projection is intentionally limited to daemon/CLI shared
 daemon metadata: `instance`, `agent`, `status`, `runtime`, and `job`. The

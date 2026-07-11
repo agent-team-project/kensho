@@ -125,8 +125,9 @@ The helper:
 - reads `.agent_team/daemon/http.addr` or `AGENT_TEAM_DAEMON_URL`;
 - reads `.agent_team/daemon/operator.token`;
 - fetches `/v1/instances`, `/v1/jobs`, and `/v1/topology`;
-- runs `agent-team ps --json`, `agent-team job ls --json`, and
-  `agent-team topology show --json`;
+- reads the matching repo state with `agent-team --repo <repo> ps --json`,
+  `agent-team --repo <repo> job ls --json`, and
+  `agent-team --repo <repo> topology show --json`;
 - compares explicit stable equivalence projections of the same state; and
 - prints JSON with `status`, `comparisons`, and capped `findings`.
 

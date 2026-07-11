@@ -17,6 +17,20 @@ import product_verify_diff as verifier
 
 
 class ProductVerifyDiffTest(unittest.TestCase):
+    def test_cli_reads_use_global_repo_selector_for_every_command(self) -> None:
+        repo = Path("/tmp/product-verify-repo")
+        with mock.patch.object(verifier, "run_json_command", return_value=[]) as run_json:
+            verifier.fetch_cli_data("agent-team-test", repo)
+
+        self.assertEqual(
+            run_json.call_args_list,
+            [
+                mock.call(["agent-team-test", "--repo", str(repo), "ps", "--json"]),
+                mock.call(["agent-team-test", "--repo", str(repo), "job", "ls", "--json"]),
+                mock.call(["agent-team-test", "--repo", str(repo), "topology", "show", "--json"]),
+            ],
+        )
+
     def test_instance_projection_ignores_cli_only_enrichment(self) -> None:
         ui_instances = [
             {
