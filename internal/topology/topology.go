@@ -1959,13 +1959,7 @@ func validatePipelineAuthoritySatisfiability(t *Topology) error {
 		}
 		for _, route := range routes {
 			for _, verb := range route.verbs {
-				decision := AuthorityDecision{
-					Instance:   route.owner.Name,
-					Agent:      route.owner.Agent,
-					Team:       t.TeamForInstance(route.owner.Name),
-					Verb:       verb,
-					TargetTeam: team,
-				}
+				decision := t.pipelineManagerAuthorityDecision(route.owner, verb, pipeline.Name, team)
 				eval := t.Authority.Evaluate(decision)
 				if eval.Allowed {
 					continue
@@ -1979,6 +1973,27 @@ func validatePipelineAuthoritySatisfiability(t *Topology) error {
 		}
 	}
 	return nil
+}
+
+// pipelineManagerAuthorityDecision models the target context supplied by the
+// runtime path for each mandatory manager duty. Job mutations resolve the
+// target job and its durable topology team; non-job actions such as
+// event.publish have neither and therefore cannot satisfy :own or :team grants.
+func (t *Topology) pipelineManagerAuthorityDecision(owner *Instance, verb, pipeline, pipelineTeam string) AuthorityDecision {
+	decision := AuthorityDecision{
+		Instance: owner.Name,
+		Agent:    owner.Agent,
+		Team:     t.TeamForInstance(owner.Name),
+		Verb:     verb,
+	}
+	if strings.HasPrefix(verb, "job.") {
+		// The concrete job ID does not exist at topology-load time. A stable,
+		// non-empty representative preserves the runtime scope semantics:
+		// persistent managers still have no ActorJob, while the target does.
+		decision.TargetJob = "pipeline-job:" + pipeline
+		decision.TargetTeam = pipelineTeam
+	}
+	return decision
 }
 
 type pipelineManagerRoute struct {

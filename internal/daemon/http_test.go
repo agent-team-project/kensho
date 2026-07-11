@@ -1389,6 +1389,73 @@ allow = ["inbox.send"]
 	}
 }
 
+func TestGH403ManagerEventPublishRequiresUnscopedAuthority(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		grant      string
+		wantStatus int
+	}{
+		{name: "unscoped grant succeeds", grant: "event.publish", wantStatus: http.StatusOK},
+		{name: "team scoped grant is denied", grant: "event.publish:team", wantStatus: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			teamDir := fixtureTeamDir(t)
+			body := `
+[instances.frontend-manager]
+agent = "manager"
+
+[teams.frontend]
+instances = ["frontend-manager"]
+
+[authority]
+enforcement = "enforce"
+
+[authority.instances.frontend-manager]
+allow = ["EVENT_PUBLISH_GRANT"]
+`
+			top := mustParseCustomTopo(t, strings.Replace(body, "EVENT_PUBLISH_GRANT", tc.grant, 1))
+			m := NewInstanceManager(root, nil)
+			resolver := NewEventResolver(m, teamDir, top)
+			srv := httptest.NewServer(Handler(m, nil, resolver, teamDir))
+			defer srv.Close()
+
+			req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/event", bytes.NewReader([]byte(`{"type":"manager.heartbeat","payload":{}}`)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set(origin.HeaderName, origin.HeaderValue(origin.Envelope{
+				Team:     "frontend",
+				Agent:    "manager",
+				Instance: "frontend-manager",
+			}))
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("event publish status = %d body=%s, want %d", resp.StatusCode, readBody(t, resp), tc.wantStatus)
+			}
+			_ = resp.Body.Close()
+
+			events, err := ListLifecycleEvents(root)
+			if err != nil {
+				t.Fatalf("ListLifecycleEvents: %v", err)
+			}
+			if tc.wantStatus == http.StatusOK {
+				if len(events) != 0 {
+					t.Fatalf("successful unscoped publish recorded authority violations: %+v", events)
+				}
+				return
+			}
+			if len(events) != 1 || events[0].Action != authorityViolationAction || !strings.Contains(events[0].Message, "verb=event.publish") {
+				t.Fatalf("scoped publish lifecycle events = %+v, want one event.publish authority violation", events)
+			}
+		})
+	}
+}
+
 func TestHTTP_AuthorityEnforcementDeniesUnauthorizedRemove(t *testing.T) {
 	root := t.TempDir()
 	teamDir := fixtureTeamDir(t)

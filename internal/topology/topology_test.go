@@ -356,6 +356,25 @@ allow = ["event.publish", "job.bounce:team", "job.step:team", "job.gate.*:team",
 		}
 	})
 
+	t.Run("non-job duty cannot borrow pipeline team scope", func(t *testing.T) {
+		teamScopedPublish := managedPipelineAuthorityFixture("frontend-manager", "frontend", "on_merge", `
+[authority.instances.frontend-manager]
+allow = ["event.publish:team", "job.*:team"]
+`)
+		_, err := Parse([]byte(teamScopedPublish))
+		assertAuthoritySatisfiabilityError(t, err,
+			`pipeline "managed"`,
+			`owner "frontend-manager"`,
+			`"event.publish"`,
+			`[authority.instances.frontend-manager].allow`,
+		)
+
+		unscopedPublish := strings.Replace(teamScopedPublish, "event.publish:team", "event.publish", 1)
+		if _, err := Parse([]byte(unscopedPublish)); err != nil {
+			t.Fatalf("Parse topology with runtime-satisfiable event.publish grant: %v", err)
+		}
+	})
+
 	t.Run("frontend dead own grants", func(t *testing.T) {
 		_, err := Parse([]byte(managedPipelineAuthorityFixture("frontend-manager", "frontend", "on_merge", `
 [authority.instances.frontend-manager]
