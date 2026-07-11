@@ -5,35 +5,33 @@ commitment calendar. The project moves quickly because the repo dogfoods its own
 agent fleet, so roadmap entries should stay grounded in evidence:
 
 - the latest release tag and
-  [CHANGELOG](https://github.com/agent-team-project/agent-team/blob/main/CHANGELOG.md)
+  [CHANGELOG](https://github.com/agent-team-project/kensho/blob/main/CHANGELOG.md)
 - merged GitHub PRs and commits on `main`
-- open Linear epics and their active child tickets
+- open `epic` issues and active child issues in the configured
+  `agent-team-project/kensho` GitHub Project
 - design sketches under
-  [`documentation/`](https://github.com/agent-team-project/agent-team/tree/main/documentation/)
+  [`documentation/`](https://github.com/agent-team-project/kensho/tree/main/documentation/)
 
 When a thing ships, it moves out of "in progress" and into the relevant
 "recently shipped" notes with a release, PR, commit, or design link.
 
 ## Recently Shipped Foundation
 
-[v0.4.0](https://github.com/agent-team-project/agent-team/releases/tag/v0.4.0)
-is the current release. It shipped the provider seam, GitHub provider support,
-three-team topology, feedback/debt/harness loops, provenance envelopes,
-authority audit mode, durable startup-command shims, and operator polish called
-out in the
-[changelog](https://github.com/agent-team-project/agent-team/blob/main/CHANGELOG.md#v040--2026-07-05).
+[v0.5.0](https://github.com/agent-team-project/kensho/releases/tag/v0.5.0)
+is the release represented by this roadmap update. It moves the self-dogfood
+deployment to eight teams, eleven schedules, and seven pipelines; makes GitHub
+Issues/Projects the planning source; adds release, research, and terminal-
+interface control planes; ships the read-only `agent-team ui` Overview; and
+turns budgets, authority, verifier evidence, exact-head review, and release
+claims into explicit gates. See the
+[v0.5.0 changelog](https://github.com/agent-team-project/kensho/blob/main/CHANGELOG.md#v050--2026-07-12)
+for the merged-PR record and pre-v1 migration notes.
 
-`main` has also moved since that tag. Notable post-release work includes the
-docs team and weekly freshness loop, the VitePress/ReadTheDocs site, public
-open-source hygiene, team budget allowances and hard cutoffs, reserve vs.
-oversubscribe allocation, `env_allow` launch-env filtering, local
-cross-deployment feedback delivery, the Linear-to-GitHub Projects mirror script,
-authority enforcement with verb-aware CLI shims, stable `agt://` resource
-identity, named deployment resolution, daemon-mediated resource reads, the
-embedded daemon `/ui`, report-job deliverable contracts, the slim consumer init
-profile, the `agent-team ticket` provider bridge, and the
-security/distributed-compute research notes linked below. Those are merged, but
-not yet part of a tagged release.
+The terminal UI is intentionally at walking-skeleton scope. Overview and
+`--once` are shipped; additional views, actions, full CLI parity, and removal of
+the embedded web dashboard remain active GH-153 work. The standing research
+topology is also shipped, while individual studies still advance only through
+their preregistration, verification, review, and manual integration gates.
 
 ## Security And Isolation
 
@@ -44,12 +42,12 @@ preserving a file-backed, inspectable repo workflow.
 
 Recently shipped:
 
-- [SQU-90 / PR #94](https://github.com/agent-team-project/agent-team/pull/94)
+- [SQU-90 / PR #94](https://github.com/agent-team-project/kensho/pull/94)
   added the origin envelope so jobs, queue items, events, locks, usage records,
   and outbound Linear writes know their project/team/instance/job owner.
-- [SQU-92 / PR #96](https://github.com/agent-team-project/agent-team/pull/96)
+- [SQU-92 / PR #96](https://github.com/agent-team-project/kensho/pull/96)
   added scoped resources and authority allowlists in audit mode.
-- [SQU-121 / PR #124](https://github.com/agent-team-project/agent-team/pull/124)
+- [SQU-121 / PR #124](https://github.com/agent-team-project/kensho/pull/124)
   added `env_allow` so topology can filter per-instance launch environments.
 - [SQU-122](https://linear.app/squirtlesquad/issue/SQU-122/security-graduate-authority-audit-to-enforcement-for-destructive-verbs)
   graduated destructive daemon/CLI verbs from audit-only visibility to
@@ -58,7 +56,7 @@ Recently shipped:
   added the verb-aware `agent-team` runtime shim. Under enforcement, the shim
   resolves invocations through the live Cobra tree and denies unknown or
   ungranted verbs before they reach the real CLI.
-- [`documentation/security-model.md`](https://github.com/agent-team-project/agent-team/blob/main/documentation/security-model.md)
+- [`documentation/security-model.md`](https://github.com/agent-team-project/kensho/blob/main/documentation/security-model.md)
   records the adopted security model: per-instance identity, brokered provider
   secrets, capability-style authorization, reader/actor separation for public
   input, and sandbox tiers.
@@ -96,13 +94,13 @@ another machine or in a container without rewriting the control plane.
 
 Recently shipped:
 
-- [SQU-103 / PR #102](https://github.com/agent-team-project/agent-team/pull/102)
+- [SQU-103 / PR #102](https://github.com/agent-team-project/kensho/pull/102)
   added team budget caps and admission control.
-- [SQU-104 / PR #103](https://github.com/agent-team-project/agent-team/pull/103)
+- [SQU-104 / PR #103](https://github.com/agent-team-project/kensho/pull/103)
   added per-job and per-agent allowances plus soft budget notices.
-- [SQU-105 / PR #104](https://github.com/agent-team-project/agent-team/pull/104)
+- [SQU-105 / PR #104](https://github.com/agent-team-project/kensho/pull/104)
   added opt-in hard token cutoffs with watchdog semantics.
-- [SQU-106 / PR #105](https://github.com/agent-team-project/agent-team/pull/105)
+- [SQU-106 / PR #105](https://github.com/agent-team-project/kensho/pull/105)
   added reserve vs. oversubscribe allocation, so outstanding child promises can
   be counted against parent headroom when an operator wants strict reservation.
 - [SQU-127](https://linear.app/squirtlesquad/issue/SQU-127/daemon-named-deployment-addressing-registry-over-raw-paths-routes-v2)
@@ -112,7 +110,7 @@ Recently shipped:
   `agent-team read <agt-uri>` for daemon-owned reads of project, instance, job,
   workspace, state, log, usage, mailbox, channel, queue, outbox, lock, and
   topology resources.
-- [`documentation/resource-constraints.md`](https://github.com/agent-team-project/agent-team/blob/main/documentation/resource-constraints.md)
+- [`documentation/resource-constraints.md`](https://github.com/agent-team-project/kensho/blob/main/documentation/resource-constraints.md)
   now describes the full resource surface: build slots, tokens, provider
   throttling, CI/API quotas, local health, priority, preemption, and
   backpressure.
@@ -147,30 +145,23 @@ the worker/reviewer delivery contract.
 
 Recently shipped:
 
-- [SQU-86 / PR #90](https://github.com/agent-team-project/agent-team/pull/90)
+- [SQU-86 / PR #90](https://github.com/agent-team-project/kensho/pull/90)
   introduced `internal/pmprovider` and `[pm].provider`.
-- [SQU-96 / PR #92](https://github.com/agent-team-project/agent-team/pull/92)
+- [SQU-96 / PR #92](https://github.com/agent-team-project/kensho/pull/92)
   proved the seam with GitHub Issues/Projects intake, write-back, and a GitHub
   skill alongside the Linear skill.
 - The post-release Linear-to-GitHub mirror script
-  ([commit `2a3c80c`](https://github.com/agent-team-project/agent-team/commit/2a3c80c))
+  ([commit `2a3c80c`](https://github.com/agent-team-project/kensho/commit/2a3c80c))
   opened the parallel-run window by mirroring open SQU tickets to GitHub
-  Projects while keeping Linear as source of truth.
+  Projects.
 - `agent-team ticket create|update|comment|close` now exposes provider-backed
   ticket actions through the CLI for Linear and GitHub.
+- This repository completed the cutover: `[pm].provider = "github"`, GitHub
+  issues/epics and Project status are canonical, and Linear is historical
+  context rather than a second planning source.
 
-In progress:
+In progress / planned:
 
-- [SQU-114](https://linear.app/squirtlesquad/issue/SQU-114/pm-migrate-linear-github-projects-deferred-until-post-public-stability)
-  tracks the actual migration. Current state: the GitHub board exists, open SQU
-  tickets are mirrored, and Linear remains authoritative until one real
-  GitHub-provider dispatch cycle is validated and the repo config is flipped.
-
-Planned:
-
-- Cut over `[pm].provider` to `github`, update intake routing and feedback
-  destinations, and retire Linear only after the public repo has enough stable
-  reps on the GitHub path.
 - Keep provider-specific differences behind skills and provider adapters so
   worker/reviewer prompts can stay provider-aware without becoming
   provider-coupled.
@@ -186,36 +177,37 @@ agent prompts.
 
 Recently shipped:
 
-- [SQU-97 / PR #97](https://github.com/agent-team-project/agent-team/pull/97)
+- [SQU-97 / PR #97](https://github.com/agent-team-project/kensho/pull/97)
   made `inbox check` and channel startup commands durable across daemon-routed
   dispatch paths for both Claude and Codex adapters.
-- [SQU-83 / PR #86](https://github.com/agent-team-project/agent-team/pull/86)
+- [SQU-83 / PR #86](https://github.com/agent-team-project/kensho/pull/86)
   added resume visibility: counts, last activity, progression hints, and
   incarnation timelines.
 - The VitePress developer docs and ReadTheDocs publishing path landed through
   the public-docs arc, including the rendering fixes in
-  [PR #111](https://github.com/agent-team-project/agent-team/pull/111) and the
-  docs refresh in [PR #112](https://github.com/agent-team-project/agent-team/pull/112).
-- [SQU-126 / PR #126](https://github.com/agent-team-project/agent-team/pull/126)
+  [PR #111](https://github.com/agent-team-project/kensho/pull/111) and the
+  docs refresh in [PR #112](https://github.com/agent-team-project/kensho/pull/112).
+- [SQU-126 / PR #126](https://github.com/agent-team-project/kensho/pull/126)
   added local cross-team feedback delivery over target daemon sockets, so
   feedback routing can cross team boundaries without treating a filesystem path
   as the long-term resource identity.
 - The daemon now serves an embedded local `/ui` dashboard over its loopback API.
   The static shell loads unauthenticated, while data requests use bearer tokens.
+- `agent-team ui` now ships a tested read-only terminal Overview and `--once`
+  snapshot over the shared typed daemon client. The frontend team and pipeline
+  own later parity slices and the eventual clean web removal.
 - Report jobs now have an explicit artifact contract:
   `agent-team job create --kind report --deliverable report:<path>`.
+- The five-step `release` pipeline is live: prepare, verify, manual approve,
+  ship/tag/assets, and capped comms announcement are distinct owners and gates.
 
 In progress:
 
-- There is no single operability epic active at the time of this update. The
-  active work is spread across security shims, distributed addressing, provider
-  migration, and docs freshness.
+- GH-153 continues the terminal-interface parity/cutover work after the shipped
+  Overview slice. The daemon HTTP/JSON API remains the shared control plane.
 
 Planned:
 
-- [SQU-113](https://linear.app/squirtlesquad/issue/SQU-113/release-a-release-pipeline-with-gates-changelog-docs-tag-verify)
-  formalizes the manual release cycle as a gated topology pipeline: prepare
-  changelog/docs, review, manual approve, tag/release/verify, and announce.
 - Resource backpressure and priority/preemption should surface through the same
   operator-first queue, health, and budget views rather than hidden runtime
   retries.
@@ -238,18 +230,18 @@ Recently shipped:
 - v0.4.0 shipped the feedback, debt-sweep, and harness-review loops. The first
   auditor sweep produced the remediated queue/events, `--commands`, and
   quarantine refactors; the first harness review produced
-  [SQU-97 / PR #97](https://github.com/agent-team-project/agent-team/pull/97).
+  [SQU-97 / PR #97](https://github.com/agent-team-project/kensho/pull/97).
 - The live experiment is documented in
-  [`docs/experiment.md`](../experiment.md), including the current five-team
-  topology and the evidence-to-ticket-to-PR path.
-- The docs team and weekly docs-freshness schedule are now part of the bundled
-  topology, and the docs-freshness skill explicitly owns this roadmap as a
-  living document.
+  [`docs/experiment.md`](../experiment.md), including the current eight-team,
+  eleven-schedule, seven-pipeline topology and evidence-to-issue-to-PR path.
+- The Codex docs team runs a durable freshness pipeline every six hours in this
+  repo. Research reconciliation/evidence audit and frontend reconciliation are
+  also declared loops rather than informal manager habits.
 
 In progress:
 
-- [SQU-129](https://linear.app/squirtlesquad/issue/SQU-129/docs-bring-the-public-roadmap-current-surface-it)
-  is the current docs-freshness repair for this page.
+- GH-228 remains the rolling docs-freshness evidence ledger; release PRs fold
+  current findings into public docs rather than copying old counts.
 
 Planned:
 

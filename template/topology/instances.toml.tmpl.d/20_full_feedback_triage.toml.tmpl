@@ -1,7 +1,7 @@
 {{ if eq .template.profile `full` }}
 
 # The feedback-triage loop: agents submit one-line observations mid-job
-# (`agent-team feedback submit` — see the triage-feedback skill); this weekly
+# (`agent-team feedback submit` — see the triage-feedback skill); this six-hour
 # schedule spawns an ephemeral manager that clusters new feedback plus system
 # pain signals (repeated bounces, infra-signature repeats) and materializes
 # tickets, folds evidence into existing ones, or dismisses with a reason.
@@ -21,5 +21,4 @@ description = "Scheduled feedback triage: local store + system signals -> ticket
 event      = "schedule"
 match.name = "feedback-triage"
 match.kind = "feedback_triage"
-
 

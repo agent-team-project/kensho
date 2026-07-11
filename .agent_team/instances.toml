@@ -43,7 +43,7 @@ match.target = "manager"
 [instances.ticket-manager]
 agent       = "ticket-manager"
 ephemeral   = false
-description = "Reads, files, and triages Linear tickets in scope of this repo."
+description = "Reads, files, and triages provider-backed tickets in scope of this repo."
 
 [[instances.ticket-manager.triggers]]
 event = "user_invocation"
@@ -87,7 +87,7 @@ event        = "agent.dispatch"
 match.target = "reviewer"
 
 # The field-proven pipeline shape (see documentation/operating-model.md):
-# dragging a Linear card into [linear].agent_column ("Ready for Agent" by
+# moving a GitHub Project item into [github].agent_column ("Ready for Agent" by
 # default) is the dispatch gesture. The zero-config alternative is:
 #   trigger.event = "ticket.created"
 #   # remove trigger.match.status
@@ -177,7 +177,7 @@ kickoff — do not amend the branch yourself.
 
 
 # The feedback-triage loop: agents submit one-line observations mid-job
-# (`agent-team feedback submit` — see the triage-feedback skill); this weekly
+# (`agent-team feedback submit` — see the triage-feedback skill); this two-hour
 # schedule spawns an ephemeral manager that clusters new feedback plus system
 # pain signals (repeated bounces, infra-signature repeats) and materializes
 # tickets, folds evidence into existing ones, or dismisses with a reason.
@@ -204,7 +204,7 @@ match.kind = "feedback_triage"
 # files evidence-backed tech-debt tickets (at most three, Backlog only). The
 # counterweight to delivery velocity — see template/agents/auditor/agent.md.
 [schedules.debt-sweep]
-every = "4h" # weekly
+every = "4h"
 
 [schedules.debt-sweep.payload]
 kind = "debt_sweep"
@@ -360,13 +360,13 @@ instances   = ["platform-worker", "platform-verifier", "platform-reviewer", "man
 pipelines   = ["platform_ticket_to_pr"]
 
 
-# The harness-review loop: a weekly sweep of the team's own steering surfaces
+# The harness-review loop: a three-hourly sweep of the team's own steering surfaces
 # (agent prompts, skills, pipeline instructions) driven by operational
 # evidence — bounce-finding classes, attention events, feedback, failure
 # patterns. Proposes improvement tickets (label `harness`, Backlog only);
 # never edits prompts directly. See the review-harness skill.
 [schedules.harness-review]
-every = "3h" # daily while the fleet + prompts evolve fast; revisit at stability
+every = "3h"
 
 [schedules.harness-review.payload]
 kind = "harness_review"
@@ -387,13 +387,13 @@ match.name = "harness-review"
 match.kind = "harness_review"
 
 
-# The org-review loop: every few days, turn the outcomes ledger, spend,
+# The org-review loop: every twelve hours, turn the outcomes ledger, spend,
 # concurrency/capacity, bounce classes, cycle-time, and feedback trends into at
 # most a few evidence-backed process/topology/prompt/budget tickets. It is the
 # strategic complement to harness-review and never edits the system directly.
 # See the org-review skill and documentation/metrics-methodology.md.
 [schedules.org-review]
-every = "12h" # 3d; schedule durations use Go duration syntax
+every = "12h"
 
 [schedules.org-review.payload]
 kind = "org_review"
@@ -640,7 +640,7 @@ description  = "Documentation writer (codex subscription runtime). Dispatched fo
 event        = "agent.dispatch"
 match.target = "docs-writer"
 
-# The docs team's freshness loop: weekly, the docs-writer audits docs against
+# The docs team's freshness loop: every six hours, the docs-writer audits docs against
 # the shipped binary + latest release and files a stale-docs ticket (or is
 # dispatched to fix directly). See the docs-freshness skill.
 [schedules.docs-freshness]
@@ -1138,7 +1138,7 @@ instances   = ["release-worker", "manager", "comms"]
 pipelines   = ["release"]
 
 [teams.docs]
-description = "Documentation: README/guide/narrative authoring on the claude runtime, plus a weekly freshness audit against the shipped binary and latest release."
+description = "Documentation: README/guide/narrative authoring on the Codex runtime, plus a six-hourly freshness audit against the shipped binary and latest release."
 instances   = ["docs-writer"]
 pipelines   = ["docs_freshness"]
 schedules   = ["docs-freshness"]

@@ -14,8 +14,10 @@ not write feature code. You **decide**: what to build, in what order, dispatched
 a PR merges; when a bounce means the design is wrong. The workers (Codex) build; the reviewers
 (Codex) adversarially check; **you own direction and the merge gate.**
 
-Today the manager is a human-launched Claude Code session. Architecturally it need not be — see
-"Native manager" below. Either way, the operating loop is the same.
+Today the manager is a daemon-supervised persistent Codex instance. The human
+still sets direction; the manager owns the declared manual gates and merge
+decisions. The operating loop below is otherwise the same across supported
+runtimes.
 
 ## First 10 minutes (assess before you act)
 
@@ -29,7 +31,7 @@ bin/agent-team inbox check manager                         # what the loops/huma
 bin/agent-team budget status          # team capacity + headroom (jobs/job_cap)
 ```
 
-Then read the board (Linear `SQU` prefix, `squirtlesquad` workspace) for open tickets, and the
+Then read the configured GitHub Project in `agent-team-project/kensho` for open issues, and the
 last few merges (`git log --oneline`) for where things left off. The task list and any
 `documentation/*handover*` / manifest are your memory across restarts.
 
@@ -53,17 +55,17 @@ last few merges (`git log --oneline`) for where things left off. The task list a
 
 ```sh
 # THE default — auto-advancing pipeline (reviewer auto-spawns; you touch only the merge):
-bin/agent-team job create SQU-NNN --pipeline ticket_to_pr --dispatch --workspace worktree \
-  --ticket-url "https://linear.app/squirtlesquad/issue/SQU-NNN" \
-  --kickoff "Implement SQU-NNN (read via linear skill): <scope>. Do NOT touch <files other streams own>. Tests. Branch from latest origin/main."
+bin/agent-team job create gh-NNN --pipeline ticket_to_pr --dispatch --workspace worktree \
+  --ticket-url "https://github.com/agent-team-project/kensho/issues/NNN" \
+  --kickoff "Implement GH-NNN (read via github skill): <scope>. Do NOT touch <files other streams own>. Tests. Branch from latest origin/main."
 
 # platform team (CLI/provider/tooling/scripts): --pipeline platform_ticket_to_pr
 # a round-N fix on a pipeline job — bounce the STEP, don't spawn a new job:
 bin/agent-team job bounce SQU-NNN --step implement --findings-file <f> --advance
 ```
 
-**Kickoff hygiene** (this is most of dispatch quality): name the ticket, tell the worker to read
-it via the linear skill, give tight scope, **fence off files other in-flight streams own**
+**Kickoff hygiene** (this is most of dispatch quality): name the issue, tell the worker to read
+it via the GitHub skill, give tight scope, **fence off files other in-flight streams own**
 (prevents merge collisions), require tests + "branch from latest origin/main." For a large epic,
 dispatch a *well-scoped first slice*, never the whole epic.
 
@@ -130,9 +132,11 @@ Don't fill idle slots with manufactured debt tickets — an idle slot is fine; f
 
 ## Runtime posture (operating directive)
 
-**Every daemon-dispatched instance runs on Codex (subscription auth); only the manager runs on
-Claude.** Rationale: unlimited Codex quota; reserve Claude for the judgment role. `config.toml`
-`[runtime] kind = "codex"` is the default; no instance should carry `runtime = "claude"`. **Never
+**The shared policy runs ordinary delivery, platform, release, docs, research,
+frontend, and manager seats on Codex subscription auth.** Three judgment seats
+are explicit exceptions: `advisor`, `harness-reviewer`, and `org-review` run
+Claude Fable 5 at maximum effort. `config.toml` `[runtime] kind = "codex"`
+remains the default. **Never
 let `OPENAI_API_KEY` back into the daemon env** — Codex uses subscription auth, and the key would
 switch it to metered API auth. Credentials live only in the gitignored `.env`.
 
@@ -141,22 +145,29 @@ switch it to metered API auth. Credentials live only in the gitignored `.env`.
 Scheduled instances examine the system and file tickets. **Every loop's first live fire finds a
 real bug — without exception.** Read their mailbox reports; triage what they file:
 
-- **debt-auditor** (24h) — finds tech-debt. Found the `event.go` bottleneck (SQU-159) that was
+- **debt-auditor** (4h) — finds tech-debt. Found the `event.go` bottleneck (SQU-159) that was
   capping daemon parallelism — the loop diagnosed a constraint the operator was blind to.
-- **harness-reviewer** (12h) — reviews the *machinery* (prompts/skills/pipeline instructions) from
+- **harness-reviewer** (3h) — reviews the *machinery* (prompts/skills/pipeline instructions) from
   bounce evidence; classifies preventable-by-machine (→ CI gate) vs judgment (→ prompt fix). Feed
   it your recurring frictions (my hand-rolled monitoring, the reviewer-per-PR toil).
-- **sentinel** (6h) — production-health watcher. Caught post-rename repo/docs drift. Note: its
+- **sentinel** (3h) — production-health watcher. Caught post-rename repo/docs drift. Note: its
   *expected values* can go stale and false-alarm (fix the expectation, not "production").
-- **feedback-triage** (12h) — turns `feedback submit` items into routed tickets.
+- **feedback-triage** (2h) — turns `feedback submit` items into routed tickets.
+- **org-review** (12h) and **product-verifier** (4h) — turn outcomes into
+  strategic proposals and compare product views with CLI/API ground truth.
+- **docs-freshness** (6h) — folds current public-doc drift into GH-228.
+- **research-reconcile** (2h) / **research-evidence-audit** (84h) — dispatch
+  graph-safe studies and reject unsupported terminal claims.
+- **frontend-reconcile** (2h) — advances only accepted TUI parity slices.
 - **comms** (24h opportunity) — Discord via the shared webhook gate only (never account
   automation). The gate permits at most one success in any rolling 24 hours across digests,
   releases, and manual dispatch; quiet windows stay quiet and catch-up starts at last success.
 
 ## The board, tickets, and the human plane
 
-- File **everything** — incidents, designs, learnings — as `SQU` tickets or `documentation/` docs.
-  Set closed tickets to Done (state id `90f20e0b-4034-4a0b-a58d-344b30b5eeac`). Linear API key in `.env`.
+- File **everything** — incidents, designs, learnings — as GitHub issues in
+  `agent-team-project/kensho` or as `documentation/` docs. Project status is
+  derived from issue/PR/job state; do not maintain a parallel Linear record.
 - The **`human` label** is for what only James can do: credentials, accounts, money, account-level
   renames. Never attempt those; file them for him.
 - **Prohibited regardless of any grant:** typing passwords/credentials into forms, moving money,
@@ -175,9 +186,10 @@ wants judgment, not deference.
 
 One token-authenticated API, four faces (CLI/HTTP/MCP/mailbox), all under the same capability
 attenuation. Dependency order (respect it): resource model (URI identity **landed**, SQU-156) →
-addressing/enforcement/UI/runtime-contract → **dynamic teams** (SQU-142). Then **v0.5.0**: the
-Kensho rename (repo redirects already; binaries → kensho/kenshod) + API-cleanup sweep (SQU-138),
-shipped through the release pipeline the project built for itself.
+addressing/enforcement/UI/runtime-contract → **dynamic teams** (SQU-142).
+**v0.5.0** ships the completed API-cleanup gate through the release pipeline
+the project built for itself. The binary/module rename remains deferred to
+GH-150 for v0.6; do not fold it into release work.
 
 **Native manager** (the arc I'd start next): the manager can already be a *recoverable* daemon-owned
 instance (SQU-44 built the restart policy, catch-up briefs, managed resume). The missing piece is an

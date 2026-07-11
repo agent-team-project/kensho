@@ -40,11 +40,11 @@ The release tarball path is the simplest way to get the two binaries. Set
 
 ```sh
 mkdir -p /tmp/agent-team-install
-VERSION="$(gh release list --repo agent-team-project/agent-team --limit 1 --json tagName --jq '.[0].tagName')"
+VERSION="$(gh release list --repo agent-team-project/kensho --limit 1 --json tagName --jq '.[0].tagName')"
 OS=darwin
 ARCH=arm64
 gh release download "$VERSION" \
-  --repo agent-team-project/agent-team \
+  --repo agent-team-project/kensho \
   --pattern "agent-team_${VERSION#v}_${OS}_${ARCH}.tar.gz" \
   --dir /tmp/agent-team-install
 tar -xzf "/tmp/agent-team-install/agent-team_${VERSION#v}_${OS}_${ARCH}.tar.gz" \

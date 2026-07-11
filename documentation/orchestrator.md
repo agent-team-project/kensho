@@ -361,7 +361,7 @@ last_action = "Edited internal/template/render.go"
 
 [work]                          # optional — the unit of work this instance is on
 ticket = "SQU-25"
-pr     = "https://github.com/agent-team-project/agent-team/pull/26"
+pr     = "https://github.com/agent-team-project/kensho/pull/26"
 branch = "squ-25-status-emission"
 
 [blocking]                      # optional — present only when phase = "blocked"

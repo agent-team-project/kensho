@@ -51,12 +51,11 @@ match.target = "manager"
 [instances.ticket-manager]
 agent       = "ticket-manager"
 ephemeral   = false
-description = "Reads, files, and triages Linear tickets in scope of this repo."
+description = "Reads, files, and triages provider-backed tickets in scope of this repo."
 
 [[instances.ticket-manager.triggers]]
 event = "user_invocation"
 {{ end }}
-
 [instances.worker]
 agent         = "worker"
 ephemeral     = true
@@ -198,7 +197,7 @@ kickoff — do not amend the branch yourself.
 {{ if eq .template.profile `full` }}
 
 # The feedback-triage loop: agents submit one-line observations mid-job
-# (`agent-team feedback submit` — see the triage-feedback skill); this weekly
+# (`agent-team feedback submit` — see the triage-feedback skill); this six-hour
 # schedule spawns an ephemeral manager that clusters new feedback plus system
 # pain signals (repeated bounces, infra-signature repeats) and materializes
 # tickets, folds evidence into existing ones, or dismisses with a reason.
@@ -219,12 +218,11 @@ event      = "schedule"
 match.name = "feedback-triage"
 match.kind = "feedback_triage"
 
-
 # The quality team: a scheduled auditor that sweeps one subsystem per run and
 # files evidence-backed tech-debt tickets (at most three, Backlog only). The
 # counterweight to delivery velocity — see template/agents/auditor/agent.md.
 [schedules.debt-sweep]
-every = "24h" # weekly
+every = "24h"
 
 [schedules.debt-sweep.payload]
 kind = "debt_sweep"
@@ -243,7 +241,6 @@ match.kind = "debt_sweep"
 [[instances.debt-auditor.triggers]]
 event        = "agent.dispatch"
 match.target = "debt-auditor"
-
 
 # The platform team: framework-infrastructure arcs (provider seams, provenance,
 # scoping) run through their own worker/verifier/reviewer pool so product
@@ -385,13 +382,13 @@ the job done. BOUNCE: `agent-team job bounce <job-id> --findings-file <path>
 description = "Framework infrastructure: provider seams, provenance, scoping, resource constraints."
 instances   = ["platform-worker", "platform-verifier", "platform-reviewer", "manager"]
 pipelines   = ["platform_ticket_to_pr"]
-# The harness-review loop: a weekly sweep of the team's own steering surfaces
+# The harness-review loop: an eight-hourly sweep of the team's own steering surfaces
 # (agent prompts, skills, pipeline instructions) driven by operational
 # evidence — bounce-finding classes, attention events, feedback, failure
 # patterns. Proposes improvement tickets (label `harness`, Backlog only);
 # never edits prompts directly. See the review-harness skill.
 [schedules.harness-review]
-every = "8h" # daily while the fleet + prompts evolve fast; revisit at stability
+every = "8h"
 
 [schedules.harness-review.payload]
 kind = "harness_review"
@@ -647,13 +644,13 @@ agent        = "worker"
 ephemeral    = true
 runtime      = "codex"
 token_budget = "40M"
-description  = "Documentation writer on the claude runtime (subscription Opus-class prose). Dispatched for README/guide/narrative work."
+description  = "Documentation writer on the Codex subscription runtime. Dispatched for README/guide/narrative work."
 
 [[instances.docs-writer.triggers]]
 event        = "agent.dispatch"
 match.target = "docs-writer"
 
-# The docs team's freshness loop: weekly, the docs-writer audits docs against
+# The docs team's freshness loop: daily, the docs-writer audits docs against
 # the shipped binary + latest release and files a stale-docs ticket (or is
 # dispatched to fix directly). See the docs-freshness skill.
 [schedules.docs-freshness]
@@ -1152,7 +1149,7 @@ instances   = ["release-worker", "manager", "comms"]
 pipelines   = ["release"]
 
 [teams.docs]
-description = "Documentation: README/guide/narrative authoring on the claude runtime, plus a weekly freshness audit against the shipped binary and latest release."
+description = "Documentation: README/guide/narrative authoring on the Codex runtime, plus a daily freshness audit against the shipped binary and latest release."
 instances   = ["docs-writer"]
 pipelines   = ["docs_freshness"]
 schedules   = ["docs-freshness"]

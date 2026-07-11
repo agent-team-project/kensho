@@ -3,7 +3,7 @@
 These examples are complete `.agent_team/instances.toml` starting points. Copy
 one, edit names and targets, then validate before running it. The same
 topologies are tracked as copyable fixtures under
-[`examples/topologies/`](https://github.com/agent-team-project/agent-team/tree/main/examples/topologies)
+[`examples/topologies/`](https://github.com/agent-team-project/kensho/tree/main/examples/topologies)
 and parsed in CI.
 
 ```sh
@@ -19,7 +19,7 @@ Use this for one product team that turns incoming tickets into pull requests.
 The manager and ticket manager are persistent. Workers are ephemeral and spawn
 only when `agent.dispatch` targets `worker`.
 
-Copyable file: [`examples/topologies/single-delivery-team.instances.toml`](https://github.com/agent-team-project/agent-team/blob/main/examples/topologies/single-delivery-team.instances.toml)
+Copyable file: [`examples/topologies/single-delivery-team.instances.toml`](https://github.com/agent-team-project/kensho/blob/main/examples/topologies/single-delivery-team.instances.toml)
 
 ```toml
 [instances.manager]
@@ -102,7 +102,7 @@ Use this when one repo contains two ownership areas. Each team gets its own
 manager, worker pool, pipeline, and schedule. The target names keep queue,
 pipeline, and team filters unambiguous.
 
-Copyable file: [`examples/topologies/product-platform-teams.instances.toml`](https://github.com/agent-team-project/agent-team/blob/main/examples/topologies/product-platform-teams.instances.toml)
+Copyable file: [`examples/topologies/product-platform-teams.instances.toml`](https://github.com/agent-team-project/kensho/blob/main/examples/topologies/product-platform-teams.instances.toml)
 
 ```toml
 [instances.product-manager]
@@ -209,7 +209,7 @@ Use this when a small on-call group needs scheduled checks, incident intake,
 and explicit worker handoff. The incident manager stays persistent; workers are
 ephemeral so investigation logs stay tied to the job instance.
 
-Copyable file: [`examples/topologies/reliability-rotation.instances.toml`](https://github.com/agent-team-project/agent-team/blob/main/examples/topologies/reliability-rotation.instances.toml)
+Copyable file: [`examples/topologies/reliability-rotation.instances.toml`](https://github.com/agent-team-project/kensho/blob/main/examples/topologies/reliability-rotation.instances.toml)
 
 ```toml
 [instances.incident-manager]

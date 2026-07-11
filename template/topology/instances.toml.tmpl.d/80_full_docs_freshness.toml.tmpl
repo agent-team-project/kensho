@@ -3,13 +3,13 @@ agent        = "worker"
 ephemeral    = true
 runtime      = "codex"
 token_budget = "40M"
-description  = "Documentation writer on the claude runtime (subscription Opus-class prose). Dispatched for README/guide/narrative work."
+description  = "Documentation writer on the Codex subscription runtime. Dispatched for README/guide/narrative work."
 
 [[instances.docs-writer.triggers]]
 event        = "agent.dispatch"
 match.target = "docs-writer"
 
-# The docs team's freshness loop: weekly, the docs-writer audits docs against
+# The docs team's freshness loop: daily, the docs-writer audits docs against
 # the shipped binary + latest release and files a stale-docs ticket (or is
 # dispatched to fix directly). See the docs-freshness skill.
 [schedules.docs-freshness]

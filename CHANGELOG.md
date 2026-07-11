@@ -1,11 +1,93 @@
 # Changelog
 
-## Unreleased — v0.5.0
+## v0.5.0 — 2026-07-12
+
+The control-plane release. `agent-team` now runs a durable eight-team
+self-dogfood topology, exposes a terminal-first operator surface, routes work
+through GitHub Projects, and applies explicit budgets, authority, verification,
+and release gates to the agents improving the project.
+
+### Terminal-first operations and visibility
+
+- **Read-only TUI Overview** — `agent-team ui` opens a keyboard-complete terminal
+  view over the shared daemon client; `--once` provides a non-interactive
+  snapshot. This is the tested walking skeleton, not full CLI parity or the web
+  dashboard cutover. (#388, #395, #401)
+- **Daemon visibility** — the embedded loopback dashboard gained pipeline,
+  budget, team, live-instance, and model-tier views, while stable `agt://`
+  resource identities and deployment addressing make daemon-owned state
+  inspectable without path coupling. (#141, #172, #175, #178, #181, #186,
+  #188, #252, #297, #323)
+- **Runtime breadth** — daemon dispatch supports Docker as well as Claude and
+  Codex, with per-instance and per-pipeline-step model/effort selection and an
+  enforced GPT-5.6-Sol policy in the self-dogfood topology. (#168, #284, #327,
+  #355, #362, #365)
+
+### Eight teams, eleven schedules, seven pipelines
+
+- **Dedicated release train** — the declared `release` pipeline separates
+  prepare, deterministic verification, manual approval, tag/asset shipping,
+  and capped announcement delivery. This v0.5.0 run is its first real release
+  acceptance. (#129, #266, #386)
+- **Research and terminal-interface teams** — the full topology adds a
+  preregistration/evidence-gated research organization and a frontend team for
+  advisor-backed TUI slices. The release and research teams join delivery,
+  platform, quality, PR, docs, and frontend in the live eight-team deployment.
+  (#387, #388, #401)
+- **Self-improvement loops** — product verification, org review, docs freshness,
+  research reconciliation/evidence audit, and frontend reconciliation join the
+  feedback, debt, harness, sentinel, and comms loops. Docs freshness now runs as
+  a durable pipeline job, and Discord delivery enforces one shared rolling
+  24-hour cap. (#190, #204, #219, #220, #352, #386)
+
+### Durable contracts, budgets, and gates
+
+- **Resource governance** — team admission budgets, per-job allowances, hard
+  watchdog cutoffs, reserve/oversubscribe allocation, effective-concurrency and
+  model-tier telemetry, adaptive admission, and team-load weighting make spend
+  and capacity visible and enforceable. (#102–#105, #136, #169, #207, #257,
+  #288, #289, #315)
+- **Evidence before judgment** — pipelines can require deterministic verifier
+  steps, tiered smoke/acceptance/release claims, visual-QA evidence, requirement
+  traceability, durable job contracts, and authenticated exact-head review.
+  (#237, #265, #266, #283, #332, #415, #423)
+- **Recovery closes the loop** — managers wake on completion and unfinished
+  work, reconciliation preserves handled terminal jobs, bounce/re-dispatch and
+  reused-branch delivery are recognized, and launch prompts survive direct,
+  daemon, and managed-resume paths. (#180, #201, #270, #280, #295, #302, #303,
+  #307, #320, #329, #356, #394)
+
+### Providers, authority, and public operation
+
+- **GitHub is the planning source for this repo** — provider-routed ticket
+  verbs, automated work-item trailers/project status, pinned worker identity,
+  and keyring token resolution support the completed GitHub Projects cutover;
+  ticketless and Linear-backed consumer repos remain supported. (#196, #199,
+  #214, #217, #224, #238)
+- **Authority is enforced** — tokenized loopback transport, launch-environment
+  filtering, verb-aware runtime shims, destructive-operation enforcement, and
+  topology satisfiability checks reduce reliance on prompt discipline. (#124,
+  #125, #141, #166, #179, #206, #417, #420)
+- **Open-source and operator polish** — VitePress/ReadTheDocs publishing,
+  install/getting-started guides, the slim consumer profile, community intake,
+  report deliverables, and provider-aware first-run diagnostics make the system
+  usable outside its own repository. (#107–#112, #194, #195, #229, #233, #240,
+  #250)
+
+### Pre-v1 cleanup gate
+
+GH-159's release gate was completed by GH-425 / PR #427 at approved head
+`e1917d1c`, merged as `69b9c6c6`. Exact-head verification and independent review
+accepted AC1–AC8 after one content bounce. The sweep removed the complete frozen
+compatibility inventory; its bounce fixes also prove `doctor --commands` emits
+the canonical repo selector and custom templates do not gain an undeclared PM
+provider. The work did not enter the deferred repository/binary rename or
+unrelated roadmap work.
 
 ### Breaking changes and migration
 
 - Project-manager configuration now has one source: `[pm].provider`. Replace
-  `[team].pm_tool = "linear"` with `[pm] provider = "linear"` (or `github` /
+  `[team].pm_tool = "linear"` with `[pm].provider = "linear"` (or `github` /
   `none`) before upgrading.
 - Repo-scoped commands now use the root-level `--repo <dir>` flag exclusively.
   Replace repo-root `--target <dir>` with `--repo <dir>`. The remaining
