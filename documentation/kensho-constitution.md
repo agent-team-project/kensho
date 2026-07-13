@@ -32,6 +32,7 @@ Alignment is not a gate built once; it is a thing *beheld continuously.*
 4. **Minimal surface, one responsibility per component.** No half-finished paths, no dead code, no dual paths. Pre-v1: remove superseded surfaces outright.
 5. **Ground truth over proxy.** "Looks done" is not done. Every quality claim is independently checkable — cite the command and the result.
 6. **The gate is not optional.** Adversarial review before merge, especially for changes to the daemon that runs everything.
+7. **Continuous useful flow, not utilization.** Every active durable work item must either advance, wait at an explicit gate or hold with a reason, accountable owner, and wake condition, or expose the concrete downstream backpressure preventing progress. When work derived from the human's intent is ready under delegated authority, safe under the dependency graph, and absorbable through execution, verification, review, and integration, the system remains work-conserving: it does not leave that work waiting through avoidable coordination, missed wake, or decision delay. Respect bounded work in progress and the capacity of every downstream gate; idle capacity is preferable to unready, coupled, or unabsorbable work. Never manufacture work, widen scope or work in progress, weaken a quality, security, authority, or manual gate, or make flow measures targets for the agents being observed.
 
 ## IV. Authority and escalation
 
