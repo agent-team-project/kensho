@@ -343,7 +343,7 @@ func readArchivedJobRecordSources(teamDir string, isolateMalformed bool, targetJ
 					_ = f.Close()
 					return nil, nil, fmt.Errorf("archive %s line %d: %w", path, line, err)
 				}
-				if record.Type == archiveRecordTypeJob && targetJobID != "" && NormalizeID(record.ID) == targetJobID {
+				if archivedJobIdentityMatches(scanner.Bytes(), targetJobID) {
 					_ = f.Close()
 					return nil, nil, fmt.Errorf("archived job %s at %s line %d: %w", targetJobID, path, line, err)
 				}
@@ -367,6 +367,20 @@ func readArchivedJobRecordSources(teamDir string, isolateMalformed bool, targetJ
 		}
 	}
 	return records, diagnostics, nil
+}
+
+func archivedJobIdentityMatches(raw []byte, targetJobID string) bool {
+	if targetJobID == "" {
+		return false
+	}
+	var identity struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &identity); err != nil {
+		return false
+	}
+	return identity.Type == archiveRecordTypeJob && NormalizeID(identity.ID) == targetJobID
 }
 
 func terminalJobTime(j *Job) time.Time {

@@ -482,6 +482,83 @@ allocation = "reserve"
 	}
 }
 
+func TestJobExtendTokensRejectsTargetArchiveAfterEarlierDecodeError(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	appendBudgetFixture(t, teamDir, `
+[budgets.delivery]
+tokens_per_day = 1000
+allocation = "reserve"
+`)
+	now := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
+	target := &job.Job{
+		ID:        "squ-374-target",
+		Ticket:    "SQU-374-TARGET",
+		Target:    "worker",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		Origin:    origin.Envelope{Team: "delivery"},
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{{
+			ID:          "implement",
+			Target:      "worker",
+			Status:      job.StatusRunning,
+			Instance:    "worker-squ-374-target",
+			TokenBudget: 100,
+		}},
+	}
+	if err := job.Write(teamDir, target); err != nil {
+		t.Fatalf("write target job: %v", err)
+	}
+	if _, err := archive.AppendJSON(teamDir, now, struct {
+		Type       string         `json:"type"`
+		ArchivedAt string         `json:"archived_at"`
+		ID         string         `json:"id"`
+		TerminalAt string         `json:"terminal_at"`
+		Job        map[string]any `json:"job"`
+	}{
+		Type:       "job",
+		ArchivedAt: "bad-time",
+		ID:         target.ID,
+		TerminalAt: now.Format(time.RFC3339),
+		Job:        map[string]any{"id": target.ID},
+	}); err != nil {
+		t.Fatalf("append malformed target archive: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "extend", target.ID, "--step", "implement", "--tokens", "50", "--actor", "ops", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatalf("job extend unexpectedly succeeded: stdout=%s stderr=%s", out.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "cannot parse") {
+		t.Fatalf("stderr = %q, want malformed target archive error", stderr.String())
+	}
+
+	persisted, err := job.Read(teamDir, target.ID)
+	if err != nil {
+		t.Fatalf("read target job: %v", err)
+	}
+	if len(persisted.Steps) != 1 || persisted.Steps[0].TokenBudget != 100 {
+		t.Fatalf("target job = %+v, want token budget unchanged at 100", persisted)
+	}
+	if _, err := os.Stat(job.EventPath(teamDir, target.ID)); !os.IsNotExist(err) {
+		t.Fatalf("target event path err = %v, want no audit event", err)
+	}
+	allocations, err := budgetcalc.ListAllocations(teamDir)
+	if err != nil {
+		t.Fatalf("list allocations: %v", err)
+	}
+	if len(allocations) != 0 {
+		t.Fatalf("allocations = %+v, want none", allocations)
+	}
+}
+
 func TestJobExtendQuietSuppressesIsolationWarning(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)
