@@ -655,9 +655,33 @@ def verify_approval_required_gate(binary: Path, repo: Path) -> str:
         parse_json=True,
     )
     job_id = str(field(created, "id", "ID"))
-    run(binary, "job", "step", job_id, "implement", "--skip", "--message", "demo skips implementation", "--repo", repo, "--json", parse_json=True)
-    run(binary, "job", "step", job_id, "verify", "--skip", "--message", "demo skips verification", "--repo", repo, "--json", parse_json=True)
-    run(binary, "job", "step", job_id, "review", "--skip", "--message", "demo skips review", "--repo", repo, "--json", parse_json=True)
+    head = run_git(repo, "rev-parse", "HEAD").strip()
+    run(binary, "job", "step", job_id, "implement", "--skip", "--message", "demo skips implementation", "--attempt", "1", "--head", head, "--repo", repo, "--json", parse_json=True)
+    run(binary, "job", "step", job_id, "verify", "--skip", "--message", "demo skips verification", "--attempt", "1", "--head", head, "--repo", repo, "--json", parse_json=True)
+    run(binary, "job", "step", job_id, "review", "--skip", "--message", "demo skips review", "--attempt", "1", "--head", head, "--repo", repo, "--json", parse_json=True)
+    for step_id in ("verify", "review"):
+        run(
+            binary,
+            "job",
+            "gate",
+            "set",
+            job_id,
+            f"demo-{step_id}",
+            "--repo",
+            repo,
+            "--status",
+            "pass",
+            "--attempt",
+            "1",
+            "--step",
+            step_id,
+            "--commit",
+            head,
+            "--actor",
+            "demo",
+            "--json",
+            parse_json=True,
+        )
     blocked = run(binary, "job", "advance", job_id, "--repo", repo, "--json", parse_json=True)
     step = find_step(blocked.get("job") or blocked.get("Job") or {}, "approve")
     if field(step, "id", "ID") != "approve" or field(step, "status", "Status") != "blocked":
