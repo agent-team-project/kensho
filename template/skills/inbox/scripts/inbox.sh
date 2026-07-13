@@ -100,7 +100,7 @@ curl_daemon() {
         echo "  Start it with \`agent-team daemon start\`." >&2
         exit 1
     fi
-    curl --unix-socket "$sock" -sS "$@"
+    curl --unix-socket "$sock" -sS --fail-with-body "$@"
 }
 
 [[ $# -ge 1 ]] || usage

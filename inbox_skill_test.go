@@ -189,6 +189,42 @@ func TestInboxSkillSendFallsBackFromStaleHTTPToLiveUnixSocket(t *testing.T) {
 	}
 }
 
+func TestInboxSkillSendFallbackPropagatesUnixHTTPFailures(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusForbidden, http.StatusInternalServerError} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var unixHits atomic.Int32
+			socket, stopUnix := startInboxUnixServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				unixHits.Add(1)
+				http.Error(w, http.StatusText(status), status)
+			}))
+			defer stopUnix()
+			tokenFile := filepath.Join(t.TempDir(), "daemon.token")
+			if err := os.WriteFile(tokenFile, []byte("instance-token\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("bash", inboxSkillHelper, "send", "manager", "must stay failed")
+			cmd.Env = append(os.Environ(),
+				"AGENT_TEAM_ROOT="+t.TempDir(),
+				"AGENT_TEAM_INSTANCE=worker-gh391",
+				"AGENT_TEAM_DAEMON_URL="+closedInboxLoopbackURL(t),
+				"AGENT_TEAM_DAEMON_SOCKET="+socket,
+				"AGENT_TEAM_DAEMON_TOKEN_FILE="+tokenFile,
+			)
+			output, err := cmd.CombinedOutput()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 22 {
+				t.Fatalf("inbox helper error after Unix HTTP %d = %v, want curl exit 22\n%s", status, err, output)
+			}
+			if unixHits.Load() != 1 {
+				t.Fatalf("Unix socket hits = %d, want 1", unixHits.Load())
+			}
+			if !strings.Contains(string(output), http.StatusText(status)) {
+				t.Fatalf("inbox helper output = %q, want daemon error body containing %q", output, http.StatusText(status))
+			}
+		})
+	}
+}
+
 func TestInboxSkillSendDoesNotFallbackFromHTTPFailures(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
