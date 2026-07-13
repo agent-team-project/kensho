@@ -58,6 +58,7 @@ type GrantRequest struct {
 	Tokens             int64
 	ClampOversubscribe bool
 	GateOversubscribe  bool
+	IsolateInvalidJobs bool
 	Now                time.Time
 	Origin             origin.Envelope
 }
@@ -71,6 +72,7 @@ type GrantResult struct {
 	GrantedTokens   int64
 	Clamped         bool
 	Status          TeamStatus
+	Diagnostics     []InputDiagnostic
 	TokenExhausted  bool
 	NextTokenRetry  time.Time
 	Allocation      *AllocationRecord
@@ -148,11 +150,12 @@ func GrantTokens(teamDir string, top *topology.Topology, req GrantRequest) (Gran
 	}
 	out.Noop = false
 	err := withAllocationLock(teamDir, func() error {
-		admission, err := AdmissionForTeamWithRequest(teamDir, top, req.Team, req.JobID, req.Tokens, req.Now)
+		admission, err := admissionForTeamWithRequest(teamDir, top, req.Team, req.JobID, req.Tokens, req.Now, req.IsolateInvalidJobs)
 		if err != nil {
 			return err
 		}
 		out.Status = admission.Status
+		out.Diagnostics = admission.Diagnostics
 		out.TokenExhausted = admission.TokenExhausted
 		out.NextTokenRetry = admission.NextTokenRetry
 		gateExhausted := admission.TokenExhausted && (b.Allocation == topology.BudgetAllocationReserve || req.GateOversubscribe)

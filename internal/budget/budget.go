@@ -3,6 +3,10 @@
 package budget
 
 import (
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -40,10 +44,18 @@ type Admission struct {
 	Noop            bool
 	Team            string
 	Status          TeamStatus
+	Diagnostics     []InputDiagnostic
 	RequestedTokens int64
 	TokenExhausted  bool
 	JobsExhausted   bool
 	NextTokenRetry  time.Time
+}
+
+// InputDiagnostic identifies one unrelated persisted job record omitted from
+// an explicitly isolated budget calculation.
+type InputDiagnostic struct {
+	Record string `json:"record"`
+	Error  string `json:"error"`
 }
 
 // Statuses returns current status rows for every configured budget. Missing
@@ -53,7 +65,7 @@ func Statuses(teamDir string, top *topology.Topology, now time.Time) ([]TeamStat
 		return nil, nil
 	}
 	now = normalizeNow(now)
-	inputs, err := collectInputs(teamDir, top, now, "")
+	inputs, err := collectInputs(teamDir, top, now, "", false)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +88,10 @@ func AdmissionForTeam(teamDir string, top *topology.Topology, team, currentJobID
 // on consumed + outstanding allocated + requested. Oversubscribe mode preserves
 // phase-1 consumption gating and ignores requested allowance for admission.
 func AdmissionForTeamWithRequest(teamDir string, top *topology.Topology, team, currentJobID string, requestedTokens int64, now time.Time) (Admission, error) {
+	return admissionForTeamWithRequest(teamDir, top, team, currentJobID, requestedTokens, now, false)
+}
+
+func admissionForTeamWithRequest(teamDir string, top *topology.Topology, team, currentJobID string, requestedTokens int64, now time.Time, isolateInvalidJobs bool) (Admission, error) {
 	team = strings.TrimSpace(team)
 	if top == nil || len(top.Budgets) == 0 || team == "" {
 		return Admission{Allowed: true, Noop: true, Team: team, RequestedTokens: requestedTokens}, nil
@@ -85,7 +101,7 @@ func AdmissionForTeamWithRequest(teamDir string, top *topology.Topology, team, c
 		return Admission{Allowed: true, Noop: true, Team: team, RequestedTokens: requestedTokens}, nil
 	}
 	now = normalizeNow(now)
-	inputs, err := collectInputs(teamDir, top, now, currentJobID)
+	inputs, err := collectInputs(teamDir, top, now, currentJobID, isolateInvalidJobs)
 	if err != nil {
 		return Admission{}, err
 	}
@@ -96,6 +112,7 @@ func AdmissionForTeamWithRequest(teamDir string, top *topology.Topology, team, c
 		Allowed:         !tokenExhausted && !jobsExhausted,
 		Team:            team,
 		Status:          status,
+		Diagnostics:     inputs.diagnostics,
 		RequestedTokens: requestedTokens,
 		TokenExhausted:  tokenExhausted,
 		JobsExhausted:   jobsExhausted,
@@ -107,18 +124,20 @@ type inputs struct {
 	recordsByTeam   map[string][]usage.Record
 	runningByTeam   map[string]int
 	allocatedByTeam map[string]int64
+	diagnostics     []InputDiagnostic
 }
 
-func collectInputs(teamDir string, top *topology.Topology, now time.Time, excludeRunningJobID string) (inputs, error) {
+func collectInputs(teamDir string, top *topology.Topology, now time.Time, excludeRunningJobID string, isolateInvalidJobs bool) (inputs, error) {
 	out := inputs{recordsByTeam: map[string][]usage.Record{}, runningByTeam: map[string]int{}, allocatedByTeam: map[string]int64{}}
-	jobs, err := jobstore.List(teamDir)
+	jobs, diagnostics, err := listBudgetJobs(teamDir, excludeRunningJobID, isolateInvalidJobs)
 	if err != nil {
 		return out, err
 	}
-	archived, err := jobstore.ListArchived(teamDir)
+	archived, archiveDiagnostics, err := listBudgetArchivedJobs(teamDir, excludeRunningJobID, isolateInvalidJobs)
 	if err != nil {
 		return out, err
 	}
+	out.diagnostics = append(diagnostics, archiveDiagnostics...)
 	windowStart := now.Add(-Window)
 	seenRecords := map[string]bool{}
 	for _, j := range append(jobs, archived...) {
@@ -158,6 +177,59 @@ func collectInputs(teamDir string, top *topology.Topology, now time.Time, exclud
 		out.allocatedByTeam[b.Team] = outstandingTokens(allocations, b.Team)
 	}
 	return out, nil
+}
+
+func listBudgetArchivedJobs(teamDir, targetJobID string, isolateInvalid bool) ([]*jobstore.Job, []InputDiagnostic, error) {
+	if !isolateInvalid {
+		jobs, err := jobstore.ListArchived(teamDir)
+		return jobs, nil, err
+	}
+	jobs, archiveDiagnostics, err := jobstore.ListArchivedIsolated(teamDir, targetJobID)
+	if err != nil {
+		return nil, nil, err
+	}
+	diagnostics := make([]InputDiagnostic, 0, len(archiveDiagnostics))
+	for _, diagnostic := range archiveDiagnostics {
+		diagnostics = append(diagnostics, InputDiagnostic{Record: diagnostic.Record, Error: diagnostic.Error})
+	}
+	return jobs, diagnostics, nil
+}
+
+func listBudgetJobs(teamDir, targetJobID string, isolateInvalid bool) ([]*jobstore.Job, []InputDiagnostic, error) {
+	if !isolateInvalid {
+		jobs, err := jobstore.List(teamDir)
+		return jobs, nil, err
+	}
+	dir := jobstore.Directory(teamDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	targetJobID = jobstore.NormalizeID(targetJobID)
+	jobs := make([]*jobstore.Job, 0, len(entries))
+	diagnostics := make([]InputDiagnostic, 0)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".toml") {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), ".toml")
+		j, err := jobstore.Read(teamDir, id)
+		if err == nil {
+			jobs = append(jobs, j)
+			continue
+		}
+		if targetJobID != "" && jobstore.NormalizeID(id) == targetJobID {
+			return nil, nil, err
+		}
+		diagnostics = append(diagnostics, InputDiagnostic{
+			Record: filepath.Join(dir, entry.Name()),
+			Error:  err.Error(),
+		})
+	}
+	return jobs, diagnostics, nil
 }
 
 func statusForBudget(b *topology.Budget, records []usage.Record, running int, allocated int64, now time.Time) TeamStatus {

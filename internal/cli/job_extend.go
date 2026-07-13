@@ -117,6 +117,9 @@ func newJobExtendCmd() *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: %v\n", err)
 					return exitErr(1)
 				}
+				if !quiet {
+					renderJobExtendDiagnostics(cmd.ErrOrStderr(), grant.Diagnostics)
+				}
 				if !grant.Allowed {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job extend: token budget exhausted for team %s\n", grant.Team)
 					return exitErr(1)
@@ -162,6 +165,12 @@ func newJobExtendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON.")
 	cmd.Flags().StringVar(&format, "format", "", "Render the extension result with a Go template, e.g. '{{.Job.ID}} {{.Extension.NewDeadline}}'.")
 	return cmd
+}
+
+func renderJobExtendDiagnostics(w fmtWriter, diagnostics []budget.InputDiagnostic) {
+	for _, diagnostic := range diagnostics {
+		fmt.Fprintf(w, "agent-team job extend: warning: isolated unrelated budget record %s: %s; inspect with `agent-team job doctor --json`.\n", diagnostic.Record, diagnostic.Error)
+	}
 }
 
 func applyJobExtendUpdate(j *job.Job, selection jobInstanceSelection, by time.Duration, now time.Time) {
@@ -249,13 +258,14 @@ func grantJobTokenExtension(teamDir string, j *job.Job, selection jobInstanceSel
 	env.Instance = tokenExtensionInstance(j, selection)
 	env.Trigger = "job.extend"
 	return budget.GrantTokens(teamDir, top, budget.GrantRequest{
-		Team:     team,
-		JobID:    j.ID,
-		StepID:   strings.TrimSpace(selection.StepID),
-		Instance: env.Instance,
-		Tokens:   tokens,
-		Now:      now,
-		Origin:   env,
+		Team:               team,
+		JobID:              j.ID,
+		StepID:             strings.TrimSpace(selection.StepID),
+		Instance:           env.Instance,
+		Tokens:             tokens,
+		IsolateInvalidJobs: true,
+		Now:                now,
+		Origin:             env,
 	})
 }
 
