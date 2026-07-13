@@ -42,6 +42,27 @@ allow = ["feedback.*"]
 allow = ["ticket.comment"]
 `
 
+const scheduledAuthorityNoRulesFixture = `
+[schedules.observe]
+every = "1h"
+
+[instances.observer]
+agent = "manager"
+ephemeral = true
+required_verbs = ["job.ls"]
+
+[[instances.observer.triggers]]
+event = "schedule"
+match.name = "observe"
+
+[teams.quality]
+instances = ["observer"]
+schedules = ["observe"]
+
+[authority]
+enforcement = "enforce"
+`
+
 func TestParseScheduledAuthorityUsesEffectiveComposedGrants(t *testing.T) {
 	top, err := Parse([]byte(scheduledAuthorityFixture))
 	if err != nil {
@@ -92,6 +113,36 @@ func TestParseScheduledAuthorityRejectsDeficientEffectiveGrant(t *testing.T) {
 		`authority.instances.observer`,
 		`authority.agents.manager`,
 		`authority.teams.quality`,
+		`[authority.instances.observer].allow`,
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("Parse error = %v, want %q", err, want)
+		}
+	}
+}
+
+func TestAuthorityEvaluateEnforcedWithoutRulesIsClosedWorld(t *testing.T) {
+	authority := &Authority{Enforcement: AuthorityModeEnforce}
+	eval := authority.Evaluate(AuthorityDecision{
+		Instance: "observer",
+		Agent:    "manager",
+		Team:     "quality",
+		Verb:     "job.ls",
+	})
+	if eval.Allowed {
+		t.Fatalf("Evaluate = %+v, want closed-world denial without grant tables", eval)
+	}
+	if eval.Decision.Verb != "job.ls" || eval.SourceDescription() != "none" {
+		t.Fatalf("Evaluate = %+v, want cleaned decision and no runtime sources", eval)
+	}
+}
+
+func TestParseScheduledAuthorityRejectsEnforcedWithoutRules(t *testing.T) {
+	_, err := Parse([]byte(scheduledAuthorityNoRulesFixture))
+	for _, want := range []string{
+		`scheduled instance "observer"`,
+		`required verb "job.ls"`,
+		`runtime sources: none`,
 		`[authority.instances.observer].allow`,
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {

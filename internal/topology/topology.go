@@ -419,10 +419,12 @@ func (a *Authority) Allows(decision AuthorityDecision) bool {
 }
 
 // Evaluate reports whether the actor is allowed to perform the decision's verb
-// and records which allowlist sources were considered.
+// and records which allowlist sources were considered. Enforce mode remains
+// closed-world when no grant tables are declared, matching the empty runtime
+// shim allowlist installed for managed instances.
 func (a *Authority) Evaluate(decision AuthorityDecision) AuthorityEvaluation {
 	eval := AuthorityEvaluation{Allowed: true}
-	if !a.Configured() {
+	if !a.Configured() && !a.Enforced() {
 		return eval
 	}
 	decision = cleanAuthorityDecision(decision)
@@ -1994,7 +1996,7 @@ func validateScheduledAuthoritySatisfiability(t *Topology) error {
 		if !instanceHasScheduleTrigger(inst) {
 			return fmt.Errorf("instance %q: required_verbs is only valid for an instance with a schedule trigger", inst.Name)
 		}
-		if t.Authority == nil || !t.Authority.Configured() || !t.Authority.Enforced() {
+		if t.Authority == nil || !t.Authority.Enforced() {
 			continue
 		}
 		for _, verb := range inst.RequiredVerbs {
