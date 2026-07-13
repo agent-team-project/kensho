@@ -310,7 +310,7 @@ func TestSendCommandReadsMessageFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	messageFile := filepath.Join(tmp, "message.txt")
-	message := "line one\n$(printf 'false FAIL') ; * ? [x]\n`uname` \\\"quoted\\\" $HOME | & < >"
+	message := "\nline one\n$(printf 'false FAIL') ; * ? [x]\n`uname` \\\"quoted\\\" $HOME | & < >\n"
 	if err := os.WriteFile(messageFile, []byte(message), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -326,12 +326,31 @@ func TestSendCommandReadsMessageFile(t *testing.T) {
 	if got, want := out.String(), "manager true\n"; got != want {
 		t.Fatalf("send --message-file output = %q, want %q", got, want)
 	}
+	previousInput := sendMessageInput
+	sendMessageInput = strings.NewReader(message)
+	t.Cleanup(func() { sendMessageInput = previousInput })
+	stdinCmd := NewRootCmd()
+	stdinOut, stdinErr := &bytes.Buffer{}, &bytes.Buffer{}
+	stdinCmd.SetOut(stdinOut)
+	stdinCmd.SetErr(stdinErr)
+	stdinCmd.SetArgs([]string{"send", "manager", "--repo", tmp, "--message-file", "-", "--format", "{{.To}} {{.Delivered}}"})
+	if err := stdinCmd.Execute(); err != nil {
+		t.Fatalf("send --message-file -: %v\nstderr=%s", err, stdinErr.String())
+	}
+	if got, want := stdinOut.String(), "manager true\n"; got != want {
+		t.Fatalf("send --message-file - output = %q, want %q", got, want)
+	}
 	messages, err := daemon.ReadMessages(daemon.DaemonRoot(teamDir), "manager")
 	if err != nil {
 		t.Fatalf("read messages: %v", err)
 	}
-	if len(messages) != 1 || messages[0].Body != message {
-		t.Fatalf("messages = %+v", messages)
+	if len(messages) != 2 {
+		t.Fatalf("got %d messages, want 2", len(messages))
+	}
+	for i, got := range messages {
+		if got.Body != message {
+			t.Fatalf("message %d body = %q, want %q", i, got.Body, message)
+		}
 	}
 }
 

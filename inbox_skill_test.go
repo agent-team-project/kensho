@@ -25,7 +25,7 @@ func TestInboxSkillSendReadsMessageFileWithoutShellRoundTrip(t *testing.T) {
 		err     error
 	}
 
-	requests := make(chan received, 3)
+	requests := make(chan received, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var got payload
 		err := json.NewDecoder(r.Body).Decode(&got)
@@ -36,11 +36,22 @@ func TestInboxSkillSendReadsMessageFileWithoutShellRoundTrip(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	teamRoot := t.TempDir()
+	helperDir := filepath.Join(teamRoot, "skills", "inbox", "scripts")
+	if err := os.MkdirAll(helperDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	helperPath, err := filepath.Abs(inboxSkillHelper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(helperPath, filepath.Join(helperDir, "inbox.sh")); err != nil {
+		t.Fatal(err)
+	}
 	tokenFile := filepath.Join(t.TempDir(), "daemon-token")
 	if err := os.WriteFile(tokenFile, []byte("test-token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	message := "line one\n\n$(printf 'false FAIL') ; * ? [x] {a,b}\n`uname` \\\"double\\\" 'single' $HOME | & < >"
+	message := "\r\nline one\r\n\r\n$(printf 'false FAIL') ; * ? [x] {a,b}\r\n`uname` \\\"double\\\" 'single' $HOME | & < >\r\n"
 
 	tests := []struct {
 		name  string
@@ -97,4 +108,41 @@ func TestInboxSkillSendReadsMessageFileWithoutShellRoundTrip(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("documented assign-worker follow-up", func(t *testing.T) {
+		const (
+			placeholder = "<the user's follow-up ask>"
+			recipe      = `"$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send worker-squ-14 --message-file - <<'FOLLOW_UP'
+<the user's follow-up ask>
+FOLLOW_UP`
+		)
+		skill, err := os.ReadFile("template/agents/manager/skills/assign-worker/SKILL.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(skill), recipe) {
+			t.Fatalf("assign-worker follow-up recipe must use a single-quoted heredoc with --message-file -")
+		}
+
+		followUp := "Please preserve $(printf INJECTED) $HOME and * ? [x]\r\nsecond line"
+		cmd := exec.Command("bash", "-c", strings.Replace(recipe, placeholder, followUp, 1))
+		cmd.Env = append(os.Environ(),
+			"AGENT_TEAM_ROOT="+teamRoot,
+			"AGENT_TEAM_INSTANCE=manager",
+			"AGENT_TEAM_DAEMON_URL="+server.URL,
+			"AGENT_TEAM_DAEMON_TOKEN_FILE="+tokenFile,
+		)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("assign-worker follow-up recipe: %v\n%s", err, output)
+		}
+
+		request := <-requests
+		want := followUp + "\n"
+		if request.err != nil {
+			t.Fatalf("decode helper payload: %v", request.err)
+		}
+		if request.payload.To != "worker-squ-14" || request.payload.From != "manager" || request.payload.Body != want {
+			t.Fatalf("payload = %#v, want exact body %q", request.payload, want)
+		}
+	})
 }

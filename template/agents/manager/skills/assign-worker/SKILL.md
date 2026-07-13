@@ -43,9 +43,11 @@ Interpret the JSON response:
 - `dispatched` has an entry: a worker started. Report the `instance_id` and continue.
 - `queued` is non-empty: the worker event was accepted but replica capacity is full. Tell the user it is queued.
 - `outbox` has an entry: the daemon was unreachable from this runtime, but the dispatch event was durably written. Tell the user it will be published on the next `agent-team tick` or `agent-team drain`.
-- `rejected` says the requested instance is already running or queued: reuse the existing worker by sending the follow-up to `worker-<ticket-lowercase>`:
+- `rejected` says the requested instance is already running or queued: reuse the existing worker by pasting the follow-up literally into this single-quoted heredoc for `worker-<ticket-lowercase>`:
   ```sh
-  "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send worker-squ-14 "<the user's follow-up ask>"
+  "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send worker-squ-14 --message-file - <<'FOLLOW_UP'
+<the user's follow-up ask>
+FOLLOW_UP
   ```
 - `matched` is empty or `rejected` has another reason: run `agent-team topology show` / `agent-team daemon status` if available, then use the legacy fallback below if the daemon cannot route `agent.dispatch` to `worker`.
 

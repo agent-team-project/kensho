@@ -113,7 +113,7 @@ func newSendCmd() *cobra.Command {
 				body string
 			)
 			if opts.selectingSet() {
-				body, err = sendMessageBody(message, messageFile, args)
+				body, err = sendMessageBodyPreservingFile(message, messageFile, args)
 			} else {
 				if len(args) < 2 && strings.TrimSpace(message) == "" && strings.TrimSpace(messageFile) == "" {
 					fmt.Fprintln(cmd.ErrOrStderr(), "agent-team send: instance and message body are required unless --all, --latest, --last, --agent, --runtime, --status, --phase, --stale, --runtime-stale, or --unhealthy is set.")
@@ -124,7 +124,7 @@ func newSendCmd() *cobra.Command {
 					return exitErr(2)
 				}
 				to = args[0]
-				body, err = sendMessageBody(message, messageFile, args[1:])
+				body, err = sendMessageBodyPreservingFile(message, messageFile, args[1:])
 			}
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team send: %v\n", err)
@@ -254,6 +254,10 @@ func sendMessageBody(flagValue, fileValue string, positional []string) (string, 
 	return messageBodyWithFlagNames(flagValue, fileValue, positional, "--message", "--message-file")
 }
 
+func sendMessageBodyPreservingFile(flagValue, fileValue string, positional []string) (string, error) {
+	return messageBodyWithFlagNamesPolicy(flagValue, fileValue, positional, "--message", "--message-file", true)
+}
+
 func optionalMessageBodyWithFlagNames(flagValue, fileValue string, positional []string, flagName, fileFlagName string) (string, error) {
 	if strings.TrimSpace(flagValue) == "" && strings.TrimSpace(fileValue) == "" && len(positional) == 0 {
 		return "", nil
@@ -262,6 +266,10 @@ func optionalMessageBodyWithFlagNames(flagValue, fileValue string, positional []
 }
 
 func messageBodyWithFlagNames(flagValue, fileValue string, positional []string, flagName, fileFlagName string) (string, error) {
+	return messageBodyWithFlagNamesPolicy(flagValue, fileValue, positional, flagName, fileFlagName, false)
+}
+
+func messageBodyWithFlagNamesPolicy(flagValue, fileValue string, positional []string, flagName, fileFlagName string, preserveFile bool) (string, error) {
 	sources := 0
 	if strings.TrimSpace(flagValue) != "" {
 		sources++
@@ -286,6 +294,12 @@ func messageBodyWithFlagNames(flagValue, fileValue string, positional []string, 
 			return "", err
 		}
 		body = string(data)
+		if preserveFile && strings.TrimSpace(body) == "" {
+			return "", fmt.Errorf("message body is required")
+		}
+		if preserveFile {
+			return body, nil
+		}
 	case strings.TrimSpace(flagValue) != "":
 		body = flagValue
 	default:
@@ -401,7 +415,6 @@ type sendJSON struct {
 
 func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body string, opts sendOptions) error {
 	to = strings.TrimSpace(to)
-	body = strings.TrimSpace(body)
 	from := strings.TrimSpace(opts.From)
 	if from == "" {
 		from = "(cli)"
@@ -411,7 +424,7 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 		fmt.Fprintln(stderr, "agent-team send: instance is required.")
 		return exitErr(2)
 	}
-	if body == "" {
+	if strings.TrimSpace(body) == "" {
 		fmt.Fprintln(stderr, "agent-team send: message body is required.")
 		return exitErr(2)
 	}
@@ -492,8 +505,7 @@ func runSendWithClient(stdout, stderr io.Writer, client sendClient, to, body str
 }
 
 func runSendSelectionWithClient(stdout, stderr io.Writer, client sendClient, body string, opts sendOptions) error {
-	body = strings.TrimSpace(body)
-	if body == "" {
+	if strings.TrimSpace(body) == "" {
 		fmt.Fprintln(stderr, "agent-team send: message body is required.")
 		return exitErr(2)
 	}

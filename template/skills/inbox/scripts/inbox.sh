@@ -133,7 +133,7 @@ case "$verb" in
             # Python reads the file/stdin directly while constructing JSON so
             # multiline and shell-sensitive bodies never pass through argv.
             export INBOX_MESSAGE_FILE="$message_file"
-            payload=$(python3 -c 'import json, os, pathlib, sys; path = os.environ["INBOX_MESSAGE_FILE"]; body = sys.stdin.read() if path == "-" else pathlib.Path(path).read_text(encoding="utf-8"); print(json.dumps({"to": os.environ["INBOX_TO"], "from": os.environ["INBOX_FROM"], "body": body}))')
+            payload=$(python3 -c 'import json, os, pathlib, sys; path = os.environ["INBOX_MESSAGE_FILE"]; data = sys.stdin.buffer.read() if path == "-" else pathlib.Path(path).read_bytes(); body = data.decode("utf-8"); print(json.dumps({"to": os.environ["INBOX_TO"], "from": os.environ["INBOX_FROM"], "body": body}))')
         else
             body="$*"
             # Retain positional transport for short, simple messages. Env-var

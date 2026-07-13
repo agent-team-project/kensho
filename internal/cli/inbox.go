@@ -343,7 +343,7 @@ func newInboxSendCmd() *cobra.Command {
 				return exitErr(2)
 			}
 			to := args[0]
-			body, err := sendMessageBody(message, messageFile, args[1:])
+			body, err := sendMessageBodyPreservingFile(message, messageFile, args[1:])
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team inbox send: %v\n", err)
 				return exitErr(2)

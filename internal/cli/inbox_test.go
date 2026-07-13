@@ -509,7 +509,7 @@ func TestInboxSendReadsShellSensitiveMessageFileAndStdin(t *testing.T) {
 		t.Fatalf("write metadata: %v", err)
 	}
 
-	message := "line one\n$(printf 'false FAIL') ; * ? [x]\n`uname` \\\"quoted\\\" $HOME | & < >"
+	message := "\nline one\n$(printf 'false FAIL') ; * ? [x]\n`uname` \\\"quoted\\\" $HOME | & < >\n"
 	messageFile := filepath.Join(tmp, "steering.txt")
 	if err := os.WriteFile(messageFile, []byte(message), 0o600); err != nil {
 		t.Fatal(err)
@@ -529,8 +529,13 @@ func TestInboxSendReadsShellSensitiveMessageFileAndStdin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read messages: %v", err)
 	}
-	if len(messages) != 2 || messages[0].Body != message || messages[1].Body != message {
-		t.Fatalf("messages = %+v, want exact file and stdin bodies %q", messages, message)
+	if len(messages) != 2 {
+		t.Fatalf("got %d messages, want 2", len(messages))
+	}
+	for i, got := range messages {
+		if got.Body != message {
+			t.Fatalf("message %d body = %q, want %q", i, got.Body, message)
+		}
 	}
 }
 
