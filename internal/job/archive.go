@@ -133,7 +133,8 @@ func ListArchived(teamDir string) ([]*Job, error) {
 // malformed archive lines and invalid records unrelated to targetJobID. The
 // ordinary ListArchived path remains strict.
 func ListArchivedIsolated(teamDir, targetJobID string) ([]*Job, []ArchiveDiagnostic, error) {
-	sources, diagnostics, err := readArchivedJobRecordSources(teamDir, true)
+	targetJobID = NormalizeID(targetJobID)
+	sources, diagnostics, err := readArchivedJobRecordSources(teamDir, true, targetJobID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -153,7 +154,6 @@ func ListArchivedIsolated(teamDir, targetJobID string) ([]*Job, []ArchiveDiagnos
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	targetJobID = NormalizeID(targetJobID)
 	out := make([]*Job, 0, len(latest))
 	for _, id := range ids {
 		source := latest[id]
@@ -309,7 +309,7 @@ func readArchivedJobRecord(teamDir, rawID string) (*archivedJobRecord, bool, err
 }
 
 func readArchivedJobRecords(teamDir string) ([]archivedJobRecord, error) {
-	sources, _, err := readArchivedJobRecordSources(teamDir, false)
+	sources, _, err := readArchivedJobRecordSources(teamDir, false, "")
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,7 @@ func readArchivedJobRecords(teamDir string) ([]archivedJobRecord, error) {
 	return records, nil
 }
 
-func readArchivedJobRecordSources(teamDir string, isolateMalformed bool) ([]archivedJobRecordSource, []ArchiveDiagnostic, error) {
+func readArchivedJobRecordSources(teamDir string, isolateMalformed bool, targetJobID string) ([]archivedJobRecordSource, []ArchiveDiagnostic, error) {
 	files, err := archive.Files(teamDir)
 	if err != nil {
 		return nil, nil, err
@@ -342,6 +342,10 @@ func readArchivedJobRecordSources(teamDir string, isolateMalformed bool) ([]arch
 				if !isolateMalformed {
 					_ = f.Close()
 					return nil, nil, fmt.Errorf("archive %s line %d: %w", path, line, err)
+				}
+				if record.Type == archiveRecordTypeJob && targetJobID != "" && NormalizeID(record.ID) == targetJobID {
+					_ = f.Close()
+					return nil, nil, fmt.Errorf("archived job %s at %s line %d: %w", targetJobID, path, line, err)
 				}
 				diagnostics = append(diagnostics, ArchiveDiagnostic{
 					Record: fmt.Sprintf("%s line %d", path, line),

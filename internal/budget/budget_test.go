@@ -241,6 +241,44 @@ func TestGrantTokensIsolationNeverSkipsTargetArchivedJobRecord(t *testing.T) {
 	}
 }
 
+func TestGrantTokensIsolationRejectsPartiallyDecodedTargetArchive(t *testing.T) {
+	teamDir := testTeamDir(t)
+	top := testBudgetTopologyWithAllocation(t, 100, 0, topology.BudgetAllocationReserve)
+	now := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
+	writeBudgetJob(t, teamDir, "SQU-TARGET", jobstore.StatusRunning, "delivery", usage.Record{})
+	if _, err := archive.AppendJSON(teamDir, now, map[string]any{
+		"type":        "job",
+		"archived_at": now,
+		"id":          "squ-target",
+		"terminal_at": now,
+		"job":         "malformed-target-job",
+	}); err != nil {
+		t.Fatalf("append malformed target archive: %v", err)
+	}
+
+	grant, err := GrantTokens(teamDir, top, GrantRequest{
+		Team:               "delivery",
+		JobID:              "squ-target",
+		Instance:           "worker-squ-target",
+		Tokens:             10,
+		IsolateInvalidJobs: true,
+		Now:                now,
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot unmarshal string") {
+		t.Fatalf("GrantTokens error = %v, want malformed target archive rejection", err)
+	}
+	if grant.Allocation != nil {
+		t.Fatalf("grant = %+v, want no allocation for malformed target archive", grant)
+	}
+	allocations, listErr := ListAllocations(teamDir)
+	if listErr != nil {
+		t.Fatalf("ListAllocations: %v", listErr)
+	}
+	if len(allocations) != 0 {
+		t.Fatalf("allocations = %+v, want none", allocations)
+	}
+}
+
 func TestOrdinaryAdmissionRemainsStrictForInvalidArchivedJob(t *testing.T) {
 	teamDir := testTeamDir(t)
 	top := testBudgetTopologyWithAllocation(t, 100, 0, topology.BudgetAllocationReserve)
