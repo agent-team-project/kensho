@@ -88,7 +88,7 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 		return
 	}
 	switch meta.Status {
-	case StatusExited, StatusCrashed:
+	case StatusStopped, StatusExited, StatusCrashed:
 	default:
 		return
 	}
@@ -96,11 +96,12 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	if err != nil {
 		return
 	}
-	if !jobstore.AttemptHeadMatches(j, meta.Attempt, meta.Head) {
+	now := time.Now().UTC()
+	if meta.Status == StatusStopped || !jobstore.AttemptHeadMatches(j, meta.Attempt, meta.Head) {
+		_, _ = budget.ReleaseJobInstanceAllocations(r.teamDir, j, meta.Instance, now)
 		return
 	}
 	priorLastStatus := j.LastStatus
-	now := time.Now().UTC()
 	status := jobstore.StatusDone
 	eventType := "instance_exited"
 	message := "instance exited successfully"

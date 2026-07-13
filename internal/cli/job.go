@@ -13467,14 +13467,17 @@ func validateCurrentAttemptApprovalEvidence(teamDir string, j *job.Job, approval
 	}
 	current := job.LatestGateRecordsForAttemptHead(records, job.CurrentAttempt(j), head)
 	for _, required := range requiredSteps {
-		passed := false
+		found := false
 		for _, record := range current {
-			if strings.TrimSpace(record.Step) == required && strings.TrimSpace(record.Commit) == head && record.Status == job.GateStatusPass {
-				passed = true
-				break
+			if strings.TrimSpace(record.Step) != required || strings.TrimSpace(record.Commit) != head {
+				continue
+			}
+			found = true
+			if record.Status != job.GateStatusPass {
+				return fmt.Errorf("step %q has failing gate %q for attempt %d at head %s", required, record.Name, job.CurrentAttempt(j), head)
 			}
 		}
-		if !passed {
+		if !found {
 			return fmt.Errorf("step %q lacks passing gate evidence for attempt %d at head %s", required, job.CurrentAttempt(j), head)
 		}
 	}

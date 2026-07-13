@@ -3038,6 +3038,13 @@ replicas = 1
 [[instances.reviewer.triggers]]
 event = "agent.dispatch"
 match.target = "reviewer"
+
+[teams.platform]
+instances = ["reviewer"]
+
+[budgets.platform]
+tokens_per_day = 100
+allocation = "reserve"
 `)
 	fake := newFakeSpawner(30 * time.Second)
 	m := NewInstanceManager(root, fake.spawn)
@@ -3061,10 +3068,18 @@ match.target = "reviewer"
 	payload := map[string]any{
 		"target": "reviewer", "name": "reviewer-gh-230-review", "job_id": j.ID,
 		"pipeline": j.Pipeline, "pipeline_step": "review", "attempt": 1, "head": headA, "workspace": "repo",
+		"budget_tokens": int64(60),
 	}
 	old := resolver.actuateEphemeral(top.Instances["reviewer"], topology.EventAgentDispatch, payload)
 	if old.Action != "dispatched" {
 		t.Fatalf("old reviewer = %+v", old)
+	}
+	allocations, err := budget.ListAllocations(teamDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allocations) != 1 || allocations[0].Status != budget.AllocationStatusOutstanding || allocations[0].Tokens != 60 {
+		t.Fatalf("old reviewer allocations = %+v, want one outstanding 60-token reserve", allocations)
 	}
 	j.Head = headB
 	j.Steps[0].Status = jobstore.StatusBlocked
@@ -3076,6 +3091,29 @@ match.target = "reviewer"
 	current := resolver.actuateEphemeral(top.Instances["reviewer"], topology.EventAgentDispatch, payload)
 	if current.Action != "dispatched" {
 		t.Fatalf("current reviewer = %+v, want old-head runtime superseded", current)
+	}
+	allocations, err = budget.ListAllocations(teamDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outstanding, released int
+	for _, allocation := range allocations {
+		switch allocation.Status {
+		case budget.AllocationStatusOutstanding:
+			outstanding++
+		case budget.AllocationStatusReleased:
+			released++
+		}
+	}
+	if len(allocations) != 2 || released != 1 || outstanding != 1 {
+		t.Fatalf("superseded reviewer allocations = %+v, want old released and current outstanding", allocations)
+	}
+	rows, err := budget.Statuses(teamDir, top, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].TokensAllocated != 60 || rows[0].TokensRemaining != 40 {
+		t.Fatalf("current reviewer budget = %+v, want only current 60-token reserve", rows)
 	}
 	meta, err := ReadMetadata(root, "reviewer-gh-230-review")
 	if err != nil {
