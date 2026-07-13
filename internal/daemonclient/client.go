@@ -93,7 +93,7 @@ func New(teamDir string, options Options) (*Client, error) {
 // deliberately ignores inherited endpoint/token environment variables.
 func NewForTargetTeamDir(teamDir string, options Options) (*Client, error) {
 	if baseURL := persistedDaemonHTTPURL(teamDir); baseURL != "" {
-		client := NewHTTP(baseURL, daemon.OperatorTokenPath(teamDir), options)
+		client := newHTTPClientWithUnixFallback(baseURL, daemon.OperatorTokenPath(teamDir), daemon.SocketPath(teamDir), options)
 		client.teamDir = teamDir
 		return client, nil
 	}
@@ -135,7 +135,24 @@ func newDaemonHTTPURLClient(teamDir, baseURL string, options Options) (*Client, 
 	if tokenFile == "" {
 		tokenFile = daemon.OperatorTokenPath(teamDir)
 	}
-	return NewHTTP(baseURL, tokenFile, options), nil
+	socket := strings.TrimSpace(os.Getenv("AGENT_TEAM_DAEMON_SOCKET"))
+	if socket == "" {
+		socket = daemon.SocketPath(teamDir)
+	}
+	return newHTTPClientWithUnixFallback(baseURL, tokenFile, socket, options), nil
+}
+
+func newHTTPClientWithUnixFallback(baseURL, tokenFile, socket string, options Options) *Client {
+	primary := options.RoundTripper
+	if primary == nil {
+		primary = http.DefaultTransport
+	}
+	options.RoundTripper = &reachabilityFallbackTransport{
+		primary:  primary,
+		fallback: newUnixTransport(socket, options.KeepAlive),
+		socket:   socket,
+	}
+	return NewHTTP(baseURL, tokenFile, options)
 }
 
 // NewHTTP constructs a client for an explicit loopback HTTP endpoint.
@@ -154,19 +171,78 @@ func NewHTTP(baseURL, tokenFile string, options Options) *Client {
 
 // NewUnix constructs a client for an explicit Unix-domain socket.
 func NewUnix(socket string, options Options) *Client {
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", socket)
-		},
-		// Avoid keeping a pool around past the command's life.
-		DisableKeepAlives: !options.KeepAlive,
-	}
+	transport := newUnixTransport(socket, options.KeepAlive)
 	return &Client{
 		hc:         newDaemonHTTPClient(transport, options, ""),
 		baseURL:    "http://daemon", // host name is irrelevant — DialContext fixes the socket.
 		connection: Connection{Kind: TransportUnix, Endpoint: socket},
 	}
+}
+
+func newUnixTransport(socket string, keepAlive bool) *http.Transport {
+	return &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", socket)
+		},
+		// Avoid keeping a pool around past the command's life.
+		DisableKeepAlives: !keepAlive,
+	}
+}
+
+// reachabilityFallbackTransport retries a request over the repository Unix
+// socket only when the selected HTTP endpoint cannot be reached during dial.
+// An HTTP response, including 401/403/5xx, is authoritative and never reaches
+// this fallback. Read/write failures are also left untouched because the
+// daemon may already have accepted a non-idempotent request.
+type reachabilityFallbackTransport struct {
+	primary  http.RoundTripper
+	fallback http.RoundTripper
+	socket   string
+}
+
+func (t *reachabilityFallbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.primary.RoundTrip(req)
+	if err == nil || req.Context().Err() != nil || !dialReachabilityError(err) {
+		return resp, err
+	}
+
+	retry := req.Clone(req.Context())
+	if req.Body != nil {
+		if req.GetBody == nil {
+			return resp, err
+		}
+		body, bodyErr := req.GetBody()
+		if bodyErr != nil {
+			return resp, err
+		}
+		retry.Body = body
+	}
+	fallbackResp, fallbackErr := t.fallback.RoundTrip(retry)
+	if fallbackErr != nil {
+		return nil, fmt.Errorf("%w; daemon Unix fallback %s: %v", err, t.socket, fallbackErr)
+	}
+	return fallbackResp, nil
+}
+
+func (t *reachabilityFallbackTransport) CloseIdleConnections() {
+	for _, transport := range []http.RoundTripper{t.primary, t.fallback} {
+		if closer, ok := transport.(interface{ CloseIdleConnections() }); ok {
+			closer.CloseIdleConnections()
+		}
+	}
+}
+
+func dialReachabilityError(err error) bool {
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if opErr, ok := current.(*net.OpError); ok && opErr.Op == "dial" {
+			return true
+		}
+		if _, ok := current.(*net.DNSError); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func newDaemonHTTPClient(base http.RoundTripper, options Options, tokenFile string) *http.Client {

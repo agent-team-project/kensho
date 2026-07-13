@@ -288,7 +288,7 @@ func launchDeclaredFreshWithPrompt(teamDir string, m *InstanceManager, topo *top
 		env = snapshotEnv
 		envComplete = true
 	}
-	env = m.withCurrentDaemonHTTPURLEnv(env)
+	env = m.withCurrentDaemonConnectionEnv(env)
 	if tokenFile, err := EnsureInstanceToken(teamDir, inst.Name); err != nil {
 		return nil, false, fmt.Errorf("restart: daemon token: %w", err)
 	} else {

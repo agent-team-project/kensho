@@ -2,13 +2,16 @@ package agentteam
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -145,4 +148,114 @@ FOLLOW_UP`
 			t.Fatalf("payload = %#v, want exact body %q", request.payload, want)
 		}
 	})
+}
+
+func TestInboxSkillSendFallsBackFromStaleHTTPToLiveUnixSocket(t *testing.T) {
+	type payload struct {
+		To   string `json:"to"`
+		From string `json:"from"`
+		Body string `json:"body"`
+	}
+	requests := make(chan payload, 1)
+	socket, stopUnix := startInboxUnixServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got payload
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode payload: %v", err)
+		}
+		requests <- got
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"delivered":true,"id":"unix-message"}`)
+	}))
+	defer stopUnix()
+
+	tokenFile := filepath.Join(t.TempDir(), "daemon.token")
+	if err := os.WriteFile(tokenFile, []byte("instance-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", inboxSkillHelper, "send", "manager", "stale HTTP fallback")
+	cmd.Env = append(os.Environ(),
+		"AGENT_TEAM_ROOT="+t.TempDir(),
+		"AGENT_TEAM_INSTANCE=worker-gh391",
+		"AGENT_TEAM_DAEMON_URL="+closedInboxLoopbackURL(t),
+		"AGENT_TEAM_DAEMON_SOCKET="+socket,
+		"AGENT_TEAM_DAEMON_TOKEN_FILE="+tokenFile,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("inbox helper: %v\n%s", err, output)
+	}
+	got := <-requests
+	if got.To != "manager" || got.From != "worker-gh391" || got.Body != "stale HTTP fallback" {
+		t.Fatalf("Unix socket payload = %+v", got)
+	}
+}
+
+func TestInboxSkillSendDoesNotFallbackFromHTTPFailures(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var unixHits atomic.Int32
+			socket, stopUnix := startInboxUnixServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				unixHits.Add(1)
+				fmt.Fprint(w, `{"delivered":true}`)
+			}))
+			defer stopUnix()
+			httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, http.StatusText(status), status)
+			}))
+			defer httpServer.Close()
+			tokenFile := filepath.Join(t.TempDir(), "daemon.token")
+			if err := os.WriteFile(tokenFile, []byte("instance-token\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("bash", inboxSkillHelper, "send", "manager", "must stay failed")
+			cmd.Env = append(os.Environ(),
+				"AGENT_TEAM_ROOT="+t.TempDir(),
+				"AGENT_TEAM_INSTANCE=worker-gh391",
+				"AGENT_TEAM_DAEMON_URL="+httpServer.URL,
+				"AGENT_TEAM_DAEMON_SOCKET="+socket,
+				"AGENT_TEAM_DAEMON_TOKEN_FILE="+tokenFile,
+			)
+			output, err := cmd.CombinedOutput()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 22 {
+				t.Fatalf("inbox helper error for HTTP %d = %v, want curl exit 22\n%s", status, err, output)
+			}
+			if unixHits.Load() != 0 {
+				t.Fatalf("Unix socket hits = %d, want 0", unixHits.Load())
+			}
+		})
+	}
+}
+
+func startInboxUnixServer(t *testing.T, handler http.Handler) (string, func()) {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "agent-team-inbox-skill-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(dir, "daemon.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: handler}
+	go func() { _ = server.Serve(listener) }()
+	return socket, func() {
+		_ = server.Close()
+		_ = listener.Close()
+		_ = os.RemoveAll(dir)
+	}
+}
+
+func closedInboxLoopbackURL(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return "http://" + addr
 }

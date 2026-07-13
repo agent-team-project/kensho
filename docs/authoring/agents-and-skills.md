@@ -153,7 +153,7 @@ Environment passed to the runtime includes:
 | `AGENT_TEAM_INSTANCE` | Current instance name |
 | `AGENT_TEAM_STATE_DIR` | Absolute path to the current instance state dir |
 | `AGENT_TEAM_DAEMON_SOCKET` | Resolved Unix socket path for `agent-teamd`; falls back to `.agent_team/daemon.sock` on short paths |
-| `AGENT_TEAM_DAEMON_URL` | Optional loopback HTTP base URL when `agent-teamd` was started with `--http-addr`; helpers should prefer it when Unix sockets are blocked |
+| `AGENT_TEAM_DAEMON_URL` | Optional loopback HTTP base URL when `agent-teamd` was started with `--http-addr`; inbox sends prefer it but may use the exported Unix socket when the endpoint cannot be resolved or connected |
 
 ## Status Reporting
 

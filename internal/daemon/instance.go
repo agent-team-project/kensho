@@ -336,6 +336,7 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: launch env: %w", err)
 	}
+	env = m.withCurrentDaemonConnectionEnv(env)
 	env, err = m.withMintedInstanceTokenEnv(in.Name, env)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: daemon token: %w", err)
@@ -1827,6 +1828,7 @@ func (m *InstanceManager) launchPrepared(in DispatchInput, expected *Metadata) (
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: launch env: %w", err)
 	}
+	env = m.withCurrentDaemonConnectionEnv(env)
 	env, err = m.withMintedInstanceTokenEnv(in.Name, env)
 	if err != nil {
 		return nil, false, fmt.Errorf("dispatch: daemon token: %w", err)
@@ -1948,11 +1950,11 @@ func (m *InstanceManager) startEnvWithOTelArgs(instance string) ([]string, []str
 	}
 	if ok {
 		out, codexArgs := m.applyCurrentOTelConfigWithArgs(instance, env)
-		out = m.withCurrentDaemonHTTPURLEnv(out)
+		out = m.withCurrentDaemonConnectionEnv(out)
 		out, err = m.withInstanceTokenEnv(instance, out)
 		return out, codexArgs, err
 	}
-	out := m.withCurrentDaemonHTTPURLEnv(os.Environ())
+	out := m.withCurrentDaemonConnectionEnv(os.Environ())
 	out, err = m.withInstanceTokenEnv(instance, out)
 	return out, nil, err
 }
@@ -2037,9 +2039,15 @@ func (m *InstanceManager) withInstanceTokenEnv(instance string, env []string) ([
 }
 
 // Daemon HTTP uses an ephemeral port, so a launch snapshot's URL is stale
-// after daemon restart. Re-derive it from the current listener advertisement.
-func (m *InstanceManager) withCurrentDaemonHTTPURLEnv(env []string) []string {
-	httpAddr, err := ReadHTTPAddr(filepath.Dir(m.daemonRoot))
+// after daemon restart. Re-derive it from the current listener advertisement
+// and always refresh the repository socket path alongside it.
+func (m *InstanceManager) withCurrentDaemonConnectionEnv(env []string) []string {
+	teamDir := filepath.Dir(m.daemonRoot)
+	if exportedTeamDir := envValue(env, "AGENT_TEAM_ROOT"); exportedTeamDir != "" {
+		teamDir = exportedTeamDir
+	}
+	env = mergeEnv(withoutEnvKey(env, daemonSocketEnv), []string{daemonSocketEnv + "=" + SocketPath(teamDir)})
+	httpAddr, err := ReadHTTPAddr(teamDir)
 	if err != nil || strings.TrimSpace(httpAddr) == "" {
 		return withoutEnvKey(env, daemonHTTPURLEnv)
 	}
@@ -2054,7 +2062,10 @@ func (m *InstanceManager) withMintedInstanceTokenEnv(instance string, env []stri
 	return mergeEnv(env, []string{DaemonTokenFileEnv + "=" + tokenPath}), nil
 }
 
-const daemonHTTPURLEnv = "AGENT_TEAM_DAEMON_URL"
+const (
+	daemonHTTPURLEnv = "AGENT_TEAM_DAEMON_URL"
+	daemonSocketEnv  = "AGENT_TEAM_DAEMON_SOCKET"
+)
 
 func withoutEnvKey(env []string, key string) []string {
 	out := make([]string, 0, len(env))

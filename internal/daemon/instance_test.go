@@ -1,8 +1,13 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -551,6 +556,57 @@ func TestInstance_DispatchExportsTokenFileButNotTokenValue(t *testing.T) {
 		t.Fatalf("stop: %v", err)
 	}
 	waitForStatusNot(t, m, "worker-token", StatusRunning)
+}
+
+func TestInstance_DispatchExportsCurrentDaemonConnectionContext(t *testing.T) {
+	teamDir := t.TempDir()
+	root := DaemonRoot(teamDir)
+	if err := os.MkdirAll(filepath.Dir(HTTPAddrPath(teamDir)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(HTTPAddrPath(teamDir), []byte("127.0.0.1:33333\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeSpawner(2 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+
+	if _, err := m.Dispatch(DispatchInput{
+		Agent:     "manager",
+		Name:      "manager-context",
+		Prompt:    "hello",
+		Workspace: t.TempDir(),
+		Env: []string{
+			"AGENT_TEAM_DAEMON_URL=http://127.0.0.1:11111",
+			"AGENT_TEAM_DAEMON_SOCKET=/tmp/stale.sock",
+		},
+	}); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("manager-context")
+		waitForStatusNot(t, m, "manager-context", StatusRunning)
+	})
+
+	for label, env := range map[string][]string{
+		"child": fake.lastEnv(),
+		"snapshot": func() []string {
+			snapshot, err := ReadInstanceLaunchEnv(root, "manager-context")
+			if err != nil {
+				t.Fatalf("read launch snapshot: %v", err)
+			}
+			return snapshot.Env
+		}(),
+	} {
+		if got := lastEnvValue(env, daemonHTTPURLEnv); got != "http://127.0.0.1:33333" {
+			t.Fatalf("%s %s = %q", label, daemonHTTPURLEnv, got)
+		}
+		if got := lastEnvValue(env, "AGENT_TEAM_DAEMON_SOCKET"); got != SocketPath(teamDir) {
+			t.Fatalf("%s AGENT_TEAM_DAEMON_SOCKET = %q, want %q", label, got, SocketPath(teamDir))
+		}
+		if got := lastEnvValue(env, DaemonTokenFileEnv); got != InstanceTokenPath(teamDir, "manager-context") {
+			t.Fatalf("%s %s = %q", label, DaemonTokenFileEnv, got)
+		}
+	}
 }
 
 func TestInstance_DispatchEnvAllowFiltersChildEnvAndSnapshot(t *testing.T) {
@@ -2200,6 +2256,127 @@ func TestInstance_StartRefreshesDaemonURLFromCurrentHTTPAddr(t *testing.T) {
 				t.Fatalf("updated snapshot kept stale %s: %+v", daemonHTTPURLEnv, snapshot.Env)
 			}
 		})
+	}
+}
+
+func TestInstance_StartExportsContextThatCanSendAfterHTTPBecomesStale(t *testing.T) {
+	teamDir := t.TempDir()
+	root := DaemonRoot(teamDir)
+	workspace := t.TempDir()
+	claudeConfigDir := t.TempDir()
+	stateDir := filepath.Join(teamDir, "state", "manager")
+	now := time.Now().UTC()
+	writeClaudeSession(t, claudeConfigDir, workspace, "session-1")
+	if err := WriteMetadata(root, &Metadata{
+		Instance:      "manager",
+		Agent:         "manager",
+		Runtime:       string(runtimebin.KindClaude),
+		RuntimeBinary: "claude",
+		Workspace:     workspace,
+		PID:           123,
+		SessionID:     "session-1",
+		StartedAt:     now,
+		StoppedAt:     now,
+		Status:        StatusStopped,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteInstanceLaunchEnv(root, "manager", &LaunchEnv{
+		Bin:  "claude",
+		Args: []string{"claude", "--resume", "session-1"},
+		Dir:  workspace,
+		Env: []string{
+			"PATH=" + os.Getenv("PATH"),
+			"HOME=" + os.Getenv("HOME"),
+			"CLAUDE_CONFIG_DIR=" + claudeConfigDir,
+			"AGENT_TEAM_ROOT=" + teamDir,
+			"AGENT_TEAM_INSTANCE=manager",
+			"AGENT_TEAM_STATE_DIR=" + stateDir,
+			daemonHTTPURLEnv + "=http://127.0.0.1:11111",
+			"AGENT_TEAM_DAEMON_SOCKET=/tmp/stale.sock",
+		},
+		RecordedAt: now,
+		Version:    1,
+	}); err != nil {
+		t.Fatalf("write launch env: %v", err)
+	}
+
+	type inboxPayload struct {
+		To   string `json:"to"`
+		From string `json:"from"`
+		Body string `json:"body"`
+	}
+	received := make(chan inboxPayload, 1)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload inboxPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode inbox payload: %v", err)
+		}
+		received <- payload
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"delivered":true,"id":"post-resume"}`)
+	})
+	socket := SocketPath(teamDir)
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(socket)
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unixServer := &http.Server{Handler: handler}
+	go func() { _ = unixServer.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = unixServer.Close()
+		_ = listener.Close()
+	})
+
+	httpServer := httptest.NewServer(handler)
+	if err := os.WriteFile(HTTPAddrPath(teamDir), []byte(strings.TrimPrefix(httpServer.URL, "http://")+"\n"), 0o600); err != nil {
+		httpServer.Close()
+		t.Fatal(err)
+	}
+	fake := newFakeSpawner(30 * time.Second)
+	m := NewInstanceManager(root, fake.spawn)
+	if _, err := m.Start("manager"); err != nil {
+		httpServer.Close()
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = m.Stop("manager")
+		waitForStatusNot(t, m, "manager", StatusRunning)
+	})
+	resumeEnv := fake.lastEnv()
+	if got := lastEnvValue(resumeEnv, daemonHTTPURLEnv); got != httpServer.URL {
+		t.Fatalf("resume %s = %q, want %q", daemonHTTPURLEnv, got, httpServer.URL)
+	}
+	if got := lastEnvValue(resumeEnv, "AGENT_TEAM_DAEMON_SOCKET"); got != socket {
+		t.Fatalf("resume AGENT_TEAM_DAEMON_SOCKET = %q, want %q", got, socket)
+	}
+	if got := lastEnvValue(resumeEnv, DaemonTokenFileEnv); got != InstanceTokenPath(teamDir, "manager") {
+		t.Fatalf("resume %s = %q", DaemonTokenFileEnv, got)
+	}
+
+	// The endpoint was valid when resume exported it, then became stale. The
+	// resumed instance must still be able to send through the live repo socket.
+	httpServer.Close()
+	helper, err := filepath.Abs(filepath.Join("..", "..", "template", "skills", "inbox", "scripts", "inbox.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", helper, "send", "advisor", "post-resume message")
+	cmd.Env = resumeEnv
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("post-resume inbox send: %v\n%s", err, output)
+	}
+	select {
+	case payload := <-received:
+		if payload.To != "advisor" || payload.From != "manager" || payload.Body != "post-resume message" {
+			t.Fatalf("post-resume payload = %+v", payload)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("post-resume inbox send did not reach Unix socket")
 	}
 }
 

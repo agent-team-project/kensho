@@ -74,8 +74,24 @@ curl_daemon() {
         args[last_index]="${AGENT_TEAM_DAEMON_URL%/}${endpoint#http://daemon}"
         local token
         token="$(daemon_token)"
-        curl -sS -H "Authorization: Bearer $token" "${args[@]}"
-        return
+        local status=0
+        # HTTP response failures use curl status 22 and remain authoritative;
+        # they cannot be bypassed through the Unix socket.
+        curl -s --fail-with-body -H "Authorization: Bearer $token" "${args[@]}" || status=$?
+        if (( status == 0 )); then
+            return
+        fi
+        # Only failures known to happen before an HTTP request is delivered
+        # are safe for this non-idempotent POST: proxy/host resolution and
+        # connect failure. Read/write/timeout errors may be post-delivery and
+        # must not become a general retry policy.
+        case "$status" in
+            5|6|7) ;;
+            *)
+                echo "inbox.sh: daemon HTTP transport failed (curl exit $status); refusing Unix retry." >&2
+                return "$status"
+                ;;
+        esac
     fi
     local sock
     sock="$(socket_path)"

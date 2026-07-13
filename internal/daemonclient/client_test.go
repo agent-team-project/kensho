@@ -95,6 +95,121 @@ func TestNewDiscoveryPrecedence(t *testing.T) {
 	}
 }
 
+func TestNewFallsBackFromUnreachableHTTPToConfiguredUnixSocket(t *testing.T) {
+	teamDir := t.TempDir()
+	socketDir, err := os.MkdirTemp("/tmp", "agent-team-daemonclient-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socket := filepath.Join(socketDir, "daemon.sock")
+
+	var hits atomic.Int32
+	var got struct {
+		To      string `json:"to"`
+		From    string `json:"from"`
+		Body    string `json:"body"`
+		ReplyTo string `json:"reply_to"`
+	}
+	stopUnix := startUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path != "/v1/message" {
+			t.Errorf("path = %q, want /v1/message", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode message: %v", err)
+		}
+		writeJSON(t, w, map[string]any{"delivered": true, "id": "msg-fallback"})
+	}))
+	defer stopUnix()
+
+	tokenFile := filepath.Join(t.TempDir(), "daemon.token")
+	writeFile(t, tokenFile, "instance-token\n", 0o600)
+	t.Setenv("AGENT_TEAM_DAEMON_URL", unreachableLoopbackURL(t))
+	t.Setenv("AGENT_TEAM_DAEMON_SOCKET", socket)
+	t.Setenv(daemon.DaemonTokenFileEnv, tokenFile)
+
+	client, err := New(teamDir, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	res, err := client.SendMessage("manager", "worker-gh391", "fallback body", "manager")
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if !res.Delivered || res.ID != "msg-fallback" {
+		t.Fatalf("response = %+v", res)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("Unix socket hits = %d, want 1", hits.Load())
+	}
+	if got.To != "manager" || got.From != "worker-gh391" || got.Body != "fallback body" || got.ReplyTo != "manager" {
+		t.Fatalf("Unix socket payload = %+v", got)
+	}
+}
+
+func TestNewDoesNotFallbackFromHTTPResponseFailures(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			teamDir := t.TempDir()
+			var unixHits atomic.Int32
+			stopUnix := startUnixHTTPServer(t, daemon.SocketPath(teamDir), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				unixHits.Add(1)
+				writeJSON(t, w, map[string]any{"delivered": true, "id": "must-not-deliver"})
+			}))
+			defer stopUnix()
+
+			httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, http.StatusText(status), status)
+			}))
+			defer httpServer.Close()
+			tokenFile := filepath.Join(t.TempDir(), "daemon.token")
+			writeFile(t, tokenFile, "instance-token\n", 0o600)
+			t.Setenv("AGENT_TEAM_DAEMON_URL", httpServer.URL)
+			t.Setenv("AGENT_TEAM_DAEMON_SOCKET", daemon.SocketPath(teamDir))
+			t.Setenv(daemon.DaemonTokenFileEnv, tokenFile)
+
+			client, err := New(teamDir, Options{})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			_, err = client.SendMessage("manager", "worker-gh391", "must stay failed", "")
+			var responseErr *ResponseError
+			if !errors.As(err, &responseErr) || responseErr.StatusCode != status {
+				t.Fatalf("SendMessage error = %T %v, want HTTP %d ResponseError", err, err, status)
+			}
+			if unixHits.Load() != 0 {
+				t.Fatalf("Unix socket hits = %d, want 0", unixHits.Load())
+			}
+		})
+	}
+
+	t.Run("missing token file", func(t *testing.T) {
+		teamDir := t.TempDir()
+		var unixHits atomic.Int32
+		stopUnix := startUnixHTTPServer(t, daemon.SocketPath(teamDir), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			unixHits.Add(1)
+			writeJSON(t, w, map[string]any{"delivered": true, "id": "must-not-deliver"})
+		}))
+		defer stopUnix()
+		t.Setenv("AGENT_TEAM_DAEMON_URL", unreachableLoopbackURL(t))
+		t.Setenv("AGENT_TEAM_DAEMON_SOCKET", daemon.SocketPath(teamDir))
+		t.Setenv(daemon.DaemonTokenFileEnv, filepath.Join(t.TempDir(), "missing.token"))
+
+		client, err := New(teamDir, Options{})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		_, err = client.SendMessage("manager", "worker-gh391", "must stay failed", "")
+		if err == nil || !strings.Contains(err.Error(), "read token file") {
+			t.Fatalf("SendMessage error = %v, want token-file error", err)
+		}
+		if unixHits.Load() != 0 {
+			t.Fatalf("Unix socket hits = %d, want 0", unixHits.Load())
+		}
+	})
+}
+
 func TestCloseIdleConnectionsForwardsToUnderlyingTransport(t *testing.T) {
 	transport := new(closeTrackingRoundTripper)
 	client := NewHTTP("http://daemon", "", Options{RoundTripper: transport})
@@ -265,22 +380,41 @@ func statusServer(t *testing.T, hits *atomic.Int32, auth *string) *httptest.Serv
 
 func startUnixStatusServer(t *testing.T, socket string, hits *atomic.Int32) func() {
 	t.Helper()
+	return startUnixHTTPServer(t, socket, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		writeJSON(t, w, map[string]any{"ready": true, "instances": 0})
+	}))
+}
+
+func startUnixHTTPServer(t *testing.T, socket string, handler http.Handler) func() {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	_ = os.Remove(socket)
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits.Add(1)
-		writeJSON(t, w, map[string]any{"ready": true, "instances": 0})
-	})}
+	server := &http.Server{Handler: handler}
 	go func() { _ = server.Serve(listener) }()
 	return func() {
 		_ = server.Close()
 		_ = listener.Close()
 	}
+}
+
+func unreachableLoopbackURL(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return "http://" + addr
 }
 
 func writeFile(t *testing.T, path, contents string, mode os.FileMode) {

@@ -740,6 +740,12 @@ restart = "always"
 				waitForStatusNot(t, m, "manager", StatusRunning)
 			})
 			env := fake.lastEnv()
+			if got := lastEnvValue(env, daemonSocketEnv); got != SocketPath(teamDir) {
+				t.Fatalf("%s = %q, want %q in env %+v", daemonSocketEnv, got, SocketPath(teamDir), env)
+			}
+			if got := lastEnvValue(env, DaemonTokenFileEnv); got != InstanceTokenPath(teamDir, "manager") {
+				t.Fatalf("%s = %q, want %q in env %+v", DaemonTokenFileEnv, got, InstanceTokenPath(teamDir, "manager"), env)
+			}
 			if tt.wantURL != "" {
 				if got := lastEnvValue(env, daemonHTTPURLEnv); got != tt.wantURL {
 					t.Fatalf("%s = %q, want %q in env %+v", daemonHTTPURLEnv, got, tt.wantURL, env)
@@ -750,6 +756,12 @@ restart = "always"
 			snapshot, err := ReadInstanceLaunchEnv(root, "manager")
 			if err != nil {
 				t.Fatalf("read updated launch env: %v", err)
+			}
+			if got := lastEnvValue(snapshot.Env, daemonSocketEnv); got != SocketPath(teamDir) {
+				t.Fatalf("snapshot %s = %q, want %q in %+v", daemonSocketEnv, got, SocketPath(teamDir), snapshot.Env)
+			}
+			if got := lastEnvValue(snapshot.Env, DaemonTokenFileEnv); got != InstanceTokenPath(teamDir, "manager") {
+				t.Fatalf("snapshot %s = %q, want %q in %+v", DaemonTokenFileEnv, got, InstanceTokenPath(teamDir, "manager"), snapshot.Env)
 			}
 			if tt.wantURL != "" {
 				if got := lastEnvValue(snapshot.Env, daemonHTTPURLEnv); got != tt.wantURL {
