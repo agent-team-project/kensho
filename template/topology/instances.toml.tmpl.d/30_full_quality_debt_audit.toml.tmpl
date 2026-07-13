@@ -10,6 +10,7 @@ kind = "debt_sweep"
 [instances.debt-auditor]
 agent       = "auditor"
 ephemeral   = true
+required_verbs = ["feedback.submit", "ticket.comment", "ticket.create"]
 env_allow   = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
 description = "Scheduled architecture/tech-debt audit: one subsystem per run, evidence-backed tickets."
 
@@ -21,4 +22,3 @@ match.kind = "debt_sweep"
 [[instances.debt-auditor.triggers]]
 event        = "agent.dispatch"
 match.target = "debt-auditor"
-

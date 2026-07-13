@@ -1566,6 +1566,9 @@ func marshalTopology(topo *topology.Topology, events *EventResolver) map[string]
 			"config":        map[string]any(inst.Config),
 			"triggers":      marshalTriggers(inst.Triggers),
 		}
+		if len(inst.RequiredVerbs) > 0 {
+			entry["required_verbs"] = inst.RequiredVerbs
+		}
 		if events != nil && inst.Ephemeral {
 			running, queued := events.QueueDepth(inst.Name)
 			entry["running"] = running

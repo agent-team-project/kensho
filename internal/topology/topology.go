@@ -207,6 +207,11 @@ type Instance struct {
 	// instance. An empty list means the instance is only invokable via an
 	// explicit `agent-team run <name>` (i.e. no event-driven dispatch).
 	Triggers []*Trigger
+	// RequiredVerbs is the canonical agent-team command surface mandated by a
+	// scheduled instance's workflow. Under authority enforcement, topology
+	// loading rejects any verb outside the instance's effective composed
+	// instance, agent, and team allowlists.
+	RequiredVerbs []string
 
 	runtimeDeclared bool
 	modelDeclared   bool
@@ -414,10 +419,12 @@ func (a *Authority) Allows(decision AuthorityDecision) bool {
 }
 
 // Evaluate reports whether the actor is allowed to perform the decision's verb
-// and records which allowlist sources were considered.
+// and records which allowlist sources were considered. Enforce mode remains
+// closed-world when no grant tables are declared, matching the empty runtime
+// shim allowlist installed for managed instances.
 func (a *Authority) Evaluate(decision AuthorityDecision) AuthorityEvaluation {
 	eval := AuthorityEvaluation{Allowed: true}
-	if !a.Configured() {
+	if !a.Configured() && !a.Enforced() {
 		return eval
 	}
 	decision = cleanAuthorityDecision(decision)
@@ -961,6 +968,7 @@ type rawInstance struct {
 	EnvAllow       []string         `toml:"env_allow"`
 	Config         map[string]any   `toml:"config"`
 	Triggers       []map[string]any `toml:"triggers"`
+	RequiredVerbs  []string         `toml:"required_verbs"`
 }
 
 type rawLock struct {
@@ -1152,7 +1160,7 @@ func finalise(raw *rawTopology, validateTeamRefs bool) (*Topology, error) {
 		if err := validateBudgetReferences(t); err != nil {
 			return nil, err
 		}
-		if err := validatePipelineAuthoritySatisfiability(t); err != nil {
+		if err := t.ValidateAuthoritySatisfiability(); err != nil {
 			return nil, err
 		}
 	}
@@ -1330,6 +1338,10 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 	if err != nil {
 		return nil, err
 	}
+	requiredVerbs, err := finaliseRequiredVerbs(name, ri.RequiredVerbs)
+	if err != nil {
+		return nil, err
+	}
 	return &Instance{
 		Name:            name,
 		Agent:           ri.Agent,
@@ -1351,10 +1363,41 @@ func finaliseInstance(name string, ri *rawInstance) (*Instance, error) {
 		EnvAllow:        envAllow,
 		Config:          cfg,
 		Triggers:        triggers,
+		RequiredVerbs:   requiredVerbs,
 		runtimeDeclared: runtime != "",
 		modelDeclared:   model != "",
 		effortDeclared:  effort != "",
 	}, nil
+}
+
+func finaliseRequiredVerbs(instance string, raw []string) ([]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(raw))
+	for i, value := range raw {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, fmt.Errorf("instance %q: required_verbs[%d]: must be non-empty", instance, i)
+		}
+		if _, qualifier := splitAuthorityAllow(value); qualifier != "" {
+			return nil, fmt.Errorf("instance %q: required_verbs[%d]: scope qualifiers are not valid in a canonical command surface", instance, i)
+		}
+		if strings.Contains(value, "*") {
+			return nil, fmt.Errorf("instance %q: required_verbs[%d]: wildcards are not valid in a canonical command surface", instance, i)
+		}
+		if err := validateAuthorityVerb(value); err != nil {
+			return nil, fmt.Errorf("instance %q: required_verbs[%d]: %w", instance, i, err)
+		}
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func finaliseEnvAllow(instance string, raw []string) ([]string, error) {
@@ -1929,13 +1972,60 @@ func validateBudgetReferences(t *Topology) error {
 
 // ValidateAuthoritySatisfiability checks that every declaratively managed
 // pipeline has unambiguous persistent receivers for its manual-gate and
-// terminal completion events. Under enforcement it also checks that each
-// receiver can perform its route's duties. It intentionally evaluates concrete
+// terminal completion events, and that every declared scheduled workflow can
+// execute its required command surface. Under enforcement it checks each
+// receiver against effective authority. It intentionally evaluates concrete
 // AuthorityDecisions instead of searching allowlist strings, so wildcard,
 // instance/agent/team composition, and scope qualifiers stay identical to the
 // runtime authorizer.
 func (t *Topology) ValidateAuthoritySatisfiability() error {
-	return validatePipelineAuthoritySatisfiability(t)
+	if err := validatePipelineAuthoritySatisfiability(t); err != nil {
+		return err
+	}
+	return validateScheduledAuthoritySatisfiability(t)
+}
+
+func validateScheduledAuthoritySatisfiability(t *Topology) error {
+	if t == nil {
+		return nil
+	}
+	for _, inst := range t.SortedInstances() {
+		if inst == nil || len(inst.RequiredVerbs) == 0 {
+			continue
+		}
+		if !instanceHasScheduleTrigger(inst) {
+			return fmt.Errorf("instance %q: required_verbs is only valid for an instance with a schedule trigger", inst.Name)
+		}
+		if t.Authority == nil || !t.Authority.Enforced() {
+			continue
+		}
+		for _, verb := range inst.RequiredVerbs {
+			decision := AuthorityDecision{
+				Instance: inst.Name,
+				Agent:    inst.Agent,
+				Team:     t.TeamForInstance(inst.Name),
+				Verb:     verb,
+			}
+			eval := t.Authority.Evaluate(decision)
+			if eval.Allowed {
+				continue
+			}
+			return fmt.Errorf("scheduled instance %q: required verb %q is outside effective authority (runtime sources: %s); add %q to [authority.instances.%s].allow", inst.Name, verb, eval.SourceDescription(), verb, inst.Name)
+		}
+	}
+	return nil
+}
+
+func instanceHasScheduleTrigger(inst *Instance) bool {
+	if inst == nil {
+		return false
+	}
+	for _, trigger := range inst.Triggers {
+		if trigger != nil && trigger.Event == EventSchedule {
+			return true
+		}
+	}
+	return false
 }
 
 func validatePipelineAuthoritySatisfiability(t *Topology) error {

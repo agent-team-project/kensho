@@ -60,7 +60,7 @@ Current `agent-team topology --help` output exposes:
 | `topology show` | Print declared instances and triggers, preferring daemon state and falling back to local parsing. |
 | `topology graph` | Render teams, instances, pipelines, schedules, and dispatch wiring. |
 | `topology summary` | Summarize declared topology and workflow health. |
-| `topology validate` | Validate schema, ownership, and pipeline-manager authority satisfiability. |
+| `topology validate` | Validate schema, ownership, pipeline-manager authority, and scheduled-workflow command-surface satisfiability. |
 | `topology reload` | Ask the running daemon to re-read `.agent_team/instances.toml`. |
 
 Current `agent-team event --help` output exposes:
@@ -172,6 +172,10 @@ Important layering rules:
   with the new runtime remain authoritative.
 - `[instances.<name>.config]` becomes declared per-instance config and is
   layered above repo config when ephemeral runtime state is prepared.
+- Schedule-triggered instances may declare exact canonical `required_verbs`.
+  Under enforcement, topology loading evaluates those commands through the
+  same effective instance + agent + team authority composer used for runtime
+  shims and rejects a deficient surface before activation.
 - `[instances.<name>]` fields `runtime`, `runtime_bin`, `model`, and `effort`
   customize the launched runtime. `model` is passed as `--model <value>` for
   Claude and Codex runtime launches. `effort` is passed as `--effort <value>`
@@ -201,6 +205,11 @@ Important layering rules:
   mandatory job mutations are also evaluated through the runtime authority
   composer, so scope-unsatisfiable manager paths are rejected before daemon
   activation.
+- Authority allowlists are baked into managed shims at launch. A topology
+  reload affects future scheduled launches but does not rewrite running
+  processes; ephemeral loops pick up the change on their next firing, while a
+  persistent instance needs a fresh forced `instance up` after reload to
+  regenerate its shim.
 
 ## Contributor Checks
 

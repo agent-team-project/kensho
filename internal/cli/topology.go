@@ -634,7 +634,7 @@ func topologyGraphNodeLabels(graph topologyGraph) []teamGraphLabel {
 func toResponseLike(top *topology.Topology) map[string]any {
 	out := make([]map[string]any, 0, len(top.Instances))
 	for _, inst := range top.SortedInstances() {
-		out = append(out, map[string]any{
+		entry := map[string]any{
 			"name":          inst.Name,
 			"agent":         inst.Agent,
 			"ephemeral":     inst.Ephemeral,
@@ -643,7 +643,11 @@ func toResponseLike(top *topology.Topology) map[string]any {
 			"reap_worktree": inst.ReapWorktree,
 			"config":        map[string]any(inst.Config),
 			"triggers":      triggersAsMaps(inst.Triggers),
-		})
+		}
+		if len(inst.RequiredVerbs) > 0 {
+			entry["required_verbs"] = inst.RequiredVerbs
+		}
+		out = append(out, entry)
 	}
 	pipelines := make([]map[string]any, 0, len(top.Pipelines))
 	for _, pipeline := range top.SortedPipelines() {

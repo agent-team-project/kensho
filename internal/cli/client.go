@@ -49,16 +49,17 @@ type topologyResponse struct {
 }
 
 type topologyInstance struct {
-	Name         string                   `json:"name"`
-	Agent        string                   `json:"agent"`
-	Ephemeral    bool                     `json:"ephemeral"`
-	Description  string                   `json:"description"`
-	Replicas     int                      `json:"replicas"`
-	ReapWorktree string                   `json:"reap_worktree"`
-	Config       map[string]interface{}   `json:"config"`
-	Triggers     []map[string]interface{} `json:"triggers"`
-	Running      int                      `json:"running"`
-	Queued       int                      `json:"queued"`
+	Name          string                   `json:"name"`
+	Agent         string                   `json:"agent"`
+	Ephemeral     bool                     `json:"ephemeral"`
+	Description   string                   `json:"description"`
+	Replicas      int                      `json:"replicas"`
+	ReapWorktree  string                   `json:"reap_worktree"`
+	RequiredVerbs []string                 `json:"required_verbs,omitempty"`
+	Config        map[string]interface{}   `json:"config"`
+	Triggers      []map[string]interface{} `json:"triggers"`
+	Running       int                      `json:"running"`
+	Queued        int                      `json:"queued"`
 }
 
 type topologyPipeline struct {

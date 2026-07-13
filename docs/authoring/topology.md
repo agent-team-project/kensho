@@ -85,6 +85,7 @@ Fields:
 | `locks` | Named dispatch locks held by spawned ephemeral children |
 | `replicas` | Max concurrent ephemeral runs |
 | `env_allow` | Glob allowlist for inherited environment keys; unset is a no-op, and `AGENT_TEAM_*` is always kept |
+| `required_verbs` | Exact canonical `agent-team` verbs mandated by a schedule-triggered workflow; enforced topology must grant every entry effectively |
 | `triggers` | Event matchers |
 
 ## Locks
@@ -158,7 +159,24 @@ scope = "team"
 run_on_start = false
 payload.target = "manager"
 payload.reason = "nightly maintenance"
+
+[instances.manager]
+agent = "manager"
+required_verbs = ["daemon.status", "instance.brief", "job.ls"]
+
+[[instances.manager.triggers]]
+event = "schedule"
+match.name = "nightly"
 ```
+
+Declare `required_verbs` from the scheduled workflow's prompt and skills using
+the canonical dotted names returned by `agent-team __resolve-verb`. Entries are
+exact commands, not allowlist patterns: wildcards and `:own` / `:team`
+qualifiers are rejected. With authority enforcement enabled, topology loading
+evaluates each entry against the instance's effective instance, agent, and team
+rules. A missing grant rejects daemon activation and topology reload before the
+schedule can launch with a deficient shim. Audit mode keeps grant mismatches
+non-blocking.
 
 Operators can inspect and fire schedules:
 
@@ -347,6 +365,15 @@ baked into that shim at launch time. If an enforced agent needs daemon resource
 reads, include `read` in its allowlist; URI identity does not bypass verb
 authority.
 
+Authority edits become active for future launches after `agent-team reload`
+(or a daemon restart) accepts the updated topology. Reload does not rewrite a
+shim inside an already-running runtime. A scheduled ephemeral run keeps its
+launch-time shim until it exits; the next firing receives a regenerated shim.
+For a running persistent instance, use `agent-team instance up <name> --fresh
+--force` after reload so the fresh launch rebuilds its managed shim. A normal
+resume/restart can retain the recorded launch environment and is not the
+activation path for an authority change.
+
 ## Validation
 
 Use:
@@ -366,9 +393,11 @@ owners in both authority modes. Runtime-enriched completion match fields are
 also rejected when they could introduce an owner that the stable payload cannot
 resolve. With `enforcement = "enforce"`, validation additionally rejects an
 owner that cannot satisfiably perform its route's required job mutations after
-instance, agent, team, and scope rules are composed. Audit mode keeps those
-grant denials observable and non-blocking, but does not make an ambiguous or
-unsupported topology structurally valid.
+instance, agent, team, and scope rules are composed. It applies the same
+effective-authority evaluation to every schedule-triggered instance's declared
+`required_verbs`. Audit mode keeps those grant denials observable and
+non-blocking, but does not make an ambiguous or unsupported topology
+structurally valid.
 
 The remaining commands catch missing agents, unrouteable pipeline steps, and
 runtime team ownership problems.

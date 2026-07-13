@@ -62,6 +62,24 @@ allow = ["read"]
 
 [authority.instances.frontend-manager]
 allow = ["event.publish", "job.events", "job.gate.*:team", "job.step:team", "job.bounce:team", "job.approve:team", "job.reject:team", "job.close:team", "job.merge:team", "read", "ticket.create", "ticket.comment", "ticket.update"]
+
+[authority.instances.feedback-triage]
+allow = ["daemon.status", "instance.brief", "job.events", "job.explain", "job.ls", "job.triage", "ticket.comment", "ticket.create"]
+
+[authority.instances.debt-auditor]
+allow = ["ticket.comment", "ticket.create"]
+
+[authority.instances.harness-reviewer]
+allow = ["daemon.status", "instance.brief", "job.events", "job.explain", "job.ls", "job.triage", "ticket.comment", "ticket.create"]
+
+[authority.instances.org-review]
+allow = ["daemon.status", "instance.brief", "job.ls", "job.triage", "outcomes.report", "queue.ls", "schedule.ls", "team.ps", "ticket.comment", "ticket.create"]
+
+[authority.instances.sentinel]
+allow = ["daemon.status", "instance.brief"]
+
+[authority.instances.product-verifier]
+allow = ["daemon.status", "instance.brief", "job.ls", "ps", "topology.show"]
 {{ end }}
 
 [authority.agents.worker]

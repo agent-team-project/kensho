@@ -358,6 +358,13 @@ Instance `env_allow = ["GLOB", ...]` is an opt-in child environment allowlist.
 When unset, launch env behavior is unchanged. When set, only matching env keys
 plus daemon-required `AGENT_TEAM_*` keys are inherited by the launched runtime.
 
+A schedule-triggered instance can declare `required_verbs = ["job.ls", ...]`
+as the exact canonical `agent-team` command surface mandated by its workflow.
+Under enforced authority, topology loading evaluates those verbs through the
+effective instance, agent, and team allowlists and rejects the topology before
+activation when any command is missing. Wildcards and scope qualifiers belong
+in authority grants, not in `required_verbs`.
+
 Declared `[channels.<name>]` entries are only needed for scoped channel storage;
 undeclared channels still work. Team-scoped channels always use the owning
 topology team for storage; actor team is authority-audit input only.
@@ -369,7 +376,10 @@ only when the target job id equals the caller's origin job. Under enforcement,
 runtime launch installs a closed-world `agent-team` shim that resolves commands
 through the real Cobra tree and denies unknown or ungranted verbs before they
 reach the CLI. Grant `read` explicitly when an enforced agent should use
-`agent-team read <agt-uri>`.
+`agent-team read <agt-uri>`. Because the shim is baked at launch, reload affects
+future launches only: scheduled ephemeral instances receive a new shim on the
+next firing, and running persistent instances need `instance up --fresh
+--force` after reload.
 
 ## Job TOML
 

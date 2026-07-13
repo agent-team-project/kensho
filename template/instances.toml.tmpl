@@ -211,13 +211,13 @@ kind = "feedback_triage"
 [instances.feedback-triage]
 agent       = "manager"
 ephemeral   = true
+required_verbs = ["daemon.status", "feedback.ls", "feedback.resolve", "feedback.show", "instance.brief", "job.events", "job.explain", "job.ls", "job.show", "job.triage", "ticket.comment", "ticket.create"]
 description = "Scheduled feedback triage: local store + system signals -> tickets/folds/dismissals."
 
 [[instances.feedback-triage.triggers]]
 event      = "schedule"
 match.name = "feedback-triage"
 match.kind = "feedback_triage"
-
 # The quality team: a scheduled auditor that sweeps one subsystem per run and
 # files evidence-backed tech-debt tickets (at most three, Backlog only). The
 # counterweight to delivery velocity — see template/agents/auditor/agent.md.
@@ -230,6 +230,7 @@ kind = "debt_sweep"
 [instances.debt-auditor]
 agent       = "auditor"
 ephemeral   = true
+required_verbs = ["feedback.submit", "ticket.comment", "ticket.create"]
 env_allow   = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
 description = "Scheduled architecture/tech-debt audit: one subsystem per run, evidence-backed tickets."
 
@@ -241,7 +242,6 @@ match.kind = "debt_sweep"
 [[instances.debt-auditor.triggers]]
 event        = "agent.dispatch"
 match.target = "debt-auditor"
-
 # The platform team: framework-infrastructure arcs (provider seams, provenance,
 # scoping) run through their own worker/verifier/reviewer pool so product
 # delivery and platform work scale independently.
@@ -399,6 +399,7 @@ runtime     = "claude"
 model       = "claude-fable-5"
 effort      = "max"
 ephemeral   = true
+required_verbs = ["daemon.status", "feedback.ls", "instance.brief", "job.events", "job.explain", "job.ls", "job.show", "job.triage", "ticket.comment", "ticket.create"]
 env_allow   = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
 description = "Scheduled harness review on Fable max effort: bounce/feedback/failure trends -> prompt and instruction improvement tickets."
 
@@ -426,6 +427,7 @@ runtime      = "claude"
 model        = "claude-fable-5"
 effort       = "max"
 ephemeral    = true
+required_verbs = ["budget.status", "daemon.status", "feedback.ls", "feedback.show", "instance.brief", "job.ls", "job.show", "job.triage", "outcomes.report", "queue.ls", "schedule.ls", "team.ps", "ticket.comment", "ticket.create"]
 token_budget = "15M"
 time_budget  = "45m"
 env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK"]
@@ -470,6 +472,7 @@ kind = "sentinel"
 [instances.sentinel]
 agent        = "manager"
 ephemeral    = true
+required_verbs = ["daemon.status", "feedback.submit", "instance.brief"]
 token_budget = "10M"
 time_budget  = "15m"
 env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK", "AGENT_TEAM_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"]
@@ -494,6 +497,7 @@ task = "Run the product-verify skill: compare daemon UI endpoints with CLI groun
 [instances.product-verifier]
 agent        = "manager"
 ephemeral    = true
+required_verbs = ["daemon.status", "feedback.submit", "instance.brief", "job.ls", "ps", "topology.show"]
 token_budget = "10M"
 time_budget  = "30m"
 env_allow    = ["PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TERM", "TERM_PROGRAM", "LANG", "LC_*", "XDG_*", "CODEX_HOME", "CLAUDE_CODE_*", "SSH_AUTH_SOCK", "AGENT_TEAM_ROOT", "AGENT_TEAM_DAEMON_URL", "AGENT_TEAM_BIN", "PYTHONPATH"]
@@ -1230,6 +1234,24 @@ allow = ["read"]
 
 [authority.instances.frontend-manager]
 allow = ["event.publish", "job.events", "job.gate.*:team", "job.step:team", "job.bounce:team", "job.approve:team", "job.reject:team", "job.close:team", "job.merge:team", "read", "ticket.create", "ticket.comment", "ticket.update"]
+
+[authority.instances.feedback-triage]
+allow = ["daemon.status", "instance.brief", "job.events", "job.explain", "job.ls", "job.triage", "ticket.comment", "ticket.create"]
+
+[authority.instances.debt-auditor]
+allow = ["ticket.comment", "ticket.create"]
+
+[authority.instances.harness-reviewer]
+allow = ["daemon.status", "instance.brief", "job.events", "job.explain", "job.ls", "job.triage", "ticket.comment", "ticket.create"]
+
+[authority.instances.org-review]
+allow = ["daemon.status", "instance.brief", "job.ls", "job.triage", "outcomes.report", "queue.ls", "schedule.ls", "team.ps", "ticket.comment", "ticket.create"]
+
+[authority.instances.sentinel]
+allow = ["daemon.status", "instance.brief"]
+
+[authority.instances.product-verifier]
+allow = ["daemon.status", "instance.brief", "job.ls", "ps", "topology.show"]
 {{ end }}
 
 [authority.agents.worker]

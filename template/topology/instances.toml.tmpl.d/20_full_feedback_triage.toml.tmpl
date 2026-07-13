@@ -15,10 +15,10 @@ kind = "feedback_triage"
 [instances.feedback-triage]
 agent       = "manager"
 ephemeral   = true
+required_verbs = ["daemon.status", "feedback.ls", "feedback.resolve", "feedback.show", "instance.brief", "job.events", "job.explain", "job.ls", "job.show", "job.triage", "ticket.comment", "ticket.create"]
 description = "Scheduled feedback triage: local store + system signals -> tickets/folds/dismissals."
 
 [[instances.feedback-triage.triggers]]
 event      = "schedule"
 match.name = "feedback-triage"
 match.kind = "feedback_triage"
-
