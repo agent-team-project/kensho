@@ -150,6 +150,15 @@ def _apply_work_context(work: dict) -> None:
         if value:
             work[tomlk] = value
 
+    attempt = _first_env(("AGENT_TEAM_ATTEMPT",))
+    if attempt:
+        try:
+            parsed = int(attempt)
+        except ValueError:
+            parsed = 0
+        if parsed > 0:
+            work["attempt"] = parsed
+
 
 def _first_env(keys: tuple[str, ...]) -> str:
     for key in keys:
@@ -173,7 +182,7 @@ def _serialize(data: dict) -> str:
 
     work = data.get("work") or {}
     if work:
-        order = ["job", "ticket", "pr", "branch"]
+        order = ["job", "attempt", "ticket", "pr", "branch"]
         sections.append(_format_section("work", work, order))
 
     blocking = data.get("blocking") or {}

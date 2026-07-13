@@ -492,6 +492,10 @@ func (r *EventResolver) actuateEphemeralWithBudgetOrigin(inst *topology.Instance
 	if err != nil {
 		return EventOutcome{Instance: inst.Name, Action: "rejected", Reason: err.Error()}
 	}
+	if stale, current := r.dispatchAttemptStale(payload); stale {
+		reason := fmt.Sprintf("stale job attempt %d; current attempt is %d", payloadAttempt(payload), current)
+		return EventOutcome{Instance: inst.Name, Action: "rejected", InstanceID: childName, Reason: reason}
+	}
 	eventOrigin := r.originForEvent(inst, childName, eventType, payload)
 	if !budgetOrigin.Empty() {
 		eventOrigin = origin.Merge(budgetOrigin, eventOrigin)
@@ -515,14 +519,28 @@ func (r *EventResolver) actuateEphemeralWithBudgetOrigin(inst *topology.Instance
 		r.tracking[inst.Name] = tr
 	}
 	if requested && queuedChildName(tr.queue, childName) {
-		r.mu.Unlock()
-		reason := fmt.Sprintf("instance %q already queued", childName)
-		r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, "already_queued", reason, "", "")
-		return EventOutcome{
-			Instance:   inst.Name,
-			Action:     "rejected",
-			InstanceID: childName,
-			Reason:     reason,
+		superseded := false
+		for i, queued := range tr.queue {
+			if queued == nil || queued.uniqueName != childName {
+				continue
+			}
+			if sameJobStepPayload(queued.payload, payload) && payloadAttempt(queued.payload) != payloadAttempt(payload) {
+				tr.queue = append(tr.queue[:i:i], tr.queue[i+1:]...)
+				_ = RemoveQueueItem(r.mgr.daemonRoot, queued.id)
+				superseded = true
+			}
+			break
+		}
+		if !superseded {
+			r.mu.Unlock()
+			reason := fmt.Sprintf("instance %q already queued", childName)
+			r.upsertDispatchJob(payload, childName, jobstore.StatusQueued, "already_queued", reason, "", "")
+			return EventOutcome{
+				Instance:   inst.Name,
+				Action:     "rejected",
+				InstanceID: childName,
+				Reason:     reason,
+			}
 		}
 	}
 	admission, err := r.budgetAdmissionLocked(eventOrigin.Team, payload, now)
@@ -695,6 +713,28 @@ func (r *EventResolver) actuateEphemeralWithBudgetOrigin(inst *topology.Instance
 	}
 	r.updateLockLeasePID(meta.Instance, meta.PID)
 	return EventOutcome{Instance: inst.Name, Action: "dispatched", InstanceID: meta.Instance}
+}
+
+func (r *EventResolver) dispatchAttemptStale(payload map[string]any) (bool, int) {
+	if r == nil || strings.TrimSpace(r.teamDir) == "" {
+		return false, 0
+	}
+	id := eventJobID(payload)
+	if id == "" {
+		return false, 0
+	}
+	j, err := jobstore.Read(r.teamDir, id)
+	if err != nil {
+		return false, 0
+	}
+	return !jobstore.AttemptMatches(j, payloadAttempt(payload)), jobstore.CurrentAttempt(j)
+}
+
+func sameJobStepPayload(left, right map[string]any) bool {
+	return eventJobID(left) != "" &&
+		eventJobID(left) == eventJobID(right) &&
+		payloadString(left, "pipeline_step") != "" &&
+		payloadString(left, "pipeline_step") == payloadString(right, "pipeline_step")
 }
 
 func childNameForEvent(declared string, payload map[string]any) (string, bool, error) {

@@ -137,9 +137,11 @@ type DispatchInput struct {
 	DeploymentParentURI string
 	Job                 string
 	JobURI              string
+	Attempt             int
 	Ticket              string
 	Branch              string
 	PR                  string
+	Head                string
 	Origin              origin.Envelope
 	Prompt              string
 	Workspace           string
@@ -357,9 +359,11 @@ func (m *InstanceManager) Dispatch(in DispatchInput) (*Metadata, error) {
 		Agent:               in.Agent,
 		Job:                 in.Job,
 		JobURI:              in.JobURI,
+		Attempt:             in.Attempt,
 		Ticket:              in.Ticket,
 		Branch:              in.Branch,
 		PR:                  in.PR,
+		Head:                in.Head,
 		Origin:              in.Origin,
 		Runtime:             string(rt.Kind),
 		RuntimeBinary:       rt.Binary,
@@ -2560,9 +2564,11 @@ func (m *InstanceManager) recordEvent(action string, meta *Metadata, message str
 		Instance: meta.Instance,
 		Agent:    meta.Agent,
 		Job:      meta.Job,
+		Attempt:  meta.Attempt,
 		Ticket:   meta.Ticket,
 		Branch:   meta.Branch,
 		PR:       meta.PR,
+		Head:     meta.Head,
 		Origin:   meta.Origin,
 		Status:   meta.Status,
 		PID:      meta.PID,

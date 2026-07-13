@@ -41,9 +41,11 @@ type Metadata struct {
 	Agent               string          `json:"agent"`
 	Job                 string          `json:"job,omitempty"`
 	JobURI              string          `json:"job_uri,omitempty"`
+	Attempt             int             `json:"attempt,omitempty"`
 	Ticket              string          `json:"ticket,omitempty"`
 	Branch              string          `json:"branch,omitempty"`
 	PR                  string          `json:"pr,omitempty"`
+	Head                string          `json:"head,omitempty"`
 	Origin              origin.Envelope `json:"origin,omitempty"`
 	Runtime             string          `json:"runtime,omitempty"`
 	RuntimeBinary       string          `json:"runtime_binary,omitempty"`

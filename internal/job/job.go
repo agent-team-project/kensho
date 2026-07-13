@@ -65,6 +65,7 @@ type Job struct {
 	Kind                   string          `toml:"kind,omitempty"`
 	Instance               string          `toml:"instance,omitempty"`
 	Pipeline               string          `toml:"pipeline,omitempty"`
+	Attempt                int             `toml:"attempt,omitempty"`
 	Status                 Status          `toml:"status"`
 	Held                   bool            `toml:"held,omitempty"`
 	HoldReason             string          `toml:"hold_reason,omitempty"`
@@ -77,6 +78,7 @@ type Job struct {
 	Contract               *Contract       `toml:"contract,omitempty"`
 	ReapWorktree           string          `toml:"reap_worktree,omitempty"`
 	PR                     string          `toml:"pr,omitempty"`
+	Head                   string          `toml:"head,omitempty"`
 	Origin                 origin.Envelope `toml:"origin,omitempty"`
 	LinearAttentionWritten bool            `toml:"linear_attention_written,omitempty"`
 	Merge                  *Merge          `toml:"merge,omitempty"`
@@ -374,6 +376,7 @@ func New(ticket, target, kickoff string, now time.Time) (*Job, error) {
 		Target:              target,
 		ImplementationAgent: target,
 		Kickoff:             kickoff,
+		Attempt:             1,
 		Status:              StatusQueued,
 		CreatedAt:           now,
 		UpdatedAt:           now,
@@ -406,6 +409,9 @@ func Validate(j *Job) error {
 	}
 	if !ValidStatus(j.Status) {
 		return fmt.Errorf("unknown job status %q", j.Status)
+	}
+	if j.Attempt < 0 {
+		return errors.New("attempt must be >= 0")
 	}
 	if !worktreepolicy.Valid(j.ReapWorktree) {
 		return fmt.Errorf("reap_worktree must be on_close, on_merge, or never")
@@ -500,6 +506,25 @@ func Validate(j *Job) error {
 		}
 	}
 	return nil
+}
+
+// CurrentAttempt returns the durable implementation generation for a job.
+// Jobs written before attempt tracking landed decode as zero; those records
+// are the first attempt, so callers must consistently treat zero as one.
+func CurrentAttempt(j *Job) int {
+	if j == nil || j.Attempt <= 0 {
+		return 1
+	}
+	return j.Attempt
+}
+
+// AttemptMatches reports whether persisted/runtime attempt metadata belongs to
+// the job's current generation. Zero is the legacy encoding of attempt one.
+func AttemptMatches(j *Job, attempt int) bool {
+	if attempt <= 0 {
+		attempt = 1
+	}
+	return CurrentAttempt(j) == attempt
 }
 
 func validateBudgetFields(prefix string, tokenBudget int64, timeBudget string, hardMultiplier float64, reminderLevels, tokenBudgetNotices, timeBudgetNotices []int) error {

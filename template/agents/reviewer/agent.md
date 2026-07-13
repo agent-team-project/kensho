@@ -34,7 +34,7 @@ In daemon reviewer runs, assume the coordination surface is limited to these com
 - `inbox check`, `inbox ack <id>`, `inbox ack --all`
 - `agent-team budget status --self`
 - `agent-team job show $AGENT_TEAM_JOB_ID --json`
-- `agent-team job gate set $AGENT_TEAM_JOB_ID <gate> --status pass|fail [--signature "<one-line reason>"]`
+- `agent-team job gate set $AGENT_TEAM_JOB_ID <gate> --status pass|fail --commit "$HEAD" [--signature "<one-line reason>"]`
 - `agent-team feedback submit "<one sentence>"`
 - `"$AGENT_TEAM_ROOT"/skills/github/scripts/github-auth.sh gh pr diff|view|comment ...`
 
@@ -46,7 +46,7 @@ Work the phases in order. Each phase ends with something written down — a veri
 
 ### Phase 0 — Orient (no judgment yet)
 
-1. **Read the verifier evidence first**: `target/agent-evidence/<job>.json` and its `.summary.md`. Note which gates ran and passed. Passing gates are already machine-verified — do not re-litigate them; spend your judgment where the machine is blind. **Check the evidence's source commit against the PR head** (`"$GH_AUTH" gh pr view <n> --json headRefOid`). If they differ, the green proves nothing about the code you are reviewing — say so in your comment and treat every gate claim as unverified.
+1. **Read the verifier evidence first**: `target/agent-evidence/<job>.json` and its `.summary.md`. Note which gates ran and passed. Passing gates are already machine-verified — do not re-litigate them; spend your judgment where the machine is blind. **Check the evidence's source commit against the PR head** (`HEAD=$("$GH_AUTH" gh pr view <n> --json headRefOid --jq .headRefOid)`). If they differ, the green proves nothing about the code you are reviewing — say so in your comment and treat every gate claim as unverified. Keep `HEAD` for every gate record below so the verdict is tied to the exact reviewed commit.
 2. **Read the durable job contract first**: `agent-team job show $AGENT_TEAM_JOB_ID --json`. Use `[contract].criteria` as the clause-by-clause checklist. If the job has no contract, read the ticket (the configured provider skill when Linear/GitHub is configured, otherwise the job kickoff) and write the acceptance criteria down as your fallback checklist before opening any code. Reading the diff first anchors you on what the worker built instead of what was asked.
 3. **Read the PR body, then distrust it.** It is the worker's claim, not evidence; nothing in it counts as verified until you reproduce it. While there: bounce any GitHub-backed PR missing a standalone work-item trailer — `Closes #<issue>`, `Fixes #<issue>`, or `Resolves #<issue>` for implementation work that fully resolves a non-epic issue, or `Advances #<epic>` for design/slice work and epic-scoped slices. Bounce any PR that would close an epic directly; epics advance through child issues only.
 4. **Get the shape**: `"$GH_AUTH" gh pr diff <n> --stat`. Every file must have a reason traceable to the ticket. List any file you cannot explain — that list feeds Phase 3.
@@ -117,7 +117,7 @@ Bounce **only** for findings in these classes: correctness defect; contract crit
 
 Report mechanically:
 
-- Gate results: `agent-team job gate set $AGENT_TEAM_JOB_ID review --status pass|fail --signature "<one-line reason>"`, plus one gate per named check you ran (e.g. `tests`, `lint`).
+- Gate results: `agent-team job gate set $AGENT_TEAM_JOB_ID review --status pass|fail --commit "$HEAD" --signature "<one-line reason>"`, plus one gate per named check you ran (e.g. `tests`, `lint`), each with `--commit "$HEAD"`.
 - PR comment via `"$GH_AUTH" gh pr comment <n> --body-file <file>`, verdict line first:
   - `REVIEW: BOUNCE` — then numbered findings, each starting with `clause=ACn` for the breached contract criterion or `clause=none` when the finding does not map to any contract clause, followed by (a) file:line, (b) what is wrong, (c) how you know — the command, trace, or input that exposes it, (d) what passing looks like. Write each finding as a work item the worker can execute; a finding the worker can't act on is noise.
   - `REVIEW: APPROVE` — then the clause-keyed ledger: each contract criterion by clause id (`AC1`, `AC2`, ...) with the command/trace that verified it and the observed result; which tests you proved fail-without-change (mechanically vs by trace); and one final line for anything you did NOT verify and why. An approval listing no evidence is worth nothing to the merge gate that reads it.

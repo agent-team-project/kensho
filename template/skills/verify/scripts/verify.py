@@ -241,7 +241,7 @@ def main(argv: list[str]) -> int:
     evidence_path = evidence_dir / f"{safe_name(job_id or commit[:12])}.json"
     summary_path = evidence_dir / f"{safe_name(job_id or commit[:12])}.summary.md"
     if exact_head_attestation is None and not args.no_record_gates and job_id:
-        record_gate_results(job_id, repo, results, warnings)
+        record_gate_results(job_id, repo, commit, results, warnings)
     evidence["warnings"] = warnings
 
     if exact_head_attestation is not None:
@@ -263,12 +263,12 @@ def main(argv: list[str]) -> int:
     print(f"verify: wrote summary {summary_path}", flush=True)
 
     if args.complete_step:
-        complete_step(job_id, pipeline_step, repo, status, summary, warnings)
+        complete_step(job_id, pipeline_step, repo, commit, status, summary, warnings)
         if exact_head_attestation is None:
             evidence["warnings"] = warnings
             write_json(evidence_path, evidence)
     if exact_head_attestation is not None and not args.no_record_gates and job_id:
-        record_gate_results(job_id, repo, results, warnings)
+        record_gate_results(job_id, repo, commit, results, warnings)
 
     print(summary, flush=True)
     return 0 if status == "pass" else 1
@@ -1200,7 +1200,7 @@ def run_logged_command(
     return exit_code, int((time.monotonic() - start_time) * 1000), list(tail)
 
 
-def record_gate_results(job_id: str, repo: Path, results: list[dict[str, Any]], warnings: list[str]) -> None:
+def record_gate_results(job_id: str, repo: Path, commit: str, results: list[dict[str, Any]], warnings: list[str]) -> None:
     if not shutil.which("agent-team"):
         warnings.append("agent-team not on PATH; skipped job gate recording")
         return
@@ -1219,6 +1219,8 @@ def record_gate_results(job_id: str, repo: Path, results: list[dict[str, Any]], 
             "--log-ref",
             result["log_path"],
         ]
+        if commit:
+            cmd.extend(["--commit", commit])
         if result["signature"]:
             cmd.extend(["--signature", result["signature"]])
         proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
@@ -1226,7 +1228,7 @@ def record_gate_results(job_id: str, repo: Path, results: list[dict[str, Any]], 
             warnings.append(f"gate record failed for {result['name']}: {last_line(proc.stderr) or proc.returncode}")
 
 
-def complete_step(job_id: str, pipeline_step: str, repo: Path, status: str, summary: str, warnings: list[str]) -> None:
+def complete_step(job_id: str, pipeline_step: str, repo: Path, commit: str, status: str, summary: str, warnings: list[str]) -> None:
     if not job_id:
         warnings.append("--complete-step requested without a job id")
         return
@@ -1247,6 +1249,8 @@ def complete_step(job_id: str, pipeline_step: str, repo: Path, status: str, summ
         "--repo",
         str(repo),
     ]
+    if commit:
+        cmd.extend(["--head", commit])
     if status == "pass":
         cmd.append("--advance")
     proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
@@ -1462,7 +1466,7 @@ def write_preflight_exact_head_failure(
     attestation_path = evidence_dir / f"{artifact_name}.exact-head.json"
     evidence["exact_head_attestation"] = relpath(attestation_path, repo)
     if not args.no_record_gates and job_id:
-        record_gate_results(job_id, repo, results, warnings)
+        record_gate_results(job_id, repo, str(resolution_query.get("head_commit") or ""), results, warnings)
         evidence["warnings"] = warnings
     write_evidence_bundle(
         repo,
@@ -1474,7 +1478,7 @@ def write_preflight_exact_head_failure(
     )
     print(f"verify: wrote exact-head infrastructure evidence {evidence_path}", file=sys.stderr)
     if args.complete_step:
-        complete_step(job_id, pipeline_step, repo, "fail", summary, warnings)
+        complete_step(job_id, pipeline_step, repo, str(resolution_query.get("head_commit") or ""), "fail", summary, warnings)
     print(summary, flush=True)
     return 1
 

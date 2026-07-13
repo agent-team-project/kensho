@@ -5737,6 +5737,8 @@ func newJobStepCmd() *cobra.Command {
 		pr            string
 		branch        string
 		worktree      string
+		head          string
+		attemptRaw    string
 		advance       bool
 		skip          bool
 		force         bool
@@ -5827,6 +5829,15 @@ func newJobStepCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			attempt, err := parseJobAttempt(attemptRaw)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
+				return exitErr(2)
+			}
+			if !job.AttemptMatches(j, attempt) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: stale attempt %d; current attempt is %d.\n", attempt, job.CurrentAttempt(j))
+				return exitErr(2)
+			}
 			if !dryRun {
 				if err := auditCLIJobAuthority(teamDir, j, "job.step", "job:"+j.ID+":step:"+args[1]); err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
@@ -5843,6 +5854,7 @@ func newJobStepCmd() *cobra.Command {
 				PR:       pr,
 				Branch:   branch,
 				Worktree: worktree,
+				Head:     head,
 				Skip:     skip,
 			}); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
@@ -5866,6 +5878,10 @@ func newJobStepCmd() *cobra.Command {
 					BranchSet:      cmd.Flags().Changed("branch"),
 					Worktree:       worktree,
 					WorktreeSet:    cmd.Flags().Changed("worktree"),
+					Head:           head,
+					HeadSet:        cmd.Flags().Changed("head"),
+					Attempt:        attempt,
+					AttemptSet:     cmd.Flags().Changed("attempt"),
 					Advance:        advance,
 					Skip:           skip,
 					Force:          force,
@@ -5953,6 +5969,8 @@ func newJobStepCmd() *cobra.Command {
 	cmd.Flags().StringVar(&pr, "pr", "", "PR URL to record on the job.")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch name to record on the job.")
 	cmd.Flags().StringVar(&worktree, "worktree", "", "Worktree path to record on the job.")
+	cmd.Flags().StringVar(&head, "head", strings.TrimSpace(os.Getenv("AGENT_TEAM_HEAD")), "Exact commit head produced or evaluated by this step.")
+	cmd.Flags().StringVar(&attemptRaw, "attempt", strings.TrimSpace(os.Getenv("AGENT_TEAM_ATTEMPT")), "Implementation attempt that owns this update; defaults to AGENT_TEAM_ATTEMPT or 1.")
 	cmd.Flags().BoolVar(&advance, "advance", false, "After marking the step done, dispatch the next ready step.")
 	cmd.Flags().BoolVar(&skip, "skip", false, "Mark this step as intentionally skipped; stored as done so dependent steps can continue.")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow marking a step running without an owning instance.")
@@ -6065,6 +6083,10 @@ func newJobApproveCmd() *cobra.Command {
 			}
 			selectedStep, err := selectManualGateForApproval(j, stepID)
 			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job approve: %v\n", err)
+				return exitErr(2)
+			}
+			if err := validateCurrentAttemptApprovalEvidence(teamDir, j, selectedStep); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job approve: %v\n", err)
 				return exitErr(2)
 			}
@@ -11667,9 +11689,11 @@ func daemonMetadataFromLifecycleEvent(ev *daemon.LifecycleEvent) *daemon.Metadat
 		Instance: ev.Instance,
 		Agent:    ev.Agent,
 		Job:      ev.Job,
+		Attempt:  ev.Attempt,
 		Ticket:   ev.Ticket,
 		Branch:   ev.Branch,
 		PR:       ev.PR,
+		Head:     ev.Head,
 		Status:   ev.Status,
 		PID:      ev.PID,
 		ExitCode: ev.ExitCode,
@@ -11742,6 +11766,9 @@ func jobHasAnyStepInstance(j *job.Job) bool {
 
 func reconcileJobFromDaemonMetadata(teamDir string, j *job.Job, meta *daemon.Metadata, matchedBy string, dryRun bool, now time.Time) jobEventReconcileResult {
 	before := cloneJobForEventReconcile(j)
+	if meta == nil || !job.AttemptMatches(j, meta.Attempt) {
+		return jobEventReconcileResult{JobID: j.ID, MatchedBy: matchedBy, Before: j.Status, After: j.Status, DryRun: dryRun}
+	}
 	target := j
 	if dryRun {
 		target = cloneJobForEventReconcile(j)
@@ -11778,6 +11805,9 @@ func reconcileJobFromDaemonMetadata(teamDir string, j *job.Job, meta *daemon.Met
 	}
 	if strings.TrimSpace(meta.PR) != "" {
 		target.PR = strings.TrimSpace(meta.PR)
+	}
+	if strings.TrimSpace(meta.Head) != "" {
+		target.Head = strings.TrimSpace(meta.Head)
 	}
 	if stepMatched {
 		if outcome == job.StatusDone && !allJobStepsDone(target) {
@@ -11898,10 +11928,12 @@ func jobEventReconcileChanged(before, after *job.Job) bool {
 		return before != after
 	}
 	if before.Status != after.Status ||
+		before.Attempt != after.Attempt ||
 		strings.TrimSpace(before.Instance) != strings.TrimSpace(after.Instance) ||
 		strings.TrimSpace(before.Ticket) != strings.TrimSpace(after.Ticket) ||
 		strings.TrimSpace(before.Branch) != strings.TrimSpace(after.Branch) ||
 		strings.TrimSpace(before.PR) != strings.TrimSpace(after.PR) ||
+		strings.TrimSpace(before.Head) != strings.TrimSpace(after.Head) ||
 		strings.TrimSpace(before.LastEvent) != strings.TrimSpace(after.LastEvent) ||
 		strings.TrimSpace(before.LastStatus) != strings.TrimSpace(after.LastStatus) {
 		return true
@@ -11946,6 +11978,9 @@ func jobEventReconcileDataWithSource(meta *daemon.Metadata, matchedBy, source st
 	if meta.Job != "" {
 		data["metadata_job"] = meta.Job
 	}
+	if meta.Attempt > 0 {
+		data["attempt"] = strconv.Itoa(meta.Attempt)
+	}
 	if meta.Ticket != "" {
 		data["ticket"] = meta.Ticket
 	}
@@ -11954,6 +11989,9 @@ func jobEventReconcileDataWithSource(meta *daemon.Metadata, matchedBy, source st
 	}
 	if meta.PR != "" {
 		data["pr"] = meta.PR
+	}
+	if meta.Head != "" {
+		data["head"] = meta.Head
 	}
 	if meta.ExitCode != nil {
 		data["exit_code"] = fmt.Sprint(*meta.ExitCode)
@@ -12003,6 +12041,9 @@ func jobForStatusRow(jobs []*job.Job, row instanceRow) (*job.Job, string) {
 }
 
 func reconcileJobFromStatusRow(teamDir string, j *job.Job, row instanceRow, matchedBy string, dryRun bool, now time.Time) jobStatusReconcileResult {
+	if !job.AttemptMatches(j, row.Attempt) {
+		return jobStatusReconcileResult{JobID: j.ID, Instance: row.Instance, Phase: row.Phase, MatchedBy: matchedBy, Before: j.Status, After: j.Status, DryRun: dryRun}
+	}
 	before := j.Status
 	after := statusReconciledJobState(j.Status, row.Phase)
 	message := strings.TrimSpace(row.Summary)
@@ -12120,6 +12161,9 @@ func jobForQueueItem(jobs []*job.Job, item *daemon.QueueItem) *job.Job {
 }
 
 func reconcileJobFromQueueItem(j *job.Job, item *daemon.QueueItem, dryRun bool, now time.Time) jobQueueReconcileResult {
+	if item == nil || !job.AttemptMatches(j, payloadAttemptFromQueue(item.Payload)) {
+		return jobQueueReconcileResult{JobID: j.ID, Before: j.Status, After: j.Status, DryRun: dryRun}
+	}
 	before := j.Status
 	after, event, status := queueReconciledJobState(j, item, now)
 	result := jobQueueReconcileResult{
@@ -12152,6 +12196,12 @@ func reconcileJobFromQueueItem(j *job.Job, item *daemon.QueueItem, dryRun bool, 
 	}
 	j.UpdatedAt = now.UTC()
 	return result
+}
+
+func payloadAttemptFromQueue(payload map[string]any) int {
+	raw := queuePayloadString(payload, "attempt")
+	attempt, _ := strconv.Atoi(raw)
+	return attempt
 }
 
 func queueReconciledJobState(j *job.Job, item *daemon.QueueItem, now time.Time) (job.Status, string, string) {
@@ -12248,6 +12298,7 @@ type jobStepUpdate struct {
 	PR           string
 	Branch       string
 	Worktree     string
+	Head         string
 	Skip         bool
 	CountAttempt bool
 }
@@ -12453,6 +12504,9 @@ func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepU
 	}
 	now := time.Now().UTC()
 	step := &j.Steps[idx]
+	if head := strings.TrimSpace(update.Head); head != "" {
+		applyJobHead(j, stepID, head)
+	}
 	step.Status = status
 	if strings.TrimSpace(update.Instance) != "" {
 		step.Instance = strings.TrimSpace(update.Instance)
@@ -12616,6 +12670,10 @@ func buildJobStepDispatchPayload(teamDir string, j *job.Job, step *job.Step, wor
 	}
 	payload["job_id"] = j.ID
 	payload["job"] = j.ID
+	payload["attempt"] = job.CurrentAttempt(j)
+	if head := strings.TrimSpace(j.Head); head != "" {
+		payload["head"] = head
+	}
 	applyJobAttributionToPayload(j, payload)
 	applyJobKindToPayload(j, payload)
 	applyJobDeliverableToPayload(j, payload)
@@ -13346,6 +13404,53 @@ func validateManualGateStepForJobApprove(j *job.Job, step *job.Step) error {
 	return fmt.Errorf("step %q requires approval %q to be approved first; use `agent-team approval approve --job %s %s`", step.ID, step.ApprovalID, j.ID, step.ApprovalID)
 }
 
+func validateCurrentAttemptApprovalEvidence(teamDir string, j *job.Job, approvalStep string) error {
+	if j == nil || job.CurrentAttempt(j) <= 1 {
+		return nil
+	}
+	requiredSteps := currentAttemptEvidenceSteps(j, approvalStep)
+	if len(requiredSteps) == 0 {
+		return nil
+	}
+	head := strings.TrimSpace(j.Head)
+	if head == "" {
+		return fmt.Errorf("current implementation attempt has no exact head")
+	}
+	records, err := job.ListGateRecords(teamDir, j.ID)
+	if err != nil {
+		return err
+	}
+	current := job.LatestGateRecordsForAttemptHead(records, job.CurrentAttempt(j), head)
+	for _, required := range requiredSteps {
+		passed := false
+		for _, record := range current {
+			if strings.TrimSpace(record.Step) == required && strings.TrimSpace(record.Commit) == head && record.Status == job.GateStatusPass {
+				passed = true
+				break
+			}
+		}
+		if !passed {
+			return fmt.Errorf("step %q lacks passing gate evidence for attempt %d at head %s", required, job.CurrentAttempt(j), head)
+		}
+	}
+	return nil
+}
+
+func currentAttemptEvidenceSteps(j *job.Job, approvalStep string) []string {
+	var required []string
+	for i := range j.Steps {
+		step := &j.Steps[i]
+		if !jobStepTransitivelyDependsOn(j, approvalStep, step.ID) {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(step.Target)) {
+		case "verifier", "reviewer":
+			required = append(required, step.ID)
+		}
+	}
+	return required
+}
+
 func optionalSendMessageBody(flagValue, fileValue string, positional []string) (string, error) {
 	if strings.TrimSpace(flagValue) == "" && strings.TrimSpace(fileValue) == "" && len(positional) == 0 {
 		return "", nil
@@ -13472,6 +13577,8 @@ func applyJobBounce(j *job.Job, stepID, findings string, bounceNumber int) error
 	}
 	now := time.Now().UTC()
 	j.Kickoff = appendJobBounceFindings(j.Kickoff, findings, bounceNumber)
+	j.Attempt = job.CurrentAttempt(j) + 1
+	j.Head = ""
 	resetJobStepForBounce(&j.Steps[idx], job.StatusQueued)
 	for i := range j.Steps {
 		if i == idx {
@@ -13502,6 +13609,38 @@ func resetJobStepForBounce(step *job.Step, status job.Status) {
 	step.FinishedAt = time.Time{}
 	step.Skipped = false
 	step.SkipReason = ""
+	step.ApprovalID = ""
+	step.ApprovalStatus = ""
+}
+
+func parseJobAttempt(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 1, nil
+	}
+	attempt, err := strconv.Atoi(raw)
+	if err != nil || attempt < 1 {
+		return 0, fmt.Errorf("--attempt must be a positive integer")
+	}
+	return attempt, nil
+}
+
+func applyJobHead(j *job.Job, stepID, head string) {
+	if j == nil {
+		return
+	}
+	head = strings.TrimSpace(head)
+	if head == "" || head == strings.TrimSpace(j.Head) {
+		return
+	}
+	if strings.TrimSpace(j.Head) != "" {
+		for i := range j.Steps {
+			if jobStepTransitivelyDependsOn(j, j.Steps[i].ID, stepID) {
+				resetJobStepForBounce(&j.Steps[i], job.StatusBlocked)
+			}
+		}
+	}
+	j.Head = head
 }
 
 func jobStepTransitivelyDependsOn(j *job.Job, stepID, dependency string) bool {
@@ -15059,6 +15198,10 @@ type jobStepApplyCommandOptions struct {
 	BranchSet      bool
 	Worktree       string
 	WorktreeSet    bool
+	Head           string
+	HeadSet        bool
+	Attempt        int
+	AttemptSet     bool
 	Advance        bool
 	Skip           bool
 	Force          bool
@@ -15366,6 +15509,12 @@ func jobStepApplyCommandArgs(opts jobStepApplyCommandOptions) []string {
 	}
 	if opts.WorktreeSet && strings.TrimSpace(opts.Worktree) != "" {
 		args = append(args, "--worktree", opts.Worktree)
+	}
+	if opts.HeadSet && strings.TrimSpace(opts.Head) != "" {
+		args = append(args, "--head", opts.Head)
+	}
+	if opts.AttemptSet && opts.Attempt > 0 {
+		args = append(args, "--attempt", strconv.Itoa(opts.Attempt))
 	}
 	if opts.Skip {
 		args = append(args, "--skip")

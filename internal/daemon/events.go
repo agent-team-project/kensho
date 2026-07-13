@@ -27,9 +27,11 @@ type LifecycleEvent struct {
 	Instance string          `json:"instance,omitempty"`
 	Agent    string          `json:"agent,omitempty"`
 	Job      string          `json:"job,omitempty"`
+	Attempt  int             `json:"attempt,omitempty"`
 	Ticket   string          `json:"ticket,omitempty"`
 	Branch   string          `json:"branch,omitempty"`
 	PR       string          `json:"pr,omitempty"`
+	Head     string          `json:"head,omitempty"`
 	Origin   origin.Envelope `json:"origin,omitempty"`
 	Status   Status          `json:"status,omitempty"`
 	PID      int             `json:"pid,omitempty"`

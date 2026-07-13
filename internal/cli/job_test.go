@@ -7327,14 +7327,18 @@ func TestJobBounceRequeuesCompletedStepAndAudits(t *testing.T) {
 		Target:    "worker",
 		Kickoff:   "SQU-162: implement the ticket",
 		Pipeline:  "ticket_to_pr",
+		Attempt:   1,
 		Status:    job.StatusBlocked,
 		PR:        "https://github.com/acme/repo/pull/162",
+		Head:      strings.Repeat("a", 40),
+		Branch:    "squ-162-repair",
+		Worktree:  filepath.Join(tmp, ".claude", "worktrees", "squ-162-repair"),
 		CreatedAt: now,
 		UpdatedAt: now,
 		Steps: []job.Step{
 			{ID: "implement", Target: "worker", Status: job.StatusDone, Instance: "worker-squ-162-implement", StartedAt: now.Add(-20 * time.Minute), FinishedAt: now.Add(-10 * time.Minute)},
 			{ID: "review", Target: "reviewer", Status: job.StatusRunning, Instance: "reviewer-squ-162-review", After: []string{"implement"}, StartedAt: now.Add(-9 * time.Minute)},
-			{ID: "approve", Target: "manager", Status: job.StatusBlocked, After: []string{"review"}, Gate: job.StepGateManual},
+			{ID: "approve", Target: "manager", Status: job.StatusBlocked, After: []string{"review"}, Gate: job.StepGateManual, ApprovalRequired: true, ApprovalID: "old-approval", ApprovalStatus: job.ApprovalStatusApproved},
 		},
 	}
 	if err := job.Write(teamDir, j); err != nil {
@@ -7359,6 +7363,9 @@ func TestJobBounceRequeuesCompletedStepAndAudits(t *testing.T) {
 	if preview.Job.Steps[0].Status != job.StatusQueued || preview.Job.Steps[0].Instance != "" || preview.Job.Steps[1].Status != job.StatusBlocked || preview.Job.Steps[1].Instance != "" {
 		t.Fatalf("preview job steps = %+v", preview.Job.Steps)
 	}
+	if preview.Job.Attempt != 2 || preview.Job.Head != "" || preview.Job.Steps[2].ApprovalID != "" || preview.Job.Steps[2].ApprovalStatus != "" {
+		t.Fatalf("preview retained prior-attempt state: %+v", preview.Job)
+	}
 	if !strings.Contains(preview.Job.Kickoff, "## Review findings (bounce 1)") || !strings.Contains(preview.Job.Kickoff, "fix missing audit coverage") {
 		t.Fatalf("preview kickoff = %q", preview.Job.Kickoff)
 	}
@@ -7368,6 +7375,9 @@ func TestJobBounceRequeuesCompletedStepAndAudits(t *testing.T) {
 	}
 	if unchanged.Steps[0].Status != job.StatusDone || unchanged.Steps[1].Status != job.StatusRunning {
 		t.Fatalf("dry-run mutated job = %+v", unchanged)
+	}
+	if unchanged.Attempt != 1 || unchanged.Head == "" || unchanged.Steps[2].ApprovalID != "old-approval" {
+		t.Fatalf("dry-run mutated attempt state = %+v", unchanged)
 	}
 	dryEvents, err := job.ListEvents(teamDir, "squ-162")
 	if err != nil {
@@ -7409,6 +7419,9 @@ func TestJobBounceRequeuesCompletedStepAndAudits(t *testing.T) {
 	if bounced.Status != job.StatusQueued || bounced.Steps[0].Status != job.StatusQueued || bounced.Steps[0].Instance != "" || bounced.Steps[1].Status != job.StatusBlocked || bounced.Steps[1].Instance != "" {
 		t.Fatalf("bounced job = %+v", bounced)
 	}
+	if bounced.Attempt != 2 || bounced.Head != "" || bounced.Branch != "squ-162-repair" || bounced.Worktree != j.Worktree || bounced.Steps[2].ApprovalID != "" || bounced.Steps[2].ApprovalStatus != "" {
+		t.Fatalf("bounce attempt state = %+v", bounced)
+	}
 	if !bounced.Steps[0].StartedAt.IsZero() || !bounced.Steps[0].FinishedAt.IsZero() || !bounced.Steps[1].StartedAt.IsZero() || !bounced.Steps[1].FinishedAt.IsZero() {
 		t.Fatalf("bounce kept stale timestamps: %+v", bounced.Steps)
 	}
@@ -7426,6 +7439,138 @@ func TestJobBounceRequeuesCompletedStepAndAudits(t *testing.T) {
 		events[1].Type != "linear_writeback_skipped" ||
 		events[1].Data["action"] != "bounce_back" {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobStepRejectsStaleAttemptCompletionWithReusedInstance(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID: "squ-230", Ticket: "SQU-230", Target: "worker", Pipeline: "ticket_to_pr",
+		Attempt: 2, Status: job.StatusRunning, Branch: "squ-230-repair", Worktree: filepath.Join(root, "repair-worktree"),
+		CreatedAt: now, UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusRunning, Instance: "worker-squ-230-implement"},
+			{ID: "verify", Target: "verifier", Status: job.StatusBlocked, After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := NewRootCmd()
+	staleErr := &bytes.Buffer{}
+	stale.SetErr(staleErr)
+	stale.SetArgs([]string{"job", "step", j.ID, "implement", "--repo", root, "--status", "done", "--instance", "worker-squ-230-implement", "--attempt", "1", "--head", strings.Repeat("a", 40)})
+	if err := stale.Execute(); err == nil || !strings.Contains(staleErr.String(), "stale attempt 1") {
+		t.Fatalf("stale completion err=%v stderr=%q", err, staleErr.String())
+	}
+	unchanged, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Steps[0].Status != job.StatusRunning || unchanged.Head != "" || unchanged.Branch != j.Branch || unchanged.Worktree != j.Worktree {
+		t.Fatalf("stale completion mutated job = %+v", unchanged)
+	}
+
+	current := NewRootCmd()
+	current.SetArgs([]string{"job", "step", j.ID, "implement", "--repo", root, "--status", "done", "--instance", "worker-squ-230-implement", "--attempt", "2", "--head", strings.Repeat("b", 40)})
+	if err := current.Execute(); err != nil {
+		t.Fatalf("current completion: %v", err)
+	}
+	updated, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Steps[0].Status != job.StatusDone || updated.Steps[1].Status != job.StatusBlocked || updated.Head != strings.Repeat("b", 40) {
+		t.Fatalf("current completion = %+v", updated)
+	}
+}
+
+func TestJobApproveRequiresCurrentAttemptExactHeadVerifierAndReviewerEvidence(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	now := time.Now().UTC()
+	head := strings.Repeat("b", 40)
+	j := &job.Job{
+		ID: "squ-231", Ticket: "SQU-231", Target: "worker", Pipeline: "ticket_to_pr",
+		Attempt: 2, Head: head, Status: job.StatusBlocked, CreatedAt: now, UpdatedAt: now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone},
+			{ID: "verify", Target: "verifier", Status: job.StatusDone, After: []string{"implement"}},
+			{ID: "review", Target: "reviewer", Status: job.StatusDone, After: []string{"verify"}},
+			{ID: "approve", Target: "manager", Status: job.StatusBlocked, After: []string{"review"}, Gate: job.StepGateManual},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatal(err)
+	}
+	appendGate := func(attempt int, step, commit string) {
+		t.Helper()
+		if err := job.AppendGateRecord(teamDir, &job.GateRecord{TS: time.Now().UTC(), JobID: j.ID, Attempt: attempt, Step: step, Commit: commit, Name: step, Status: job.GateStatusPass}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendGate(1, "verify", strings.Repeat("a", 40))
+	appendGate(1, "review", strings.Repeat("a", 40))
+
+	approve := func(want string) error {
+		t.Helper()
+		cmd := NewRootCmd()
+		stderr := &bytes.Buffer{}
+		cmd.SetErr(stderr)
+		cmd.SetArgs([]string{"job", "approve", j.ID, "--repo", root, "--step", "approve"})
+		err := cmd.Execute()
+		if want != "" && !strings.Contains(stderr.String(), want) {
+			t.Fatalf("approve stderr=%q, want %q", stderr.String(), want)
+		}
+		return err
+	}
+	if err := approve(`step "verify" lacks passing gate evidence`); err == nil {
+		t.Fatal("approval accepted prior-attempt evidence")
+	}
+	appendGate(2, "verify", head)
+	appendGate(2, "review", strings.Repeat("c", 40))
+	if err := approve(`step "review" lacks passing gate evidence`); err == nil {
+		t.Fatal("approval accepted wrong-head review evidence")
+	}
+	appendGate(2, "review", head)
+	if err := approve(""); err != nil {
+		t.Fatalf("approval with current evidence: %v", err)
+	}
+	updated, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Steps[3].Status != job.StatusQueued {
+		t.Fatalf("approval step = %+v", updated.Steps[3])
+	}
+}
+
+func TestJobHeadChangeInvalidatesDownstreamOwnershipAndApproval(t *testing.T) {
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID: "gh-230", Attempt: 2, Head: strings.Repeat("a", 40), Status: job.StatusDone,
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone, Instance: "worker-gh-230"},
+			{ID: "verify", Target: "verifier", Status: job.StatusDone, Instance: "verifier-gh-230", After: []string{"implement"}, StartedAt: now, FinishedAt: now},
+			{ID: "review", Target: "reviewer", Status: job.StatusDone, Instance: "reviewer-gh-230", After: []string{"verify"}, StartedAt: now, FinishedAt: now},
+			{ID: "approve", Target: "manager", Status: job.StatusDone, After: []string{"review"}, Gate: job.StepGateManual, ApprovalID: "old", ApprovalStatus: job.ApprovalStatusApproved},
+		},
+	}
+	if err := updateJobStep(j, "implement", job.StatusDone, jobStepUpdate{Head: strings.Repeat("b", 40)}); err != nil {
+		t.Fatal(err)
+	}
+	if j.Head != strings.Repeat("b", 40) || j.Steps[0].Status != job.StatusDone {
+		t.Fatalf("implementation/head = %+v", j)
+	}
+	for _, step := range j.Steps[1:] {
+		if step.Status != job.StatusBlocked || step.Instance != "" || !step.StartedAt.IsZero() || !step.FinishedAt.IsZero() || step.ApprovalID != "" || step.ApprovalStatus != "" {
+			t.Fatalf("downstream step retained old-head state: %+v", step)
+		}
 	}
 }
 
@@ -7537,7 +7682,7 @@ func TestJobBounceAdvanceDispatchesRequeuedStep(t *testing.T) {
 	}
 	payload := preview.Dispatch.Preview.Payload
 	kickoff, _ := payload["kickoff"].(string)
-	if payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" || !strings.Contains(kickoff, "## Review findings (bounce 1)") || !strings.Contains(kickoff, "repair the edge case") {
+	if payload["pipeline_step"] != "implement" || payload["workspace"] != "repo" || payload["attempt"] != float64(2) || !strings.Contains(kickoff, "## Review findings (bounce 1)") || !strings.Contains(kickoff, "repair the edge case") {
 		t.Fatalf("preview payload = %+v", payload)
 	}
 	unchanged, err := job.Read(teamDir, "squ-163")

@@ -231,6 +231,12 @@ func dispatchContextEnv(repoRoot string, payload map[string]any, branch, worktre
 	if step := payloadString(payload, "pipeline_step"); step != "" {
 		env = append(env, "AGENT_TEAM_PIPELINE_STEP="+step)
 	}
+	if attempt := payloadAttempt(payload); attempt > 0 {
+		env = append(env, fmt.Sprintf("AGENT_TEAM_ATTEMPT=%d", attempt))
+	}
+	if head := payloadString(payload, "head"); head != "" {
+		env = append(env, "AGENT_TEAM_HEAD="+head)
+	}
 	if tokens := payloadBudgetTokens(payload); tokens > 0 {
 		env = append(env, fmt.Sprintf("AGENT_TEAM_BUDGET_TOKENS=%d", tokens))
 	}

@@ -452,6 +452,26 @@ func TestJobGateRecordsAppendListLatest(t *testing.T) {
 	}
 }
 
+func TestLatestGateRecordsForAttemptHeadRejectsPriorAttemptAndHead(t *testing.T) {
+	headA := strings.Repeat("a", 40)
+	headB := strings.Repeat("b", 40)
+	records := []GateRecord{
+		{Attempt: 1, Step: "verify", Commit: headA, Name: "tests", Status: GateStatusPass},
+		{Attempt: 2, Step: "verify", Commit: headA, Name: "tests", Status: GateStatusPass},
+		{Attempt: 2, Step: "verify", Commit: headB, Name: "tests", Status: GateStatusFail},
+		{Attempt: 2, Step: "review", Commit: headB, Name: "review", Status: GateStatusPass},
+	}
+	latest := LatestGateRecordsForAttemptHead(records, 2, headB)
+	if len(latest) != 2 || latest[0].Name != "review" || latest[0].Commit != headB || latest[1].Name != "tests" || latest[1].Status != GateStatusFail || latest[1].Commit != headB {
+		t.Fatalf("latest = %+v", latest)
+	}
+	if got := LatestGateRecordsForAttemptHead(records, 2, headA); len(got) != 0 {
+		// The later head-B results supersede same-name head-A evidence; only no
+		// exact-head evidence remains for head A.
+		t.Fatalf("head-A latest = %+v", got)
+	}
+}
+
 func TestJobGateRecordsMissingAndInvalid(t *testing.T) {
 	teamDir := filepath.Join(t.TempDir(), ".agent_team")
 	records, err := ListGateRecords(teamDir, "missing")

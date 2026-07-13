@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,6 +114,13 @@ func (r *EventResolver) upsertDispatchJobWithContract(payload map[string]any, in
 		}
 		j.ID = id
 	}
+	incomingAttempt := payloadAttempt(payload)
+	if err == nil && !jobstore.AttemptMatches(j, incomingAttempt) {
+		return j
+	}
+	if incomingAttempt > 0 {
+		j.Attempt = incomingAttempt
+	}
 	if status != "" && !jobStatusTerminal(status) && jobStatusTerminal(j.Status) {
 		return j
 	}
@@ -182,6 +190,9 @@ func (r *EventResolver) upsertDispatchJobWithContract(payload map[string]any, in
 	if pr := firstPayloadString(payload, "pr_url", "pr"); pr != "" {
 		j.PR = pr
 	}
+	if head := payloadString(payload, "head"); head != "" {
+		j.Head = head
+	}
 	applyPayloadBudgetToJob(j, payload)
 	if status != "" {
 		j.Status = status
@@ -212,10 +223,13 @@ func (r *EventResolver) upsertDispatchJobWithContract(payload map[string]any, in
 
 func dispatchJobEventData(payload map[string]any, branch, worktreePath string) map[string]string {
 	data := map[string]string{}
-	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "model", "effort", "deployment_uri", "deployment_parent_uri", "charter_uri", "child_deployment_uri", "capability_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
+	for _, key := range []string{"target", "agent", "pipeline", "pipeline_step", "head", "ticket", "ticket_url", "epic", "kind", "profile", "team", "runtime", "runtime_binary", "model", "effort", "deployment_uri", "deployment_parent_uri", "charter_uri", "child_deployment_uri", "capability_uri", "instance_uri", "spec_uri", "job_uri", "workspace_uri", "state_uri"} {
 		if value := payloadString(payload, key); value != "" {
 			data[key] = value
 		}
+	}
+	if attempt := payloadAttempt(payload); attempt > 0 {
+		data["attempt"] = strconv.Itoa(attempt)
 	}
 	if trigger := origin.TriggerFromEvent("", payload); trigger != "" {
 		data["trigger"] = trigger
@@ -248,4 +262,23 @@ func firstPayloadString(payload map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func payloadAttempt(payload map[string]any) int {
+	if payload == nil {
+		return 0
+	}
+	switch value := payload["attempt"].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	case string:
+		attempt, _ := strconv.Atoi(strings.TrimSpace(value))
+		return attempt
+	default:
+		return 0
+	}
 }

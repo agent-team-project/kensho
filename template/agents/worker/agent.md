@@ -152,6 +152,7 @@ When the work is complete and validated:
      --pr "$PR_URL" \
      --branch "$(git branch --show-current)" \
      --worktree "$(pwd)" \
+     --head "$(git rev-parse HEAD)" \
      --advance \
      --repo "$MAIN_REPO"
    ```

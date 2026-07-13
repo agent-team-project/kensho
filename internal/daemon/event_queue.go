@@ -96,6 +96,9 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	if err != nil {
 		return
 	}
+	if !jobstore.AttemptMatches(j, meta.Attempt) {
+		return
+	}
 	priorLastStatus := j.LastStatus
 	now := time.Now().UTC()
 	status := jobstore.StatusDone
@@ -131,7 +134,7 @@ func (r *EventResolver) reconcileEphemeralJobExit(meta *Metadata) {
 	if status == jobstore.StatusDone && jobIsProbe(j) {
 		message = "probe completed; report stored in last-message"
 	}
-	completedStep, stepTransitioned := reconcilePipelineStepExit(j, meta.Instance, status, now)
+	completedStep, stepTransitioned := reconcilePipelineStepExit(j, meta.Instance, meta.Attempt, status, now)
 	if completedStep != nil {
 		j.Status = pipelineStatusFromSteps(j)
 		switch j.Status {
@@ -609,6 +612,11 @@ func (r *EventResolver) popReadyQueuedEventLocked(inst *topology.Instance, tr *e
 		if !queueDrainIDAllowed(ids, ev.id) {
 			continue
 		}
+		if r.queuedEventAttemptStale(ev) {
+			tr.queue = append(tr.queue[:i:i], tr.queue[i+1:]...)
+			_ = RemoveQueueItem(r.mgr.daemonRoot, ev.id)
+			return r.popReadyQueuedEventLocked(inst, tr, now, ids)
+		}
 		if !ev.nextRetry.IsZero() && ev.nextRetry.After(now) {
 			continue
 		}
@@ -674,6 +682,18 @@ func (r *EventResolver) popReadyQueuedEventLocked(inst *topology.Instance, tr *e
 		return ev
 	}
 	return nil
+}
+
+func (r *EventResolver) queuedEventAttemptStale(ev *queuedEvent) bool {
+	if r == nil || ev == nil || strings.TrimSpace(r.teamDir) == "" {
+		return false
+	}
+	id := eventJobID(ev.payload)
+	if id == "" {
+		return false
+	}
+	j, err := jobstore.Read(r.teamDir, id)
+	return err == nil && !jobstore.AttemptMatches(j, payloadAttempt(ev.payload))
 }
 
 func (r *EventResolver) recordQueueFailure(declared string, ev *queuedEvent, spawnErr error) {

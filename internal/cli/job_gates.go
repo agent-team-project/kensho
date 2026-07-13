@@ -23,6 +23,9 @@ const (
 type jobGateResult struct {
 	TS               time.Time      `json:"ts"`
 	JobID            string         `json:"job_id"`
+	Attempt          int            `json:"attempt"`
+	Step             string         `json:"step,omitempty"`
+	Commit           string         `json:"commit,omitempty"`
 	Name             string         `json:"name"`
 	Status           job.GateStatus `json:"status"`
 	Class            string         `json:"class,omitempty"`
@@ -45,12 +48,15 @@ func newJobGateCmd() *cobra.Command {
 
 func newJobGateSetCmd() *cobra.Command {
 	var (
-		repo      string
-		statusRaw string
-		signature string
-		logRef    string
-		actor     string
-		jsonOut   bool
+		repo       string
+		statusRaw  string
+		signature  string
+		logRef     string
+		actor      string
+		attemptRaw string
+		step       string
+		commit     string
+		jsonOut    bool
 	)
 	cwd, _ := os.Getwd()
 	cmd := &cobra.Command{
@@ -71,10 +77,22 @@ func newJobGateSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			attempt, err := parseJobAttempt(attemptRaw)
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job gate set: %v\n", err)
+				return exitErr(2)
+			}
+			if !job.AttemptMatches(j, attempt) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job gate set: stale attempt %d; current attempt is %d.\n", attempt, job.CurrentAttempt(j))
+				return exitErr(2)
+			}
 			now := time.Now().UTC()
 			record := &job.GateRecord{
 				TS:        now,
 				JobID:     j.ID,
+				Attempt:   attempt,
+				Step:      step,
+				Commit:    commit,
 				Name:      args[1],
 				Status:    status,
 				Signature: signature,
@@ -113,6 +131,9 @@ func newJobGateSetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&signature, "signature", "", "Failure signature or short failure text used for infra/content classification.")
 	cmd.Flags().StringVar(&logRef, "log-ref", "", "Path or URL with supporting gate output.")
 	cmd.Flags().StringVar(&actor, "actor", "", "Actor recorded on the gate result; defaults to AGENT_TEAM_INSTANCE or cli.")
+	cmd.Flags().StringVar(&attemptRaw, "attempt", strings.TrimSpace(os.Getenv("AGENT_TEAM_ATTEMPT")), "Implementation attempt this evidence belongs to; defaults to AGENT_TEAM_ATTEMPT or 1.")
+	cmd.Flags().StringVar(&step, "step", strings.TrimSpace(os.Getenv("AGENT_TEAM_PIPELINE_STEP")), "Pipeline step this evidence belongs to; defaults to AGENT_TEAM_PIPELINE_STEP.")
+	cmd.Flags().StringVar(&commit, "commit", strings.TrimSpace(os.Getenv("AGENT_TEAM_HEAD")), "Exact commit evaluated by this gate; defaults to AGENT_TEAM_HEAD.")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the recorded gate result as JSON.")
 	return cmd
 }
@@ -182,6 +203,13 @@ func jobGateEventData(record *job.GateRecord) map[string]string {
 	if logRef := strings.TrimSpace(record.LogRef); logRef != "" {
 		data["log_ref"] = logRef
 	}
+	data["attempt"] = fmt.Sprint(record.Attempt)
+	if step := strings.TrimSpace(record.Step); step != "" {
+		data["step"] = step
+	}
+	if commit := strings.TrimSpace(record.Commit); commit != "" {
+		data["commit"] = commit
+	}
 	return data
 }
 
@@ -243,7 +271,7 @@ func latestClassifiedJobGateResults(teamDir string, j *job.Job) ([]jobGateResult
 	if err != nil {
 		return nil, err
 	}
-	return classifyJobGateRecords(teamDir, j, job.LatestGateRecords(records))
+	return classifyJobGateRecords(teamDir, j, job.LatestGateRecordsForAttemptHead(records, job.CurrentAttempt(j), j.Head))
 }
 
 func classifyJobGateRecords(teamDir string, j *job.Job, records []job.GateRecord) ([]jobGateResult, error) {
@@ -290,6 +318,9 @@ func gateResultFromRecord(record job.GateRecord, classification job.GateClassifi
 	return jobGateResult{
 		TS:               record.TS,
 		JobID:            record.JobID,
+		Attempt:          record.Attempt,
+		Step:             record.Step,
+		Commit:           record.Commit,
 		Name:             record.Name,
 		Status:           record.Status,
 		Class:            classification.Class,

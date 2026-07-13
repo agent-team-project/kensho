@@ -122,9 +122,11 @@ func (r *EventResolver) spawn(inst *topology.Instance, name, eventType string, p
 		DeploymentParentURI: payloadString(payload, "deployment_parent_uri"),
 		Job:                 eventJobID(payload),
 		JobURI:              payloadString(payload, "job_uri"),
+		Attempt:             payloadAttempt(payload),
 		Ticket:              payloadString(payload, "ticket"),
 		Branch:              branch,
 		PR:                  firstPayloadString(payload, "pr_url", "pr"),
+		Head:                payloadString(payload, "head"),
 		Origin:              eventOrigin,
 		Workspace:           workspace,
 		WorkspaceURI:        payloadString(payload, "workspace_uri"),
@@ -306,9 +308,11 @@ func (r *EventResolver) attachSpawnOwnership(meta *Metadata, payload map[string]
 			return
 		}
 		dst.Job = eventJobID(payload)
+		dst.Attempt = payloadAttempt(payload)
 		dst.Ticket = payloadString(payload, "ticket")
 		dst.Branch = branch
 		dst.PR = firstPayloadString(payload, "pr_url", "pr")
+		dst.Head = payloadString(payload, "head")
 		dst.Origin = origin.Merge(dst.Origin, r.originForPayload(dst.Instance, payload))
 		if uri := payloadString(payload, "deployment_uri"); uri != "" {
 			dst.DeploymentURI = uri

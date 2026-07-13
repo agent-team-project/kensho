@@ -306,7 +306,11 @@ func (r *EventResolver) dispatchPipelineStepWithDirectOutcomes(pipeline *topolog
 	dispatchPayload["job"] = j.ID
 	dispatchPayload["pipeline"] = pipeline.Name
 	dispatchPayload["pipeline_step"] = step.ID
+	dispatchPayload["attempt"] = jobstore.CurrentAttempt(j)
 	dispatchPayload["ticket"] = j.Ticket
+	if head := strings.TrimSpace(j.Head); head != "" {
+		dispatchPayload["head"] = head
+	}
 	if !jobIsProbe(j) {
 		payloadSetStringIfEmpty(dispatchPayload, "branch", strings.TrimSpace(j.Branch))
 		payloadSetStringIfEmpty(dispatchPayload, "worktree", strings.TrimSpace(j.Worktree))
@@ -798,7 +802,11 @@ func (r *EventResolver) jobHasGateFromInstance(jobID, instance string) bool {
 	if err != nil {
 		return false
 	}
-	for _, record := range records {
+	j, err := jobstore.Read(r.teamDir, jobID)
+	if err != nil {
+		return false
+	}
+	for _, record := range jobstore.LatestGateRecordsForAttemptHead(records, jobstore.CurrentAttempt(j), j.Head) {
 		if strings.TrimSpace(record.Actor) == instance {
 			return true
 		}
@@ -849,8 +857,11 @@ func (r *EventResolver) readInstanceFinalMessage(instance string) string {
 	return strings.TrimSpace(string(data))
 }
 
-func reconcilePipelineStepExit(j *jobstore.Job, instance string, status jobstore.Status, now time.Time) (*jobstore.Step, bool) {
+func reconcilePipelineStepExit(j *jobstore.Job, instance string, attempt int, status jobstore.Status, now time.Time) (*jobstore.Step, bool) {
 	if j == nil || instance == "" {
+		return nil, false
+	}
+	if !jobstore.AttemptMatches(j, attempt) {
 		return nil, false
 	}
 	for i := range j.Steps {
