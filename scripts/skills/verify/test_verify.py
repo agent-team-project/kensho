@@ -664,7 +664,8 @@ class VerifyExactHeadTest(unittest.TestCase):
                 self.assertEqual(attestation["disposition"], "dispatch")
                 self.assertEqual(attestation["reason"], "exact_head_equal")
                 completion.assert_called_once()
-                self.assertEqual(completion.call_args.args[3], "pass")
+                self.assertEqual(completion.call_args.args[3], commit_r)
+                self.assertEqual(completion.call_args.args[4], "pass")
 
     def test_authenticated_graphql_oracle_records_closed_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -811,7 +812,8 @@ class VerifyExactHeadTest(unittest.TestCase):
             self.assertEqual(attestation["reason"], "exact_head_mismatch")
             self.assertEqual(evidence["gates"][-1]["class"], "infra")
             completion.assert_called_once()
-            self.assertEqual(completion.call_args.args[3], "fail")
+            self.assertEqual(completion.call_args.args[3], commit_a)
+            self.assertEqual(completion.call_args.args[4], "fail")
 
     def test_unknown_write_query_fails_closed_instead_of_using_resolution_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
