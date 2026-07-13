@@ -310,7 +310,8 @@ func TestSendCommandReadsMessageFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	messageFile := filepath.Join(tmp, "message.txt")
-	if err := os.WriteFile(messageFile, []byte("line one\nline two\n"), 0o644); err != nil {
+	message := "line one\n$(printf 'false FAIL') ; * ? [x]\n`uname` \\\"quoted\\\" $HOME | & < >"
+	if err := os.WriteFile(messageFile, []byte(message), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -329,7 +330,7 @@ func TestSendCommandReadsMessageFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read messages: %v", err)
 	}
-	if len(messages) != 1 || messages[0].Body != "line one\nline two" {
+	if len(messages) != 1 || messages[0].Body != message {
 		t.Fatalf("messages = %+v", messages)
 	}
 }

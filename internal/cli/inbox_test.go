@@ -497,6 +497,43 @@ func TestInboxSendDirectMessage(t *testing.T) {
 	}
 }
 
+func TestInboxSendReadsShellSensitiveMessageFileAndStdin(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	root := daemon.DaemonRoot(filepath.Join(tmp, ".agent_team"))
+	if err := daemon.WriteMetadata(root, &daemon.Metadata{
+		Instance: "manager",
+		Agent:    "manager",
+		Status:   daemon.StatusRunning,
+	}); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+
+	message := "line one\n$(printf 'false FAIL') ; * ? [x]\n`uname` \\\"quoted\\\" $HOME | & < >"
+	messageFile := filepath.Join(tmp, "steering.txt")
+	if err := os.WriteFile(messageFile, []byte(message), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, err := executeInboxCommand("inbox", "send", "manager", "--repo", tmp, "--message-file", messageFile); err != nil {
+		t.Fatalf("inbox send --message-file: %v\nstderr=%s", err, stderr)
+	}
+
+	previousInput := sendMessageInput
+	sendMessageInput = strings.NewReader(message)
+	t.Cleanup(func() { sendMessageInput = previousInput })
+	if _, stderr, err := executeInboxCommand("inbox", "send", "manager", "--repo", tmp, "--message-file", "-"); err != nil {
+		t.Fatalf("inbox send --message-file -: %v\nstderr=%s", err, stderr)
+	}
+
+	messages, err := daemon.ReadMessages(root, "manager")
+	if err != nil {
+		t.Fatalf("read messages: %v", err)
+	}
+	if len(messages) != 2 || messages[0].Body != message || messages[1].Body != message {
+		t.Fatalf("messages = %+v, want exact file and stdin bodies %q", messages, message)
+	}
+}
+
 func TestInboxAckMissingMessageReturnsUsageError(t *testing.T) {
 	tmp := t.TempDir()
 	initInto(t, tmp)

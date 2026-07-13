@@ -10,6 +10,7 @@
 #   "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh ack <id>
 #   "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh ack --all
 #   "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send <to> <body...>
+#   "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send <to> --message-file <path|->
 
 set -euo pipefail
 
@@ -20,6 +21,7 @@ usage:
   inbox.sh ack <id>
   inbox.sh ack --all
   inbox.sh send <to> <body...>
+  inbox.sh send <to> --message-file <path|->
 EOF
     exit 2
 }
@@ -117,15 +119,28 @@ case "$verb" in
     send)
         [[ $# -ge 2 ]] || usage
         to="$1"; shift
-        body="$*"
         require_team_root
         require_instance
-        # Build JSON via python so arbitrary characters in $body don't
-        # need bash-level escaping. Env-var pass keeps the body off argv.
         export INBOX_TO="$to"
         export INBOX_FROM="$AGENT_TEAM_INSTANCE"
-        export INBOX_BODY="$body"
-        payload=$(python3 -c 'import json, os; print(json.dumps({"to": os.environ["INBOX_TO"], "from": os.environ["INBOX_FROM"], "body": os.environ["INBOX_BODY"]}))')
+        if [[ "${1:-}" == "--message-file" ]]; then
+            [[ $# -eq 2 ]] || usage
+            message_file="$2"
+            if [[ "$message_file" != "-" && ! -f "$message_file" ]]; then
+                echo "inbox.sh: --message-file: file not found: $message_file" >&2
+                exit 1
+            fi
+            # Python reads the file/stdin directly while constructing JSON so
+            # multiline and shell-sensitive bodies never pass through argv.
+            export INBOX_MESSAGE_FILE="$message_file"
+            payload=$(python3 -c 'import json, os, pathlib, sys; path = os.environ["INBOX_MESSAGE_FILE"]; body = sys.stdin.read() if path == "-" else pathlib.Path(path).read_text(encoding="utf-8"); print(json.dumps({"to": os.environ["INBOX_TO"], "from": os.environ["INBOX_FROM"], "body": body}))')
+        else
+            body="$*"
+            # Retain positional transport for short, simple messages. Env-var
+            # passing keeps the already-parsed body off Python's argv.
+            export INBOX_BODY="$body"
+            payload=$(python3 -c 'import json, os; print(json.dumps({"to": os.environ["INBOX_TO"], "from": os.environ["INBOX_FROM"], "body": os.environ["INBOX_BODY"]}))')
+        fi
         curl_daemon -X POST \
              -H "Content-Type: application/json" \
              -d "$payload" \

@@ -23,16 +23,19 @@ In Claude Code's tmux team mode (no daemon, `~/.claude/teams/` populated) the ex
 inbox check                 # list unread messages (since last ack)
 inbox ack <id>              # mark the next unread message handled
 inbox ack --all             # acknowledge every current message
-inbox send <to> <body>      # POST /v1/message — convenience for sending
+inbox send <to> <body>      # short, simple single-line messages only
+inbox send <to> --message-file <path|->  # preferred for multiline/shell-sensitive bodies
 ```
 
 `inbox send` exists so any agent can talk back to a teammate without learning the curl-over-unix-socket dance. The daemon's `/v1/message` endpoint is the source of truth; the skill is a wrapper.
+
+Use `--message-file <path>` for multiline steering or text containing shell-sensitive characters. Use `--message-file -` to read the body from stdin. This is the preferred safe path because it preserves newlines and passes the body directly from the file or stdin into the JSON payload. Do not embed complex steering text in positional shell arguments: quoting, expansion, and argument joining can alter the message before the helper sees it.
 
 If a message is printed with `reply-to <instance>`, send replies to that durable mailbox instead of assuming the `from` value is itself reachable. Operator-originated messages may have `from (cli)` plus a durable `reply-to`.
 
 Ack is intentionally ordered. The mailbox stores one cursor, so `inbox ack <id>` only succeeds for the next unread message; it refuses to skip earlier unread messages. Handle messages in the order printed by `inbox check`, or use `inbox ack --all` only after you have dealt with every current message.
 
-The `agent-team inbox` CLI exposes the same canonical verbs for operators and runtimes that invoke the full binary: `agent-team inbox check [instance]`, `agent-team inbox ack [instance] <id>`, `agent-team inbox ack [instance] --all`, and `agent-team inbox send <to> <body>`. With no instance argument, `check` and `ack` use `AGENT_TEAM_INSTANCE`.
+The `agent-team inbox` CLI exposes the same canonical verbs for operators and runtimes that invoke the full binary: `agent-team inbox check [instance]`, `agent-team inbox ack [instance] <id>`, `agent-team inbox ack [instance] --all`, and `agent-team inbox send <to> --message-file <path|->`. The top-level `agent-team send <to> --message-file <path|->` command uses the same safe message input. With no instance argument, `check` and `ack` use `AGENT_TEAM_INSTANCE`.
 
 ## Examples
 
@@ -63,16 +66,26 @@ Output (when there's a message):
 "$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh ack --all
 ```
 
-**Sending a message to a teammate:**
+**Sending a multiline or shell-sensitive message from a file:**
 
 ```sh
-"$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send manager "SQU-30 PR opened: https://github.com/.../pull/42"
+"$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send manager --message-file steering.md
+```
+
+**Sending safely from stdin:**
+
+```sh
+"$AGENT_TEAM_ROOT"/skills/inbox/scripts/inbox.sh send manager --message-file - <<'EOF'
+SQU-30 PR opened: https://github.com/.../pull/42
+Please preserve this literal shell text: $(status) * [review]
+EOF
 ```
 
 ## Implementation notes
 
 - Reads `mailbox.jsonl` since the last ID written to `mailbox-cursor.txt`. If the cursor is empty / points at a non-existent ID, every message is treated as unread.
 - `ack <id>` writes the cursor atomically (`tmp` + `rename`) only for the next unread message; `ack --all` advances through the last current message.
+- `send --message-file <path|->` reads the body directly from the named file or stdin while constructing the JSON payload; it does not convert the body back through shell argv. Positional send remains available for short, simple messages.
 - `send` uses `AGENT_TEAM_DAEMON_URL` with `Authorization: Bearer $(<"$AGENT_TEAM_DAEMON_TOKEN_FILE")` when set, otherwise `curl --unix-socket "$AGENT_TEAM_DAEMON_SOCKET"` and falls back to `$AGENT_TEAM_ROOT/daemon.sock`. The host portion of Unix-socket URLs doesn't matter — the unix dial overrides it.
 - The daemon must be running for sends. If neither `AGENT_TEAM_DAEMON_URL` nor the resolved daemon socket is available, `inbox check` reads the file directly (still works — the messages live on disk regardless of daemon liveness); `inbox send` errors with a clear "daemon not running" message.
 - All scripts sign nothing on your behalf. Compose your own messages.
