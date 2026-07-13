@@ -2928,7 +2928,7 @@ Flags:
       --repo string        Repo root containing .agent_team. (default "<repo>")
       --signature string   Failure signature or short failure text used for infra/content classification.
       --status string      Gate status: pass or fail.
-      --step string        Pipeline step this evidence belongs to; defaults to AGENT_TEAM_PIPELINE_STEP. (default "implement")
+      --step string        Pipeline step this evidence belongs to; defaults to AGENT_TEAM_PIPELINE_STEP.
 ```
 
 ## `agent-team job gates`
