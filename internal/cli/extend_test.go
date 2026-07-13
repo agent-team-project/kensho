@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -202,6 +204,99 @@ func TestJobExtendAddsTokenAllowanceWithoutRuntimeExtension(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Type != "budget_extended" || events[0].Actor != "ops" || events[0].Data["tokens_added"] != "50" || events[0].Data["token_budget"] != "150" {
 		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestJobExtendTokensIsolatesUnrelatedUnknownKindRecord(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	appendBudgetFixture(t, teamDir, `
+[budgets.delivery]
+tokens_per_day = 1000
+allocation = "reserve"
+`)
+	now := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
+	target := &job.Job{
+		ID:        "squ-374-target",
+		Ticket:    "SQU-374-TARGET",
+		Target:    "worker",
+		Pipeline:  "ticket_to_pr",
+		Status:    job.StatusRunning,
+		Origin:    origin.Envelope{Team: "delivery"},
+		CreatedAt: now,
+		UpdatedAt: now,
+		Steps: []job.Step{{
+			ID:          "implement",
+			Target:      "worker",
+			Status:      job.StatusRunning,
+			Instance:    "worker-squ-374-target",
+			TokenBudget: 100,
+		}},
+	}
+	if err := job.Write(teamDir, target); err != nil {
+		t.Fatalf("write target job: %v", err)
+	}
+
+	stalePath := filepath.Join(job.Directory(teamDir), "stale-report.toml")
+	staleBody := []byte(`id = "stale-report"
+ticket = "STALE-REPORT"
+target = "worker"
+kind = "unknown-profile-report"
+status = "done"
+created_at = 2026-06-01T00:00:00Z
+updated_at = 2026-06-01T00:00:00Z
+`)
+	if err := os.WriteFile(stalePath, staleBody, 0o644); err != nil {
+		t.Fatalf("write unrelated stale report: %v", err)
+	}
+
+	cmd := NewRootCmd()
+	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "extend", target.ID, "--step", "implement", "--tokens", "50", "--actor", "ops", "--repo", tmp, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("job extend tokens: %v\nstderr=%s", err, stderr.String())
+	}
+
+	persisted, err := job.Read(teamDir, target.ID)
+	if err != nil {
+		t.Fatalf("read target job: %v", err)
+	}
+	if len(persisted.Steps) != 1 || persisted.Steps[0].TokenBudget != 150 {
+		t.Fatalf("target job = %+v, want only target token budget increased to 150", persisted)
+	}
+	targetEvents, err := job.ListEvents(teamDir, target.ID)
+	if err != nil {
+		t.Fatalf("list target events: %v", err)
+	}
+	if len(targetEvents) != 1 || targetEvents[0].Type != "budget_extended" || targetEvents[0].Actor != "ops" || targetEvents[0].Data["tokens_added"] != "50" || targetEvents[0].Data["token_budget"] != "150" {
+		t.Fatalf("target events = %+v, want one auditable token extension", targetEvents)
+	}
+	if got, err := os.ReadFile(stalePath); err != nil {
+		t.Fatalf("read unrelated stale report: %v", err)
+	} else if !bytes.Equal(got, staleBody) {
+		t.Fatalf("unrelated stale report changed:\n%s", got)
+	}
+	staleEvents, err := job.ListEvents(teamDir, "stale-report")
+	if err != nil {
+		t.Fatalf("list unrelated events: %v", err)
+	}
+	if len(staleEvents) != 0 {
+		t.Fatalf("unrelated events = %+v, want none", staleEvents)
+	}
+	allocations, err := budgetcalc.ListAllocations(teamDir)
+	if err != nil {
+		t.Fatalf("list allocations: %v", err)
+	}
+	if len(allocations) != 1 || allocations[0].JobID != target.ID || allocations[0].StepID != "implement" || allocations[0].Tokens != 50 {
+		t.Fatalf("allocations = %+v, want only target extension allocation", allocations)
+	}
+	for _, want := range []string{"stale-report.toml", `unknown job kind "unknown-profile-report"`, "agent-team job doctor --json"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want diagnostic containing %q", stderr.String(), want)
+		}
 	}
 }
 

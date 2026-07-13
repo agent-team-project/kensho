@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -149,6 +150,47 @@ func TestReserveAllocationGatesOnOutstandingAllowances(t *testing.T) {
 	}
 	if !third.Allowed {
 		t.Fatalf("third grant = %+v, want allowed after release", third)
+	}
+}
+
+func TestGrantTokensIsolationNeverSkipsTargetJobRecord(t *testing.T) {
+	teamDir := testTeamDir(t)
+	top := testBudgetTopologyWithAllocation(t, 100, 0, topology.BudgetAllocationReserve)
+	targetPath := jobstore.Path(teamDir, "squ-target")
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte(`id = "squ-target"
+ticket = "SQU-TARGET"
+target = "worker"
+kind = "future-report"
+status = "running"
+created_at = 2026-07-13T10:00:00Z
+updated_at = 2026-07-13T10:00:00Z
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	grant, err := GrantTokens(teamDir, top, GrantRequest{
+		Team:               "delivery",
+		JobID:              "squ-target",
+		Instance:           "worker-squ-target",
+		Tokens:             10,
+		IsolateInvalidJobs: true,
+		Now:                time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC),
+	})
+	if err == nil || !strings.Contains(err.Error(), `unknown job kind "future-report"`) {
+		t.Fatalf("GrantTokens error = %v, want invalid target record", err)
+	}
+	if grant.Allocation != nil {
+		t.Fatalf("grant = %+v, want no allocation for invalid target", grant)
+	}
+	allocations, listErr := ListAllocations(teamDir)
+	if listErr != nil {
+		t.Fatalf("ListAllocations: %v", listErr)
+	}
+	if len(allocations) != 0 {
+		t.Fatalf("allocations = %+v, want none", allocations)
 	}
 }
 
