@@ -13456,7 +13456,7 @@ func validateCurrentAttemptApprovalEvidence(teamDir string, j *job.Job, approval
 	}
 	head := strings.TrimSpace(j.Head)
 	if head == "" {
-		if job.CurrentAttempt(j) <= 1 {
+		if j.Attempt == 0 {
 			return nil
 		}
 		return fmt.Errorf("current implementation attempt has no exact head")

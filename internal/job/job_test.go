@@ -492,10 +492,39 @@ func TestLatestGateRecordsForAttemptHeadRejectsPriorAttemptAndHead(t *testing.T)
 	if len(latest) != 2 || latest[0].Name != "review" || latest[0].Commit != headB || latest[1].Name != "tests" || latest[1].Status != GateStatusFail || latest[1].Commit != headB {
 		t.Fatalf("latest = %+v", latest)
 	}
-	if got := LatestGateRecordsForAttemptHead(records, 2, headA); len(got) != 0 {
-		// The later head-B results supersede same-name head-A evidence; only no
-		// exact-head evidence remains for head A.
+	if got := LatestGateRecordsForAttemptHead(records, 2, headA); len(got) != 1 || got[0].Name != "tests" || got[0].Status != GateStatusPass || got[0].Commit != headA {
 		t.Fatalf("head-A latest = %+v", got)
+	}
+}
+
+func TestLatestGateRecordsForAttemptHeadScopesNamesByStep(t *testing.T) {
+	head := strings.Repeat("b", 40)
+	records := []GateRecord{
+		{Attempt: 2, Step: "verify", Commit: head, Name: "shared", Status: GateStatusFail},
+		{Attempt: 2, Step: "verify", Commit: head, Name: "gofmt", Status: GateStatusPass},
+		{Attempt: 2, Step: "review", Commit: head, Name: "shared", Status: GateStatusPass},
+	}
+
+	latest := LatestGateRecordsForAttemptHead(records, 2, head)
+	if len(latest) != 3 {
+		t.Fatalf("latest len=%d, want 3: %+v", len(latest), latest)
+	}
+	byStepAndName := make(map[string]GateStatus, len(latest))
+	for _, record := range latest {
+		byStepAndName[record.Step+":"+record.Name] = record.Status
+	}
+	want := map[string]GateStatus{
+		"verify:shared": GateStatusFail,
+		"verify:gofmt":  GateStatusPass,
+		"review:shared": GateStatusPass,
+	}
+	if len(byStepAndName) != len(want) {
+		t.Fatalf("latest by step/name = %+v, want %+v", byStepAndName, want)
+	}
+	for key, status := range want {
+		if byStepAndName[key] != status {
+			t.Fatalf("latest by step/name = %+v, want %+v", byStepAndName, want)
+		}
 	}
 }
 

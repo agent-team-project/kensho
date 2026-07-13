@@ -336,19 +336,46 @@ func LatestGateRecordsForAttempt(records []GateRecord, attempt int) []GateRecord
 	return LatestGateRecords(filtered)
 }
 
-// LatestGateRecordsForAttemptHead additionally isolates commit-scoped evidence
-// to head. Unscoped records remain visible for compatibility with non-git jobs.
+// LatestGateRecordsForAttemptHead isolates evidence to one implementation
+// generation before folding it. Gate names are step-scoped because verifier and
+// reviewer steps may report gates with the same name. A blank head selects all
+// records for the attempt for compatibility with headless non-git jobs.
 func LatestGateRecordsForAttemptHead(records []GateRecord, attempt int, head string) []GateRecord {
+	if attempt <= 0 {
+		attempt = 1
+	}
 	head = strings.TrimSpace(head)
-	latest := LatestGateRecordsForAttempt(records, attempt)
-	if head == "" {
-		return latest
+	type gateIdentity struct {
+		step string
+		name string
 	}
-	filtered := make([]GateRecord, 0, len(latest))
-	for _, record := range latest {
-		if record.Commit == "" || record.Commit == head {
-			filtered = append(filtered, record)
+	latest := make(map[gateIdentity]GateRecord)
+	for _, record := range records {
+		name := strings.TrimSpace(record.Name)
+		if name == "" {
+			continue
 		}
+		recordAttempt := record.Attempt
+		if recordAttempt <= 0 {
+			recordAttempt = 1
+		}
+		if recordAttempt != attempt {
+			continue
+		}
+		if head != "" && strings.TrimSpace(record.Commit) != head {
+			continue
+		}
+		latest[gateIdentity{step: strings.TrimSpace(record.Step), name: name}] = record
 	}
-	return filtered
+	out := make([]GateRecord, 0, len(latest))
+	for _, record := range latest {
+		out = append(out, record)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].Step < out[j].Step
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
 }

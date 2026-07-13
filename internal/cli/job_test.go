@@ -7787,6 +7787,129 @@ func TestReviewerApprovalRejectsAnyFailedCurrentHeadVerifierGate(t *testing.T) {
 	}
 }
 
+func TestReviewerApprovalRejectsFailedGateShadowedByAnotherStep(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	head := strings.Repeat("b", 40)
+	j := &job.Job{
+		ID: "gh-230-step-scoped-evidence", Ticket: "GH-230", Target: "worker", Pipeline: "ticket_to_pr",
+		Attempt: 2, Head: head, Status: job.StatusBlocked, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone},
+			{ID: "verify", Target: "verifier", Status: job.StatusDone, After: []string{"implement"}},
+			{ID: "review", Target: "reviewer", Status: job.StatusDone, After: []string{"verify"}},
+			{ID: "approve", Target: "manager", Status: job.StatusBlocked, After: []string{"review"}, Gate: job.StepGateManual},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatal(err)
+	}
+	appendGate := func(step, name string, status job.GateStatus) {
+		t.Helper()
+		if err := job.AppendGateRecord(teamDir, &job.GateRecord{
+			JobID: j.ID, Attempt: 2, Step: step, Commit: head, Name: name, Status: status,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendGate("verify", "shared", job.GateStatusFail)
+	appendGate("verify", "gofmt", job.GateStatusPass)
+	appendGate("review", "shared", job.GateStatusPass)
+
+	approve := func() (error, string) {
+		t.Helper()
+		cmd := NewRootCmd()
+		stderr := &bytes.Buffer{}
+		cmd.SetErr(stderr)
+		cmd.SetArgs([]string{"job", "approve", j.ID, "--repo", root, "--step", "approve"})
+		return cmd.Execute(), stderr.String()
+	}
+	if err, stderr := approve(); err == nil || !strings.Contains(stderr, `step "verify" has failing gate "shared"`) {
+		t.Fatalf("approval with shadowed verifier failure: err=%v stderr=%q", err, stderr)
+	}
+	unchanged, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Steps[3].Status != job.StatusBlocked {
+		t.Fatalf("shadowed failure released approval step: %+v", unchanged.Steps[3])
+	}
+
+	appendGate("verify", "shared", job.GateStatusPass)
+	if err, stderr := approve(); err != nil {
+		t.Fatalf("approval after verifier rerun: err=%v stderr=%q", err, stderr)
+	}
+}
+
+func TestReviewerApprovalRejectsExplicitFirstAttemptWithoutHead(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	j := &job.Job{
+		ID: "gh-230-headless-first-attempt", Ticket: "GH-230", Target: "worker", Pipeline: "ticket_to_pr",
+		Attempt: 1, Status: job.StatusBlocked, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone},
+			{ID: "verify", Target: "verifier", Status: job.StatusDone, After: []string{"implement"}},
+			{ID: "review", Target: "reviewer", Status: job.StatusDone, After: []string{"verify"}},
+			{ID: "approve", Target: "manager", Status: job.StatusBlocked, After: []string{"review"}, Gate: job.StepGateManual},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "approve", j.ID, "--repo", root, "--step", "approve"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(stderr.String(), "current implementation attempt has no exact head") {
+		t.Fatalf("approval accepted explicit headless attempt: err=%v stderr=%q", err, stderr.String())
+	}
+	unchanged, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Steps[3].Status != job.StatusBlocked {
+		t.Fatalf("headless attempt released approval step: %+v", unchanged.Steps[3])
+	}
+}
+
+func TestReviewerApprovalAllowsLegacyAttemptZeroWithoutHead(t *testing.T) {
+	root := t.TempDir()
+	initInto(t, root)
+	teamDir := filepath.Join(root, ".agent_team")
+	j := &job.Job{
+		ID: "gh-230-legacy-headless", Ticket: "GH-230", Target: "worker", Pipeline: "ticket_to_pr",
+		Status: job.StatusBlocked, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		Steps: []job.Step{
+			{ID: "implement", Target: "worker", Status: job.StatusDone},
+			{ID: "verify", Target: "verifier", Status: job.StatusDone, After: []string{"implement"}},
+			{ID: "review", Target: "reviewer", Status: job.StatusDone, After: []string{"verify"}},
+			{ID: "approve", Target: "manager", Status: job.StatusBlocked, After: []string{"review"}, Gate: job.StepGateManual},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCmd()
+	stderr := &bytes.Buffer{}
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"job", "approve", j.ID, "--repo", root, "--step", "approve"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("legacy headless approval: err=%v stderr=%q", err, stderr.String())
+	}
+	updated, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Steps[3].Status != job.StatusQueued {
+		t.Fatalf("legacy approval step = %+v", updated.Steps[3])
+	}
+}
+
 func TestJobHeadChangeInvalidatesDownstreamOwnershipAndApproval(t *testing.T) {
 	now := time.Now().UTC()
 	j := &job.Job{
