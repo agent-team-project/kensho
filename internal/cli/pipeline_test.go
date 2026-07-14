@@ -2439,6 +2439,13 @@ timeout = "1h"
 	if timedOut.Status != job.StatusFailed || timedOut.Steps[0].Status != job.StatusFailed || timedOut.Steps[0].Instance != "" || timedOut.LastStatus != "operator timed out stale step from file" {
 		t.Fatalf("timed out job = %+v", timedOut)
 	}
+	timeoutEvents, err := job.ListEvents(teamDir, "squ-700")
+	if err != nil {
+		t.Fatalf("list timeout events: %v", err)
+	}
+	if len(timeoutEvents) == 0 || timeoutEvents[0].Type != "step_timeout" || timeoutEvents[0].Data["step_instance"] != "worker-squ-700" {
+		t.Fatalf("timeout events = %+v, want prior step owner", timeoutEvents)
+	}
 	stillRunning, err := job.Read(teamDir, "squ-701")
 	if err != nil {
 		t.Fatalf("read running job: %v", err)
@@ -12632,7 +12639,7 @@ func TestPipelineRetryFailedSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list events: %v", err)
 	}
-	if len(events) != 1 || events[0].Type != "reopened" || events[0].Data["step"] != "triage" {
+	if len(events) != 1 || events[0].Type != "reopened" || events[0].Data["step"] != "triage" || events[0].Data["step_instance"] != "manager-old" {
 		t.Fatalf("events = %+v", events)
 	}
 
@@ -12657,6 +12664,175 @@ func TestPipelineRetryFailedSteps(t *testing.T) {
 	}
 	if dispatched.Status != job.StatusQueued || dispatched.Steps[0].Status != job.StatusQueued || dispatched.Steps[0].Instance != "manager" {
 		t.Fatalf("dispatched job = %+v", dispatched)
+	}
+}
+
+func TestFrontendPipelineFailedVerifyRequeueDispatchesFreshTargetOwner(t *testing.T) {
+	target, err := os.MkdirTemp("/tmp", "agent-team-frontend-retry-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamDir := filepath.Join(target, ".agent_team")
+	for _, agent := range []string{"worker", "verifier"} {
+		dir := filepath.Join(teamDir, "agents", agent)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := fmt.Sprintf("---\ndescription: test %s\n---\n\ntest %s\n", agent, agent)
+		if err := os.WriteFile(filepath.Join(dir, "agent.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(`
+[instances.frontend-worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.frontend-worker.triggers]]
+event = "agent.dispatch"
+match.target = "frontend-worker"
+
+[instances.frontend-verifier]
+agent = "verifier"
+ephemeral = true
+replicas = 2
+
+[[instances.frontend-verifier.triggers]]
+event = "agent.dispatch"
+match.target = "frontend-verifier"
+
+[pipelines.frontend_ticket_to_pr]
+trigger.event = "frontend.slice.ready"
+
+[[pipelines.frontend_ticket_to_pr.steps]]
+id = "implement"
+target = "frontend-worker"
+
+[[pipelines.frontend_ticket_to_pr.steps]]
+id = "verify"
+target = "frontend-verifier"
+after = ["implement"]
+workspace = "repo"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), fakeSpawnerForTest(t, 2*time.Second))
+	cleanupDaemon := startRunTestDaemon(t, teamDir, mgr)
+	defer func() {
+		for _, meta := range mgr.List() {
+			if meta.Status == daemon.StatusRunning {
+				_, _ = mgr.Stop(meta.Instance)
+				_ = mgr.WaitForReaper(meta.Instance, 5*time.Second)
+			}
+		}
+		cleanupDaemon()
+		_ = os.RemoveAll(target)
+	}()
+
+	now := time.Now().UTC()
+	j := &job.Job{
+		ID:         "gh390-frontend-owner",
+		Ticket:     "GH-390",
+		Target:     "frontend-worker",
+		Pipeline:   "frontend_ticket_to_pr",
+		Status:     job.StatusFailed,
+		LastEvent:  "step_failed",
+		LastStatus: "verify failed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "frontend-worker", Status: job.StatusDone, Instance: "frontend-worker-gh390-frontend-owner-implement"},
+			{ID: "verify", Target: "frontend-verifier", Status: job.StatusFailed, Instance: "manager", InstanceURI: "agt://project/instance/manager", After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, j); err != nil {
+		t.Fatal(err)
+	}
+
+	reset := NewRootCmd()
+	reset.SetOut(&bytes.Buffer{})
+	resetErr := &bytes.Buffer{}
+	reset.SetErr(resetErr)
+	reset.SetArgs([]string{"job", "step", j.ID, "verify", "--repo", target, "--status", "queued", "--message", "retry verifier", "--json"})
+	if err := reset.Execute(); err != nil {
+		t.Fatalf("reset failed verify: %v\nstderr=%s", err, resetErr.String())
+	}
+	resetJob, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resetJob.Steps[1].Status != job.StatusQueued || resetJob.Steps[1].Instance != "" || resetJob.Steps[1].InstanceURI != "" {
+		t.Fatalf("reset verify step = %+v, want cleared active owner", resetJob.Steps[1])
+	}
+	resetEvents, err := job.ListEvents(teamDir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resetEvents) != 1 || resetEvents[0].Type != "step_queued" || resetEvents[0].Data["step_instance"] != "manager" {
+		t.Fatalf("reset events = %+v, want prior manager attribution", resetEvents)
+	}
+
+	advance := NewRootCmd()
+	advanceOut, advanceErr := &bytes.Buffer{}, &bytes.Buffer{}
+	advance.SetOut(advanceOut)
+	advance.SetErr(advanceErr)
+	advance.SetArgs([]string{"pipeline", "advance", "frontend_ticket_to_pr", "--repo", target, "--json"})
+	if err := advance.Execute(); err != nil {
+		t.Fatalf("advance reset verifier: %v\nstderr=%s", err, advanceErr.String())
+	}
+	var rows []pipelineAdvanceResult
+	if err := json.Unmarshal(advanceOut.Bytes(), &rows); err != nil {
+		t.Fatalf("decode advance result: %v\nbody=%s", err, advanceOut.String())
+	}
+	if len(rows) != 1 || rows[0].Action != "advanced" || rows[0].StepID != "verify" || rows[0].StepStatus != job.StatusRunning || !strings.HasPrefix(rows[0].Instance, "frontend-verifier-") {
+		t.Fatalf("advance rows = %+v, want fresh frontend-verifier owner", rows)
+	}
+
+	// Supplying --instance is the explicit same-instance contract: unlike an
+	// omitted instance on a failed-step requeue, it records that the named
+	// runtime already owns the queued attempt instead of requesting a fresh
+	// target-specific dispatch.
+	sameInstance := "frontend-verifier-gh390-same-owner-verify"
+	same := &job.Job{
+		ID:         "gh390-same-owner",
+		Ticket:     "GH-390-same-owner",
+		Target:     "frontend-worker",
+		Pipeline:   "frontend_ticket_to_pr",
+		Status:     job.StatusFailed,
+		LastEvent:  "step_failed",
+		LastStatus: "verify crashed",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Steps: []job.Step{
+			{ID: "implement", Target: "frontend-worker", Status: job.StatusDone, Instance: "frontend-worker-gh390-same-owner-implement"},
+			{ID: "verify", Target: "frontend-verifier", Status: job.StatusFailed, Instance: sameInstance, After: []string{"implement"}},
+		},
+	}
+	if err := job.Write(teamDir, same); err != nil {
+		t.Fatal(err)
+	}
+	explicit := NewRootCmd()
+	explicit.SetOut(&bytes.Buffer{})
+	explicitErr := &bytes.Buffer{}
+	explicit.SetErr(explicitErr)
+	explicit.SetArgs([]string{"job", "step", same.ID, "verify", "--repo", target, "--status", "queued", "--instance", sameInstance, "--json"})
+	if err := explicit.Execute(); err != nil {
+		t.Fatalf("explicit same-instance reset: %v\nstderr=%s", err, explicitErr.String())
+	}
+	explicitJob, err := job.Read(teamDir, same.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicitJob.Steps[1].Status != job.StatusQueued || explicitJob.Steps[1].Instance != sameInstance {
+		t.Fatalf("explicit same-instance step = %+v, want retained owner", explicitJob.Steps[1])
+	}
+	explicitEvents, err := job.ListEvents(teamDir, same.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(explicitEvents) != 1 || explicitEvents[0].Data["step_instance"] != sameInstance {
+		t.Fatalf("explicit same-instance events = %+v", explicitEvents)
 	}
 }
 
