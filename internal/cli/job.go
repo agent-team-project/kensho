@@ -12558,10 +12558,7 @@ func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepU
 	}
 	step.Status = status
 	if failedStepRequeue {
-		step.Instance = ""
-		step.InstanceURI = ""
-		step.StartedAt = time.Time{}
-		step.FinishedAt = time.Time{}
+		clearJobStepActiveAttempt(step)
 	}
 	if strings.TrimSpace(update.Instance) != "" {
 		step.Instance = strings.TrimSpace(update.Instance)
@@ -13801,6 +13798,22 @@ func resetFailedPipelineStepForRetryByID(j *job.Job, stepID string) pipelineStep
 	return resetFailedPipelineStepForRetryByIDWithReason(j, stepID, false)
 }
 
+// clearJobStepActiveAttempt removes ownership and lifecycle state that belongs
+// only to the attempt being reset. Callers preserve prior attribution before
+// clearing when they need it in durable audit history.
+func clearJobStepActiveAttempt(step *job.Step) {
+	if step == nil {
+		return
+	}
+	step.Instance = ""
+	step.InstanceURI = ""
+	step.QueueReason = ""
+	step.QueuedAt = time.Time{}
+	step.RunningAt = time.Time{}
+	step.StartedAt = time.Time{}
+	step.FinishedAt = time.Time{}
+}
+
 type pipelineStepRetryReset struct {
 	StepID           string
 	Reason           string
@@ -13828,10 +13841,7 @@ func resetFailedPipelineStepForRetryByIDWithReason(j *job.Job, stepID string, fo
 		}
 		previousInstance := strings.TrimSpace(step.Instance)
 		step.Status = job.StatusBlocked
-		step.Instance = ""
-		step.InstanceURI = ""
-		step.StartedAt = time.Time{}
-		step.FinishedAt = time.Time{}
+		clearJobStepActiveAttempt(step)
 		return pipelineStepRetryReset{StepID: step.ID, Attempts: attempts, MaxAttempts: step.MaxAttempts, PreviousInstance: previousInstance}
 	}
 	return pipelineStepRetryReset{Reason: "no retryable failed step"}

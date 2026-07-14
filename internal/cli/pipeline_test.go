@@ -12501,6 +12501,8 @@ func TestPipelineRetryFailedSteps(t *testing.T) {
 	defer cleanup()
 	teamDir := filepath.Join(target, ".agent_team")
 	now := time.Now().UTC()
+	failedQueuedAt := now.Add(-3 * time.Hour)
+	failedRunningAt := now.Add(-150 * time.Minute)
 	for _, j := range []*job.Job{
 		{
 			ID:         "squ-601",
@@ -12514,7 +12516,7 @@ func TestPipelineRetryFailedSteps(t *testing.T) {
 			CreatedAt:  now,
 			UpdatedAt:  now,
 			Steps: []job.Step{
-				{ID: "triage", Target: "manager", Status: job.StatusFailed, Instance: "manager-old", StartedAt: now.Add(-time.Hour), FinishedAt: now.Add(-30 * time.Minute), Timeout: "30m0s"},
+				{ID: "triage", Target: "manager", Status: job.StatusFailed, Instance: "manager-old", InstanceURI: "agt://project/instance/manager-old", QueueReason: "replica_capacity", QueuedAt: failedQueuedAt, RunningAt: failedRunningAt, StartedAt: now.Add(-2 * time.Hour), FinishedAt: now.Add(-time.Hour), Timeout: "30m0s"},
 			},
 		},
 		{
@@ -12632,7 +12634,8 @@ func TestPipelineRetryFailedSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read retried: %v", err)
 	}
-	if retried.Status != job.StatusQueued || retried.LastEvent != "reopened" || retried.LastStatus != "operator retry approved from file" || retried.Steps[0].Status != job.StatusBlocked || retried.Steps[0].Instance != "" || !retried.Steps[0].FinishedAt.IsZero() {
+	retriedStep := retried.Steps[0]
+	if retried.Status != job.StatusQueued || retried.LastEvent != "reopened" || retried.LastStatus != "operator retry approved from file" || retriedStep.Status != job.StatusBlocked || retriedStep.Instance != "" || retriedStep.InstanceURI != "" || retriedStep.QueueReason != "" || !retriedStep.QueuedAt.IsZero() || !retriedStep.RunningAt.IsZero() || !retriedStep.StartedAt.IsZero() || !retriedStep.FinishedAt.IsZero() {
 		t.Fatalf("retried job = %+v", retried)
 	}
 	events, err := job.ListEvents(teamDir, "squ-601")
@@ -12731,6 +12734,8 @@ workspace = "repo"
 	}()
 
 	now := time.Now().UTC()
+	failedQueuedAt := now.Add(-3 * time.Hour)
+	failedRunningAt := now.Add(-150 * time.Minute)
 	failedStartedAt := now.Add(-2 * time.Hour)
 	failedFinishedAt := now.Add(-time.Hour)
 	j := &job.Job{
@@ -12745,11 +12750,19 @@ workspace = "repo"
 		UpdatedAt:  now,
 		Steps: []job.Step{
 			{ID: "implement", Target: "frontend-worker", Status: job.StatusDone, Instance: "frontend-worker-gh390-frontend-owner-implement"},
-			{ID: "verify", Target: "frontend-verifier", Status: job.StatusFailed, Instance: "manager", InstanceURI: "agt://project/instance/manager", After: []string{"implement"}, Attempts: 1, StartedAt: failedStartedAt, FinishedAt: failedFinishedAt},
+			{ID: "verify", Target: "frontend-verifier", Status: job.StatusFailed, Instance: "manager", InstanceURI: "agt://project/instance/manager", QueueReason: "replica_capacity", QueuedAt: failedQueuedAt, RunningAt: failedRunningAt, After: []string{"implement"}, Attempts: 1, StartedAt: failedStartedAt, FinishedAt: failedFinishedAt},
 		},
 	}
 	if err := job.Write(teamDir, j); err != nil {
 		t.Fatal(err)
+	}
+	failedJob, err := job.Read(teamDir, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedStep := failedJob.Steps[1]
+	if failedStep.Instance != "manager" || failedStep.InstanceURI != "agt://project/instance/manager" || failedStep.QueueReason != "replica_capacity" || !failedStep.QueuedAt.Equal(failedQueuedAt) || !failedStep.RunningAt.Equal(failedRunningAt) || !failedStep.StartedAt.Equal(failedStartedAt) || !failedStep.FinishedAt.Equal(failedFinishedAt) {
+		t.Fatalf("failed verify fixture = %+v, want complete prior-attempt state", failedStep)
 	}
 
 	retryStartedAfter := time.Now().UTC()
@@ -12765,7 +12778,8 @@ workspace = "repo"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resetJob.Steps[1].Status != job.StatusQueued || resetJob.Steps[1].Instance != "" || resetJob.Steps[1].InstanceURI != "" || resetJob.Steps[1].StartedAt.Before(retryStartedAfter) || !resetJob.Steps[1].FinishedAt.IsZero() {
+	resetStep := resetJob.Steps[1]
+	if resetStep.Status != job.StatusQueued || resetStep.Instance != "" || resetStep.InstanceURI != "" || resetStep.QueueReason != "" || !resetStep.QueuedAt.IsZero() || !resetStep.RunningAt.IsZero() || resetStep.StartedAt.Before(retryStartedAfter) || !resetStep.FinishedAt.IsZero() {
 		t.Fatalf("reset verify step = %+v, want cleared active owner and fresh lifecycle", resetJob.Steps[1])
 	}
 	resetEvents, err := job.ListEvents(teamDir, j.ID)
@@ -12795,7 +12809,8 @@ workspace = "repo"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dispatched.Steps[1].StartedAt.Before(retryStartedAfter) || !dispatched.Steps[1].FinishedAt.IsZero() {
+	dispatchedStep := dispatched.Steps[1]
+	if !strings.HasPrefix(dispatchedStep.Instance, "frontend-verifier-") || dispatchedStep.Instance == "manager" || dispatchedStep.InstanceURI != "" || dispatchedStep.QueueReason != "" || dispatchedStep.QueuedAt.Before(retryStartedAfter) || dispatchedStep.RunningAt.Before(retryStartedAfter) || dispatchedStep.StartedAt.Before(retryStartedAfter) || !dispatchedStep.FinishedAt.IsZero() {
 		t.Fatalf("dispatched verify step = %+v, want fresh start and no finish", dispatched.Steps[1])
 	}
 
@@ -12804,6 +12819,9 @@ workspace = "repo"
 	// runtime already owns the queued attempt instead of requesting a fresh
 	// target-specific dispatch.
 	sameInstance := "frontend-verifier-gh390-same-owner-verify"
+	sameInstanceURI := "agt://project/instance/" + sameInstance
+	sameFailedQueuedAt := now.Add(-3 * time.Hour)
+	sameFailedRunningAt := now.Add(-2 * time.Hour)
 	sameFailedStartedAt := now.Add(-90 * time.Minute)
 	sameFailedFinishedAt := now.Add(-30 * time.Minute)
 	same := &job.Job{
@@ -12818,11 +12836,19 @@ workspace = "repo"
 		UpdatedAt:  now,
 		Steps: []job.Step{
 			{ID: "implement", Target: "frontend-worker", Status: job.StatusDone, Instance: "frontend-worker-gh390-same-owner-implement"},
-			{ID: "verify", Target: "frontend-verifier", Status: job.StatusFailed, Instance: sameInstance, After: []string{"implement"}, Attempts: 1, StartedAt: sameFailedStartedAt, FinishedAt: sameFailedFinishedAt},
+			{ID: "verify", Target: "frontend-verifier", Status: job.StatusFailed, Instance: sameInstance, InstanceURI: sameInstanceURI, QueueReason: "lock_held", QueuedAt: sameFailedQueuedAt, RunningAt: sameFailedRunningAt, After: []string{"implement"}, Attempts: 1, StartedAt: sameFailedStartedAt, FinishedAt: sameFailedFinishedAt},
 		},
 	}
 	if err := job.Write(teamDir, same); err != nil {
 		t.Fatal(err)
+	}
+	failedSameJob, err := job.Read(teamDir, same.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedSameStep := failedSameJob.Steps[1]
+	if failedSameStep.Instance != sameInstance || failedSameStep.InstanceURI != sameInstanceURI || failedSameStep.QueueReason != "lock_held" || !failedSameStep.QueuedAt.Equal(sameFailedQueuedAt) || !failedSameStep.RunningAt.Equal(sameFailedRunningAt) || !failedSameStep.StartedAt.Equal(sameFailedStartedAt) || !failedSameStep.FinishedAt.Equal(sameFailedFinishedAt) {
+		t.Fatalf("failed same-instance fixture = %+v, want complete prior-attempt state", failedSameStep)
 	}
 	sameRetryStartedAfter := time.Now().UTC()
 	explicit := NewRootCmd()
@@ -12837,7 +12863,8 @@ workspace = "repo"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if explicitJob.Steps[1].Status != job.StatusQueued || explicitJob.Steps[1].Instance != sameInstance || explicitJob.Steps[1].StartedAt.Before(sameRetryStartedAfter) || !explicitJob.Steps[1].FinishedAt.IsZero() {
+	explicitStep := explicitJob.Steps[1]
+	if explicitStep.Status != job.StatusQueued || explicitStep.Instance != sameInstance || explicitStep.InstanceURI != "" || explicitStep.QueueReason != "" || !explicitStep.QueuedAt.IsZero() || !explicitStep.RunningAt.IsZero() || explicitStep.StartedAt.Before(sameRetryStartedAfter) || !explicitStep.FinishedAt.IsZero() {
 		t.Fatalf("explicit same-instance step = %+v, want retained owner with fresh lifecycle", explicitJob.Steps[1])
 	}
 	explicitEvents, err := job.ListEvents(teamDir, same.ID)
