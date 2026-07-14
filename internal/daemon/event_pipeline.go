@@ -720,6 +720,7 @@ func (r *EventResolver) tryAutoAdvancePipeline(j *jobstore.Job, meta *Metadata, 
 			return
 		}
 		prevStep.Instance = ""
+		prevStep.InstanceURI = ""
 		prevStep.QueueReason = ""
 		prevStep.QueuedAt = time.Time{}
 		prevStep.RunningAt = time.Time{}

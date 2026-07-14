@@ -7311,7 +7311,7 @@ func TestJobRetryDispatchResetsFailedPipelineStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(events) < 1 || events[0].Type != "reopened" || events[0].Data["step"] != "review" {
+	if len(events) < 1 || events[0].Type != "reopened" || events[0].Data["step"] != "review" || events[0].Data["step_instance"] != "manager-old" {
 		t.Fatalf("events = %+v", events)
 	}
 }

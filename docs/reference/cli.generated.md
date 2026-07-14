@@ -4246,7 +4246,7 @@ Flags:
   -f, --force                     Allow marking a step running without an owning instance.
       --format string             Render the updated job or advance result with a Go template, e.g. '{{.ID}} {{.Status}}' or '{{.Job.ID}} {{.Step.ID}}'.
       --head string               Exact commit head produced or evaluated by this step.
-      --instance string           Instance that owns or completed this step.
+      --instance string           Instance that owns or completed this step. On failed-step requeue, passing this flag explicitly records same-instance ownership; omitting it requests a fresh target-specific dispatch.
       --json                      Emit the updated job or advance result as JSON.
       --message string            Status message recorded on the job.
       --pr string                 PR URL to record on the job.

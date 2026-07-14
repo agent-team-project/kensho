@@ -10319,7 +10319,11 @@ func retryPipelineJobs(cmd *cobra.Command, teamDir, pipeline, workspace string, 
 			results = append(results, result)
 			continue
 		}
-		if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": stepID}); err != nil {
+		auditData := map[string]string{"step": stepID}
+		if reset.PreviousInstance != "" {
+			auditData["step_instance"] = reset.PreviousInstance
+		}
+		if err := writeJobWithAudit(teamDir, j, "", "cli", "", auditData); err != nil {
 			return nil, err
 		}
 		result.Action = "retried"
@@ -10907,11 +10911,13 @@ func timeoutJobRunningSteps(teamDir string, j *job.Job, stepFilter, targetFilter
 			}
 			continue
 		}
+		previousInstance := result.Instance
 		if err := updateJobStep(j, step.ID, job.StatusFailed, jobStepUpdate{Message: result.Message}); err != nil {
 			return nil, err
 		}
 		if idx := jobStepIndex(j, step.ID); idx >= 0 {
 			j.Steps[idx].Instance = ""
+			j.Steps[idx].InstanceURI = ""
 			result.Step = cloneJobStep(&j.Steps[idx])
 			result.StepStatus = j.Steps[idx].Status
 			result.Instance = j.Steps[idx].Instance
@@ -10920,6 +10926,9 @@ func timeoutJobRunningSteps(teamDir string, j *job.Job, stepFilter, targetFilter
 			"step":    result.StepID,
 			"age":     result.Age,
 			"timeout": result.Timeout,
+		}
+		if previousInstance != "" {
+			data["step_instance"] = previousInstance
 		}
 		if err := writeJobWithAudit(teamDir, j, "step_timeout", "cli", result.Message, data); err != nil {
 			return nil, err

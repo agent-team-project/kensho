@@ -4316,10 +4316,13 @@ func newJobReopenCmd() *cobra.Command {
 			}
 			data := map[string]string{"force": fmt.Sprint(force)}
 			if dispatchNow && len(j.Steps) > 0 {
-				if stepID := resetFailedPipelineStepForRetry(j); stepID != "" {
-					data["step"] = stepID
+				if reset := resetFailedPipelineStepForRetry(j); reset.StepID != "" {
+					data["step"] = reset.StepID
+					if reset.PreviousInstance != "" {
+						data["step_instance"] = reset.PreviousInstance
+					}
 					if strings.TrimSpace(message) == "" {
-						j.LastStatus = "reopened step " + stepID + " for retry"
+						j.LastStatus = "reopened step " + reset.StepID + " for retry"
 					}
 				}
 			}
@@ -5852,6 +5855,12 @@ func newJobStepCmd() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "agent-team job step: %v\n", err)
 				return exitErr(2)
 			}
+			stepAuditData := map[string]string{"step": args[1]}
+			if idx := jobStepIndex(j, args[1]); idx >= 0 && j.Steps[idx].Status == job.StatusFailed && stepStatus == job.StatusQueued {
+				if previous := strings.TrimSpace(j.Steps[idx].Instance); previous != "" {
+					stepAuditData["step_instance"] = previous
+				}
+			}
 			if err := updateJobStep(j, args[1], stepStatus, jobStepUpdate{
 				Message:  message,
 				Instance: instance,
@@ -5912,7 +5921,7 @@ func newJobStepCmd() *cobra.Command {
 				}
 				return renderJobStepPreview(cmd.OutOrStdout(), j, args[1], jsonOut, tmpl)
 			}
-			if err := writeJobWithAudit(teamDir, j, "", "cli", "", map[string]string{"step": args[1]}); err != nil {
+			if err := writeJobWithAudit(teamDir, j, "", "cli", "", stepAuditData); err != nil {
 				return err
 			}
 			if advance && stepStatus == job.StatusDone {
@@ -5969,7 +5978,7 @@ func newJobStepCmd() *cobra.Command {
 	cmd.Flags().StringVar(&repo, "repo", cwd, repoFlagHelp)
 	cmd.Flags().StringVar(&status, "status", string(job.StatusDone), "Step status: queued, running, blocked, done, or failed.")
 	cmd.Flags().StringVar(&message, "message", "", "Status message recorded on the job.")
-	cmd.Flags().StringVar(&instance, "instance", "", "Instance that owns or completed this step.")
+	cmd.Flags().StringVar(&instance, "instance", "", "Instance that owns or completed this step. On failed-step requeue, passing this flag explicitly records same-instance ownership; omitting it requests a fresh target-specific dispatch.")
 	cmd.Flags().StringVar(&pr, "pr", "", "PR URL to record on the job.")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch name to record on the job.")
 	cmd.Flags().StringVar(&worktree, "worktree", "", "Worktree path to record on the job.")
@@ -12543,10 +12552,14 @@ func updateJobStep(j *job.Job, stepID string, status job.Status, update jobStepU
 	}
 	now := time.Now().UTC()
 	step := &j.Steps[idx]
+	failedStepRequeue := step.Status == job.StatusFailed && status == job.StatusQueued
 	if head := strings.TrimSpace(update.Head); head != "" {
 		applyJobHead(j, stepID, head)
 	}
 	step.Status = status
+	if failedStepRequeue {
+		clearJobStepActiveAttempt(step)
+	}
 	if strings.TrimSpace(update.Instance) != "" {
 		step.Instance = strings.TrimSpace(update.Instance)
 	}
@@ -13777,20 +13790,36 @@ func heldJobMessage(j *job.Job) string {
 	return msg
 }
 
-func resetFailedPipelineStepForRetry(j *job.Job) string {
+func resetFailedPipelineStepForRetry(j *job.Job) pipelineStepRetryReset {
 	return resetFailedPipelineStepForRetryByID(j, "")
 }
 
-func resetFailedPipelineStepForRetryByID(j *job.Job, stepID string) string {
-	result := resetFailedPipelineStepForRetryByIDWithReason(j, stepID, false)
-	return result.StepID
+func resetFailedPipelineStepForRetryByID(j *job.Job, stepID string) pipelineStepRetryReset {
+	return resetFailedPipelineStepForRetryByIDWithReason(j, stepID, false)
+}
+
+// clearJobStepActiveAttempt removes ownership and lifecycle state that belongs
+// only to the attempt being reset. Callers preserve prior attribution before
+// clearing when they need it in durable audit history.
+func clearJobStepActiveAttempt(step *job.Step) {
+	if step == nil {
+		return
+	}
+	step.Instance = ""
+	step.InstanceURI = ""
+	step.QueueReason = ""
+	step.QueuedAt = time.Time{}
+	step.RunningAt = time.Time{}
+	step.StartedAt = time.Time{}
+	step.FinishedAt = time.Time{}
 }
 
 type pipelineStepRetryReset struct {
-	StepID      string
-	Reason      string
-	Attempts    int
-	MaxAttempts int
+	StepID           string
+	Reason           string
+	Attempts         int
+	MaxAttempts      int
+	PreviousInstance string
 }
 
 func resetFailedPipelineStepForRetryByIDWithReason(j *job.Job, stepID string, force bool) pipelineStepRetryReset {
@@ -13810,11 +13839,10 @@ func resetFailedPipelineStepForRetryByIDWithReason(j *job.Job, stepID string, fo
 		if attempts, reason := jobStepRetryLimitReason(step); reason != "" && !force {
 			return pipelineStepRetryReset{Reason: reason, Attempts: attempts, MaxAttempts: step.MaxAttempts}
 		}
+		previousInstance := strings.TrimSpace(step.Instance)
 		step.Status = job.StatusBlocked
-		step.Instance = ""
-		step.StartedAt = time.Time{}
-		step.FinishedAt = time.Time{}
-		return pipelineStepRetryReset{StepID: step.ID, Attempts: attempts, MaxAttempts: step.MaxAttempts}
+		clearJobStepActiveAttempt(step)
+		return pipelineStepRetryReset{StepID: step.ID, Attempts: attempts, MaxAttempts: step.MaxAttempts, PreviousInstance: previousInstance}
 	}
 	return pipelineStepRetryReset{Reason: "no retryable failed step"}
 }
