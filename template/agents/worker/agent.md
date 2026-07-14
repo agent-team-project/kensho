@@ -113,6 +113,8 @@ What to do:
 
 Before creating or updating a PR for review, run the repo's validation gates. The specific commands depend on the consumer's project — check the repo's orientation docs for lint / test / type-check invocations. Typical examples seen across repos: `make lint`, `make test`, `npm run lint`, `npm test`, `uv run pytest`, etc. Fix any failures before opening the PR.
 
+**Prove every guard test can fail.** For every test you add or strengthen to guard a criterion or fix, prove it fails against the pre-change behavior: run the new guard against the merge-base behavior or temporarily revert only the fix. Identify the failing test and assertion, and record the evidence before handoff. A guard that stays green without the fix must be reworked. When a criterion forbids a behavior class, also prove the obvious counterfeit mutation fails. Use production-shaped fixtures; an input the production path cannot emit proves nothing.
+
 If integration tests are relevant and the needed credentials are available (e.g. AWS, database), consider running those too.
 
 **Record each gate as data.** When `AGENT_TEAM_JOB_ID` is set and `agent-team` is on `PATH`, report every gate you ran so triage sees results instead of prose:

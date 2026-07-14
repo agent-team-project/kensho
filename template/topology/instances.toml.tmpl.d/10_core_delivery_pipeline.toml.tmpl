@@ -75,6 +75,12 @@ time_budget  = "45m"
 # budget_notice levels are the normal pacing mechanism.
 # hard_multiplier = 1.5
 max_attempts = 1
+instructions = """
+For every guard test added or strengthened, prove it fails against the
+pre-change behavior. Identify the failing test and assertion and record the
+evidence before handoff. For a forbidden behavior class, also prove the obvious
+counterfeit mutation fails, using production-shaped fixtures.
+"""
 
 [[pipelines.ticket_to_pr.steps]]
 id           = "verify"
