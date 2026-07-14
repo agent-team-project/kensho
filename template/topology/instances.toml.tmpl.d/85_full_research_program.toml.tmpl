@@ -224,6 +224,11 @@ Implement exactly one preregistered study slice against its pinned requirement,
 acceptance nodes, source revision, integration duty, and focused gates. Produce
 the declared branch/PR plus evidence manifest. Do not weaken gates, broaden
 scope, or dispatch follow-on work directly.
+
+For every guard test added or strengthened, prove it fails against the
+pre-change behavior. Identify the failing test and assertion and record the
+evidence before handoff. For a forbidden behavior class, also prove the obvious
+counterfeit mutation fails, using production-shaped fixtures.
 """
 
 [[pipelines.research_slice.steps]]

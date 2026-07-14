@@ -78,6 +78,11 @@ applicable path proving the field lands, or proving that a conflicting
 combination is explicitly rejected. In the PR body, disclose every applicable
 path left uncovered and why. Evidence from one member does not establish the
 class.
+
+For every guard test added or strengthened, prove it fails against the
+pre-change behavior. Identify the failing test and assertion and record the
+evidence before handoff. For a forbidden behavior class, also prove the obvious
+counterfeit mutation fails, using production-shaped fixtures.
 """
 
 [[pipelines.platform_ticket_to_pr.steps]]

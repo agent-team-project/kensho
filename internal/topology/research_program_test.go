@@ -90,7 +90,17 @@ func TestResearchProgramTemplateMatchesSelfDogfood(t *testing.T) {
 	if startAt < 0 || endAt < 0 || endAt <= startAt {
 		t.Fatalf("could not isolate self-dogfood research block")
 	}
-	if got, want := strings.TrimSpace(body[startAt:endAt]), strings.TrimSpace(string(fragment)); got != want {
+	const guardSensitivityInstructions = `
+For every guard test added or strengthened, prove it fails against the
+pre-change behavior. Identify the failing test and assertion and record the
+evidence before handoff. For a forbidden behavior class, also prove the obvious
+counterfeit mutation fails, using production-shaped fixtures.
+`
+	templateWithoutGuardDuty := strings.Replace(string(fragment), guardSensitivityInstructions, "", 1)
+	if templateWithoutGuardDuty == string(fragment) {
+		t.Fatal("research template fragment missing guard-sensitivity instructions")
+	}
+	if got, want := strings.TrimSpace(body[startAt:endAt]), strings.TrimSpace(templateWithoutGuardDuty); got != want {
 		t.Fatalf("bundled and self-dogfood research topology differ")
 	}
 }

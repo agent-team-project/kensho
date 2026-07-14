@@ -391,8 +391,15 @@ func TestInit_FullProfileCompletenessSteeringReachesRuntimeSurfaces(t *testing.T
 	if preview.Step == nil {
 		t.Fatal("platform implement dispatch preview missing step")
 	}
-	if strings.TrimSpace(selfDogfoodInstructions) != strings.TrimSpace(preview.Step.Instructions) {
-		t.Fatalf("self-dogfood and rendered platform implement instructions differ:\nself-dogfood:\n%s\nrendered:\n%s", selfDogfoodInstructions, preview.Step.Instructions)
+	renderedCompletenessInstructions, _, ok := strings.Cut(
+		preview.Step.Instructions,
+		"\nFor every guard test added or strengthened,",
+	)
+	if !ok {
+		t.Fatal("rendered platform implement instructions missing GH-399 guidance after GH-375 guidance")
+	}
+	if strings.TrimSpace(selfDogfoodInstructions) != strings.TrimSpace(renderedCompletenessInstructions) {
+		t.Fatalf("self-dogfood and rendered GH-375 platform implement instructions differ:\nself-dogfood:\n%s\nrendered:\n%s", selfDogfoodInstructions, renderedCompletenessInstructions)
 	}
 
 	teamDir := filepath.Join(tmp, ".agent_team")
@@ -407,6 +414,88 @@ func TestInit_FullProfileCompletenessSteeringReachesRuntimeSurfaces(t *testing.T
 	} {
 		if !strings.Contains(reviewer.Prompt, want) {
 			t.Errorf("loaded reviewer prompt missing %q", want)
+		}
+	}
+}
+
+func TestInit_FullProfileGuardSensitivitySteeringReachesWorkerSurfaces(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := NewRootCmd()
+	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs(initArgsWithRequiredFull(tmp))
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("init full profile: %v\nstderr: %s", err, errOut.String())
+	}
+
+	teamDir := filepath.Join(tmp, ".agent_team")
+	renderedWorker, err := loader.LoadAgent(filepath.Join(teamDir, "agents", "worker"), teamDir)
+	if err != nil {
+		t.Fatalf("load rendered worker: %v", err)
+	}
+	assertGuardSensitivityDuty(t, "rendered worker prompt", renderedWorker.Prompt)
+
+	currentTeamDir := filepath.Join("..", "..", ".agent_team")
+	currentWorker, err := loader.LoadAgent(filepath.Join(currentTeamDir, "agents", "worker"), currentTeamDir)
+	if err != nil {
+		t.Fatalf("load current worker: %v", err)
+	}
+	assertGuardSensitivityDuty(t, "current worker prompt", currentWorker.Prompt)
+
+	renderedTopology, err := topology.LoadFromTeamDir(teamDir)
+	if err != nil {
+		t.Fatalf("load rendered topology: %v", err)
+	}
+	expected := map[string]string{
+		"ticket_to_pr":          "worker",
+		"platform_ticket_to_pr": "platform-worker",
+		"research_slice":        "research-worker",
+		"frontend_ticket_to_pr": "frontend-worker",
+	}
+	seen := make(map[string]bool, len(expected))
+	for pipelineName, pipeline := range renderedTopology.Pipelines {
+		for _, step := range pipeline.Steps {
+			if step.ID != "implement" {
+				continue
+			}
+			instance := renderedTopology.Instances[step.Target]
+			if instance == nil {
+				t.Fatalf("pipeline %s implement target %q is not a declared instance", pipelineName, step.Target)
+			}
+			if instance.Agent != "worker" {
+				continue
+			}
+			wantTarget, ok := expected[pipelineName]
+			if !ok {
+				t.Errorf("worker-agent implement pipeline %q is not covered by the expected surface inventory", pipelineName)
+			} else if step.Target != wantTarget {
+				t.Errorf("pipeline %s implement target = %q, want %q", pipelineName, step.Target, wantTarget)
+			}
+			seen[pipelineName] = true
+			assertGuardSensitivityDuty(t, pipelineName+" implement instructions", step.Instructions)
+		}
+	}
+	for pipelineName := range expected {
+		if !seen[pipelineName] {
+			t.Errorf("expected worker-agent implement pipeline %q was not rendered", pipelineName)
+		}
+	}
+}
+
+func assertGuardSensitivityDuty(t *testing.T, surface, content string) {
+	t.Helper()
+	normalized := strings.ToLower(strings.Join(strings.Fields(content), " "))
+	for _, want := range []string{
+		"prove it fails against the pre-change behavior",
+		"failing test and assertion",
+		"record the evidence before handoff",
+		"obvious counterfeit mutation fails",
+		"production-shaped fixtures",
+	} {
+		if !strings.Contains(normalized, want) {
+			t.Errorf("%s missing guard-sensitivity duty %q", surface, want)
 		}
 	}
 }
