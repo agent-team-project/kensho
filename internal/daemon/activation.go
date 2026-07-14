@@ -321,6 +321,15 @@ func ReadActivationStatus(teamDir string) (*ActivationStatus, error) {
 	return &status, nil
 }
 
+func persistLoadedActivationAssets(teamDir, assets string) error {
+	launch, err := ReadLaunchEnv(DaemonRoot(teamDir))
+	if err != nil {
+		return err
+	}
+	launch.Assets = strings.TrimSpace(assets)
+	return WriteLaunchEnv(DaemonRoot(teamDir), launch)
+}
+
 func inspectActivationGit(repoRoot string, daemonBuild buildinfo.Info, status *ActivationStatus, addReason func(string, ...any)) {
 	if status == nil || strings.TrimSpace(repoRoot) == "" {
 		return

@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,8 +16,7 @@ import (
 )
 
 func TestActivationRejectsStaleCLIForScheduledTeamAuthorityBeforeSpawn(t *testing.T) {
-	teamDir := fixtureTeamDir(t)
-	top := mustParseCustomTopo(t, `
+	topologyText := `
 [instances.worker]
 agent = "worker"
 ephemeral = true
@@ -40,17 +41,18 @@ enforcement = "enforce"
 
 [authority.instances.worker]
 allow = ["job.gate.*:team"]
-`)
+`
+	fixture := newProductionActivationFixture(t, topologyText)
+	fixture.useCLI(t, fixture.staleCLI)
+	top := mustParseCustomTopo(t, topologyText)
 	fake := newFakeSpawner(100 * time.Millisecond)
-	mgr := NewInstanceManager(t.TempDir(), fake.spawn)
-	resolver := NewEventResolver(mgr, teamDir, top)
-	setActivationForTest(resolver, ActivationStatus{
-		State:   ActivationStateNeeded,
-		CLI:     buildinfo.Info{Version: "0.1.0", Revision: "b062047f11111111111111111111111111111111"},
-		Daemon:  buildinfo.Info{Version: "0.1.0", Revision: "3d5921d9c5d8115359ed1519c9d448981cd5abc7"},
-		Reasons: []string{"managed CLI b062047f does not match daemon 3d5921d9"},
-		Action:  activationAction,
-	})
+	mgr := NewInstanceManager(DaemonRoot(fixture.teamDir), fake.spawn)
+	resolver := NewEventResolver(mgr, fixture.teamDir, top)
+	setActivationContextForTest(resolver, fixture.activationContext())
+	status := resolver.activationStatus()
+	if status.State != ActivationStateNeeded || !strings.Contains(strings.Join(status.Reasons, "\n"), "managed CLI") {
+		t.Fatalf("production stale CLI verdict = %+v", status)
+	}
 
 	_, err := resolver.FireDueSchedulesWithResult(time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC))
 	if err == nil || !strings.Contains(err.Error(), "activation needed") || !strings.Contains(err.Error(), "managed CLI") {
@@ -59,7 +61,7 @@ allow = ["job.gate.*:team"]
 	if got := fake.callCount(); got != 0 {
 		t.Fatalf("scheduled stale tuple spawned %d process(es), want 0", got)
 	}
-	_, err = mgr.Dispatch(DispatchInput{Agent: "worker", Name: "direct-worker", Workspace: filepath.Dir(teamDir)})
+	_, err = mgr.Dispatch(DispatchInput{Agent: "worker", Name: "direct-worker", Workspace: filepath.Dir(fixture.teamDir)})
 	if err == nil || !strings.Contains(err.Error(), "activation needed") {
 		t.Fatalf("direct stale tuple error = %v", err)
 	}
@@ -70,8 +72,7 @@ allow = ["job.gate.*:team"]
 
 func TestActivationAllowsCoherentScheduledAndPersistentLaunches(t *testing.T) {
 	t.Run("scheduled", func(t *testing.T) {
-		teamDir := fixtureTeamDir(t)
-		top := mustParseCustomTopo(t, `
+		topologyText := `
 [instances.worker]
 agent = "worker"
 ephemeral = true
@@ -89,11 +90,17 @@ enforcement = "enforce"
 
 [authority.instances.worker]
 allow = ["job.gate.*:team"]
-`)
+`
+		fixture := newProductionActivationFixture(t, topologyText)
+		fixture.useCLI(t, fixture.currentCLI)
+		top := mustParseCustomTopo(t, topologyText)
 		fake := newFakeSpawner(100 * time.Millisecond)
-		mgr := NewInstanceManager(t.TempDir(), fake.spawn)
-		resolver := NewEventResolver(mgr, teamDir, top)
-		setActivationForTest(resolver, coherentActivationForTest(t))
+		mgr := NewInstanceManager(DaemonRoot(fixture.teamDir), fake.spawn)
+		resolver := NewEventResolver(mgr, fixture.teamDir, top)
+		setActivationContextForTest(resolver, fixture.activationContext())
+		if status := resolver.activationStatus(); !status.Coherent() {
+			t.Fatalf("production coherent scheduled verdict = %+v", status)
+		}
 
 		result, err := resolver.FireDueSchedulesWithResult(time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC))
 		if err != nil {
@@ -105,9 +112,7 @@ allow = ["job.gate.*:team"]
 	})
 
 	t.Run("persistent", func(t *testing.T) {
-		teamDir := fixtureTeamDir(t)
-		writeFixtureAgent(t, teamDir, "manager")
-		top := mustParseCustomTopo(t, `
+		topologyText := `
 [instances.manager]
 agent = "manager"
 ephemeral = false
@@ -117,13 +122,19 @@ enforcement = "enforce"
 
 [authority.instances.manager]
 allow = ["job.gate.*:team", "job.merge:team"]
-`)
+`
+		fixture := newProductionActivationFixture(t, topologyText)
+		fixture.useCLI(t, fixture.currentCLI)
+		top := mustParseCustomTopo(t, topologyText)
 		fake := newFakeSpawner(100 * time.Millisecond)
-		mgr := NewInstanceManager(t.TempDir(), fake.spawn)
-		ctx := activationContextForTest(coherentActivationForTest(t))
-		mgr.setActivationContext(ctx)
+		mgr := NewInstanceManager(DaemonRoot(fixture.teamDir), fake.spawn)
+		resolver := NewEventResolver(mgr, fixture.teamDir, top)
+		setActivationContextForTest(resolver, fixture.activationContext())
+		if status := resolver.activationStatus(); !status.Coherent() {
+			t.Fatalf("production coherent persistent verdict = %+v", status)
+		}
 
-		meta, launched, err := launchDeclaredFreshWithPrompt(teamDir, mgr, top, top.Find("manager"), nil, "coherent control")
+		meta, launched, err := launchDeclaredFreshWithPrompt(fixture.teamDir, mgr, top, top.Find("manager"), nil, "coherent control")
 		if err != nil {
 			t.Fatalf("coherent persistent launch: %v", err)
 		}
@@ -131,12 +142,13 @@ allow = ["job.gate.*:team", "job.merge:team"]
 			t.Fatalf("coherent persistent meta=%+v launched=%t spawn_calls=%d", meta, launched, fake.callCount())
 		}
 
-		stale := coherentActivationForTest(t)
-		stale.State = ActivationStateNeeded
-		stale.Reasons = []string{"topology, prompt, or skill assets changed after load"}
-		stale.Action = activationAction
-		mgr.setActivationContext(activationContextForTest(stale))
-		_, _, err = launchDeclaredFreshWithPrompt(teamDir, mgr, top, top.Find("manager"), nil, "stale control")
+		if err := os.WriteFile(filepath.Join(fixture.teamDir, "config.toml"), []byte("# changed after activation\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if status := resolver.activationStatus(); status.State != ActivationStateNeeded || !strings.Contains(strings.Join(status.Reasons, "\n"), "assets changed") {
+			t.Fatalf("production stale asset verdict = %+v", status)
+		}
+		_, _, err = launchDeclaredFreshWithPrompt(fixture.teamDir, mgr, top, top.Find("manager"), nil, "stale control")
 		if err == nil || !strings.Contains(err.Error(), "activation needed") {
 			t.Fatalf("persistent stale tuple error = %v", err)
 		}
@@ -231,33 +243,156 @@ func TestBuildHandshakeRejectsStaleMutationsButLeavesStatusReadable(t *testing.T
 		w.WriteHeader(http.StatusNoContent)
 	}), daemonBuild, &bytes.Buffer{})
 
-	for _, tc := range []struct {
+	blocked := []struct {
 		method string
 		path   string
-		want   int
 	}{
-		{method: http.MethodPost, path: "/v1/dispatch", want: http.StatusConflict},
-		{method: http.MethodPost, path: "/v1/start", want: http.StatusConflict},
-		{method: http.MethodGet, path: "/v1/status", want: http.StatusNoContent},
-	} {
+		{method: http.MethodPost, path: "/v1/dispatch"},
+		{method: http.MethodPost, path: "/v1/start"},
+		{method: http.MethodPost, path: "/v1/restart"},
+		{method: http.MethodPost, path: "/v1/interrupt"},
+		{method: http.MethodPost, path: "/v1/reconcile"},
+		{method: http.MethodPost, path: "/v1/team/spawn"},
+		{method: http.MethodPost, path: "/v1/event"},
+		{method: http.MethodPost, path: "/v1/intake/github"},
+		{method: http.MethodPost, path: "/v1/outbox/drain"},
+		{method: http.MethodPost, path: "/v1/queue/drain"},
+		{method: http.MethodPost, path: "/v1/queue/queued-1/retry"},
+		{method: http.MethodPost, path: "/v1/schedules/fire"},
+		{method: http.MethodPost, path: "/v1/manager-wake/sweep"},
+		{method: http.MethodPost, path: "/v1/topology/reload"},
+	}
+	for _, tc := range blocked {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		req.Header.Set(buildinfo.HeaderName, clientBuild.HeaderValue())
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		if rec.Code != tc.want {
+		if rec.Code != http.StatusConflict {
 			t.Fatalf("%s %s status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
-		if tc.want == http.StatusConflict && !strings.Contains(rec.Body.String(), "activation needed") {
+		if !strings.Contains(rec.Body.String(), "activation needed") {
 			t.Fatalf("%s %s body=%s", tc.method, tc.path, rec.Body.String())
 		}
 	}
-	if called != 1 {
-		t.Fatalf("downstream calls=%d, want only GET status", called)
+	if called != 0 {
+		t.Fatalf("blocked launch routes reached downstream %d time(s)", called)
+	}
+
+	allowed := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/v1/status"},
+		{method: http.MethodPost, path: "/v1/stop"},
+		{method: http.MethodPost, path: "/v1/message"},
+		{method: http.MethodPost, path: "/v1/queue/queued-1/drop"},
+		{method: http.MethodPost, path: "/v1/team/charters/charter-1/reap"},
+	}
+	for _, tc := range allowed {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req.Header.Set(buildinfo.HeaderName, clientBuild.HeaderValue())
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("%s %s status=%d body=%s", tc.method, tc.path, rec.Code, rec.Body.String())
+		}
+	}
+	if called != len(allowed) {
+		t.Fatalf("non-launch downstream calls=%d, want %d", called, len(allowed))
 	}
 }
 
+func TestTopologyReloadDurablyAdvancesActivationTuple(t *testing.T) {
+	topologyText := `
+[instances.manager]
+agent = "manager"
+ephemeral = false
+`
+	fixture := newProductionActivationFixture(t, topologyText)
+	fixture.useCLI(t, fixture.currentCLI)
+	top := mustParseCustomTopo(t, topologyText)
+	mgr := NewInstanceManager(DaemonRoot(fixture.teamDir), newFakeSpawner(100*time.Millisecond).spawn)
+	resolver := NewEventResolver(mgr, fixture.teamDir, top)
+	setActivationContextForTest(resolver, fixture.activationContext())
+	if err := WriteLaunchEnv(DaemonRoot(fixture.teamDir), &LaunchEnv{
+		Bin:        "agent-teamd",
+		RecordedAt: time.Now().UTC(),
+		Version:    1,
+		Build:      fixture.currentBuild,
+		Assets:     fixture.loadedAssets,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status := resolver.activationStatus(); !status.Coherent() {
+		t.Fatalf("initial activation verdict = %+v", status)
+	}
+
+	if err := os.WriteFile(filepath.Join(fixture.teamDir, "config.toml"), []byte("# changed before reload\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status := resolver.activationStatus(); status.State != ActivationStateNeeded {
+		t.Fatalf("pre-reload activation verdict = %+v, want activation_needed", status)
+	}
+
+	handler := Handler(mgr, nil, resolver, fixture.teamDir, fixture.currentBuild)
+	reloadReq := httptest.NewRequest(http.MethodPost, "/v1/topology/reload", nil)
+	reloadReq.Header.Set(buildinfo.HeaderName, fixture.currentBuild.HeaderValue())
+	reloadRec := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRec, reloadReq)
+	if reloadRec.Code != http.StatusOK {
+		t.Fatalf("topology reload status=%d body=%s", reloadRec.Code, reloadRec.Body.String())
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	statusRec := httptest.NewRecorder()
+	handler.ServeHTTP(statusRec, statusReq)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("daemon status=%d body=%s", statusRec.Code, statusRec.Body.String())
+	}
+	var live struct {
+		Activation *ActivationStatus `json:"activation"`
+	}
+	if err := decodeJSONResponse(statusRec.Body, &live); err != nil {
+		t.Fatal(err)
+	}
+	durable, err := ReadActivationStatus(fixture.teamDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brief, err := GenerateInstanceBrief(fixture.teamDir, "manager", BriefOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, status := range map[string]*ActivationStatus{
+		"daemon status":  live.Activation,
+		"durable tuple":  durable,
+		"instance brief": brief.Activation,
+	} {
+		if status == nil || !status.Coherent() {
+			t.Fatalf("%s activation = %+v, want coherent", name, status)
+		}
+		if status.LoadedAssets == fixture.loadedAssets || status.LoadedAssets != status.CurrentAssets {
+			t.Fatalf("%s assets loaded=%q current=%q initial=%q", name, status.LoadedAssets, status.CurrentAssets, fixture.loadedAssets)
+		}
+	}
+	launch, err := ReadLaunchEnv(DaemonRoot(fixture.teamDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launch.Assets != durable.LoadedAssets {
+		t.Fatalf("launch snapshot assets=%q durable loaded=%q", launch.Assets, durable.LoadedAssets)
+	}
+}
+
+func decodeJSONResponse(r *bytes.Buffer, target any) error {
+	return json.NewDecoder(r).Decode(target)
+}
+
 func setActivationForTest(resolver *EventResolver, status ActivationStatus) {
-	ctx := activationContextForTest(status)
+	setActivationContextForTest(resolver, activationContextForTest(status))
+}
+
+func setActivationContextForTest(resolver *EventResolver, ctx activationContext) {
 	resolver.mu.Lock()
 	resolver.activation = ctx
 	resolver.mu.Unlock()
@@ -271,6 +406,96 @@ func activationContextForTest(status ActivationStatus) activationContext {
 		Inspect: func(string, buildinfo.Info, string) ActivationStatus {
 			return status
 		},
+	}
+}
+
+type productionActivationFixture struct {
+	teamDir      string
+	staleCLI     string
+	currentCLI   string
+	currentBuild buildinfo.Info
+	loadedAssets string
+}
+
+func newProductionActivationFixture(t *testing.T, topologyText string) productionActivationFixture {
+	t.Helper()
+	repoRoot := t.TempDir()
+	teamDir := filepath.Join(repoRoot, ".agent_team")
+	writeFixtureAgent(t, teamDir, "worker")
+	writeFixtureAgent(t, teamDir, "manager")
+	for path, body := range map[string]string{
+		filepath.Join(teamDir, "instances.toml"): topologyText,
+		filepath.Join(teamDir, "config.toml"):    "# activation fixture\n",
+		filepath.Join(repoRoot, "go.mod"):        "module example.com/activationfixture\n\ngo 1.22\n",
+		filepath.Join(repoRoot, "main.go"):       "package main\n\nfunc main() {}\n",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runActivationFixtureCommand(t, repoRoot, "git", "init", "-q")
+	runActivationFixtureCommand(t, repoRoot, "git", "config", "user.name", "Activation Fixture")
+	runActivationFixtureCommand(t, repoRoot, "git", "config", "user.email", "activation@example.invalid")
+	runActivationFixtureCommand(t, repoRoot, "git", "add", ".")
+	runActivationFixtureCommand(t, repoRoot, "git", "commit", "-qm", "stale activation revision")
+
+	staleCLI := filepath.Join(t.TempDir(), "agent-team")
+	runActivationFixtureCommand(t, repoRoot, "go", "build", "-buildvcs=true", "-o", staleCLI, ".")
+	controlPlaneFile := filepath.Join(repoRoot, "internal", "daemon", "revision.txt")
+	if err := os.MkdirAll(filepath.Dir(controlPlaneFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(controlPlaneFile, []byte("current\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runActivationFixtureCommand(t, repoRoot, "git", "add", ".")
+	runActivationFixtureCommand(t, repoRoot, "git", "commit", "-qm", "current activation revision")
+
+	currentCLI := filepath.Join(t.TempDir(), "agent-team")
+	runActivationFixtureCommand(t, repoRoot, "go", "build", "-buildvcs=true", "-o", currentCLI, ".")
+	staleBuild, err := buildinfo.ReadFile(staleCLI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentBuild, err := buildinfo.ReadFile(currentCLI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buildinfo.SameRevision(staleBuild, currentBuild) {
+		t.Fatalf("fixture binaries unexpectedly share revision: stale=%+v current=%+v", staleBuild, currentBuild)
+	}
+	loadedAssets, err := activationAssetDigest(teamDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return productionActivationFixture{
+		teamDir:      teamDir,
+		staleCLI:     staleCLI,
+		currentCLI:   currentCLI,
+		currentBuild: currentBuild,
+		loadedAssets: loadedAssets,
+	}
+}
+
+func (f productionActivationFixture) useCLI(t *testing.T, cli string) {
+	t.Helper()
+	t.Setenv("PATH", filepath.Dir(cli)+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func (f productionActivationFixture) activationContext() activationContext {
+	return activationContext{
+		Build:        f.currentBuild,
+		LoadedAssets: f.loadedAssets,
+		Inspect:      InspectActivation,
+	}
+}
+
+func runActivationFixtureCommand(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s %s: %v\n%s", name, strings.Join(args, " "), err, out)
 	}
 }
 

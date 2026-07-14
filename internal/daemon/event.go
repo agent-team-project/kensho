@@ -183,21 +183,32 @@ func NewEventResolver(mgr *InstanceManager, teamDir string, topo *topology.Topol
 // SetTopology swaps the live topology pointer (used by /v1/topology/reload).
 // In-flight ephemeral spawns and their queue depth are preserved across
 // reloads — the running children outlive the topology that spawned them.
-func (r *EventResolver) SetTopology(t *topology.Topology) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.topo = t
-	if r.activation.enabled() {
-		digest, err := activationAssetDigest(r.teamDir)
-		r.activation.LoadedAssets = digest
-		r.activation.TopologyError = ""
-		if err != nil {
-			r.activation.TopologyError = fmt.Sprintf("activation asset fingerprint failed: %v", err)
-		}
-		r.mgr.setActivationContext(r.activation)
+func (r *EventResolver) SetTopology(t *topology.Topology) error {
+	if r == nil {
+		return errors.New("topology reload: event resolver is required")
 	}
+	r.mu.Lock()
+	activation := r.activation
+	r.mu.Unlock()
+	if activation.enabled() {
+		digest, err := activationAssetDigest(r.teamDir)
+		if err != nil {
+			return fmt.Errorf("topology reload: activation asset fingerprint: %w", err)
+		}
+		if err := persistLoadedActivationAssets(r.teamDir, digest); err != nil {
+			return fmt.Errorf("topology reload: persist activation fingerprint: %w", err)
+		}
+		activation.LoadedAssets = digest
+		activation.TopologyError = ""
+	}
+	r.mu.Lock()
+	r.topo = t
+	r.activation = activation
 	r.setConcurrencyConfigLocked(t)
 	r.recoverLockStateLocked(time.Now().UTC())
+	r.mu.Unlock()
+	r.mgr.setActivationContext(activation)
+	return nil
 }
 
 // SetTopologyLoadError makes a parser/schema incompatibility part of the
