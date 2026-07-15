@@ -12,10 +12,30 @@ import (
 func TestMain(m *testing.M) {
 	inheritedCLI := os.Getenv("AGENT_TEAM_TEST_MANAGED_CLI")
 	scrubAgentTeamEnvForTestProcess()
+	if inheritedCLI == "" && !testProcessRunsInModule() {
+		os.Exit(m.Run())
+	}
 	cleanup := installManagedCLITestBinary(inheritedCLI)
 	code := m.Run()
 	cleanup()
 	os.Exit(code)
+}
+
+func testProcessRunsInModule() bool {
+	dir, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 func installManagedCLITestBinary(inherited string) func() {
