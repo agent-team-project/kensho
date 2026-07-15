@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -331,6 +332,79 @@ allow = ["job.gate.*:team", "job.merge:team"]
 			t.Fatalf("regenerated activation provenance = %+v", snapshot)
 		}
 	})
+}
+
+func TestInstanceBriefFlagsPersistentInstanceMissingActivationProvenance(t *testing.T) {
+	const topologyText = `
+[instances.manager]
+agent = "manager"
+ephemeral = false
+`
+	fixture := newProductionActivationFixture(t, topologyText)
+	fixture.useCLI(t, fixture.currentCLI)
+	root := DaemonRoot(fixture.teamDir)
+	if err := WriteLaunchEnv(root, &LaunchEnv{
+		Bin:        "agent-teamd",
+		RecordedAt: time.Now().UTC(),
+		Version:    1,
+		Build:      fixture.currentBuild,
+		Assets:     fixture.loadedAssets,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	meta := &Metadata{
+		Instance:      "manager",
+		Agent:         "manager",
+		Runtime:       "codex",
+		RuntimeBinary: "codex",
+		Workspace:     filepath.Dir(fixture.teamDir),
+		SessionID:     "11111111-1111-4111-8111-111111111111",
+		StartedAt:     now.Add(-time.Hour),
+		StoppedAt:     now,
+		Status:        StatusStopped,
+	}
+	if err := WriteMetadata(root, meta); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadInstanceLaunchEnv(root, "manager"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("instance launch snapshot error = %v, want missing", err)
+	}
+
+	mgr := NewInstanceManager(root, newFakeSpawner(100*time.Millisecond).spawn)
+	if err := mgr.ensureTracked("manager", meta); err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewEventResolver(mgr, fixture.teamDir, mustParseCustomTopo(t, topologyText))
+	setActivationContextForTest(resolver, fixture.activationContext())
+	live := resolver.activationStatus()
+	brief, err := GenerateInstanceBrief(fixture.teamDir, "manager", BriefOptions{Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if brief.Activation == nil {
+		t.Fatal("brief activation = nil, want activation_needed")
+	}
+	for name, status := range map[string]*ActivationStatus{
+		"live status":   &live,
+		"offline brief": brief.Activation,
+	} {
+		if status.State != ActivationStateNeeded {
+			t.Fatalf("%s activation = %+v, want activation_needed", name, status)
+		}
+		if len(status.StaleInstances) != 1 || status.StaleInstances[0] != "manager" {
+			t.Fatalf("%s stale instances = %v, want [manager]", name, status.StaleInstances)
+		}
+		if diagnostic := status.Diagnostic(); !strings.Contains(diagnostic, activationProvenanceMissingReason) {
+			t.Fatalf("%s diagnostic = %q, want %q", name, diagnostic, activationProvenanceMissingReason)
+		}
+	}
+	if got, want := brief.Activation.Summary(), live.Summary(); got != want {
+		t.Fatalf("brief summary = %q, live summary = %q", got, want)
+	}
+	if got, want := brief.Activation.Diagnostic(), live.Diagnostic(); got != want {
+		t.Fatalf("brief diagnostic = %q, live diagnostic = %q", got, want)
+	}
 }
 
 func TestActivationAllowsRevisionlessSiblingBuilds(t *testing.T) {

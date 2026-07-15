@@ -24,6 +24,7 @@ const (
 )
 
 const activationAction = "install matching agent-team and agent-teamd builds, restart the daemon, validate/reload topology, then start persistent instances fresh"
+const activationProvenanceMissingReason = "instance launch bundle predates activation provenance"
 
 var activationControlPlanePaths = []string{
 	"cmd",
@@ -204,7 +205,7 @@ func (m *InstanceManager) launchSnapshotActivationStale(instance string, status 
 	snapshot, err := ReadInstanceLaunchEnv(m.daemonRoot, instance)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return true, "instance launch bundle predates activation provenance", nil
+			return true, activationProvenanceMissingReason, nil
 		}
 		return false, "", err
 	}

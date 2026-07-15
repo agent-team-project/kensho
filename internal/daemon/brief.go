@@ -268,15 +268,23 @@ func GenerateInstanceBrief(teamDir, instance string, opts BriefOptions) (*Instan
 		brief.Errors["runtime"] = err.Error()
 	}
 	if activation, err := ReadActivationStatus(teamDir); err == nil {
+		stale := false
+		reason := ""
 		if snapshot, snapshotErr := ReadInstanceLaunchEnv(root, instance); snapshotErr == nil {
-			if stale, reason, _ := activationSnapshotStale(snapshot, *activation); stale {
-				activation.StaleInstances = []string{instance}
-				activation.Reasons = append(activation.Reasons, fmt.Sprintf("persistent instance %s is stale: %s", instance, reason))
-				activation.State = ActivationStateNeeded
-				activation.Action = activationAction
+			stale, reason, _ = activationSnapshotStale(snapshot, *activation)
+		} else if errors.Is(snapshotErr, os.ErrNotExist) {
+			if declared != nil && !declared.Ephemeral && brief.Runtime != nil {
+				stale = true
+				reason = activationProvenanceMissingReason
 			}
-		} else if !errors.Is(snapshotErr, os.ErrNotExist) {
+		} else {
 			brief.Errors["activation_provenance"] = snapshotErr.Error()
+		}
+		if stale {
+			activation.StaleInstances = []string{instance}
+			activation.Reasons = append(activation.Reasons, fmt.Sprintf("persistent instance %s is stale: %s", instance, reason))
+			activation.State = ActivationStateNeeded
+			activation.Action = activationAction
 		}
 		brief.Activation = activation
 	} else if !errors.Is(err, os.ErrNotExist) {
