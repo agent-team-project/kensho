@@ -3,13 +3,11 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -328,7 +326,8 @@ allow = ["job.gate.*:team", "job.merge:team"]
 		if err != nil {
 			t.Fatal(err)
 		}
-		if snapshot.Assets != coherent.LoadedAssets || !buildinfo.SameRevision(snapshot.Build, coherent.Daemon) {
+		comparison := buildinfo.Compare(snapshot.Build, coherent.Daemon)
+		if snapshot.Assets != coherent.LoadedAssets || !comparison.Comparable || !comparison.Equal {
 			t.Fatalf("regenerated activation provenance = %+v", snapshot)
 		}
 	})
@@ -361,8 +360,8 @@ allow = ["job.gate.*:team", "job.merge:team"]
 [authority.instances.worker]
 allow = ["job.gate.*:team"]
 `
-	buildRoot, cliPath, cliBuild, daemonBuild := buildRevisionlessSiblings(t)
-	teamDir := filepath.Join(buildRoot, ".agent_team")
+	cliPath, cliBuild, daemonBuild := buildRevisionlessSiblings(t)
+	teamDir := filepath.Join(t.TempDir(), ".agent_team")
 	writeFixtureAgent(t, teamDir, "manager")
 	writeFixtureAgent(t, teamDir, "worker")
 	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topologyText), 0o644); err != nil {
@@ -371,10 +370,11 @@ allow = ["job.gate.*:team"]
 	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("# revisionless sibling fixture\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if cliBuild.Revision != "" || daemonBuild.Revision != "" {
-		t.Fatalf("revisionless sibling fixture unexpectedly has VCS settings: cli=%+v daemon=%+v", cliBuild, daemonBuild)
+	if _, err := os.Stat(filepath.Join(filepath.Dir(teamDir), "cmd")); !os.IsNotExist(err) {
+		t.Fatalf("consumer unexpectedly contains framework source, err=%v", err)
 	}
-	if cliBuild.Cohort == "" || cliBuild.Cohort != daemonBuild.Cohort || cliBuild.BuildID == "" || daemonBuild.BuildID == "" {
+	comparison := buildinfo.Compare(cliBuild, daemonBuild)
+	if !comparison.Comparable || !comparison.Equal {
 		t.Fatalf("revisionless sibling identities are not comparable: cli=%+v daemon=%+v", cliBuild, daemonBuild)
 	}
 	t.Setenv("PATH", filepath.Dir(cliPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -415,31 +415,16 @@ allow = ["job.gate.*:team"]
 	if !launched || meta == nil || fake.callCount() != 2 {
 		t.Fatalf("revisionless persistent meta=%+v launched=%t spawn_calls=%d", meta, launched, fake.callCount())
 	}
-	buildInfoPath := filepath.Join(buildRoot, "internal", "buildinfo", "buildinfo.go")
-	body, err := os.ReadFile(buildInfoPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	drifted := bytes.Replace(body, []byte("activation-coherence-v1"), []byte("activation-coherence-v2"), 1)
-	if bytes.Equal(drifted, body) {
-		t.Fatal("revisionless fixture cohort marker not found")
-	}
-	if err := os.WriteFile(buildInfoPath, drifted, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if status := resolver.activationStatus(); status.State != ActivationStateNeeded || !strings.Contains(strings.Join(status.Reasons, "\n"), "current source tree") {
-		t.Fatalf("revisionless stale-source verdict = %+v, want activation_needed", status)
-	}
 }
 
 func TestBuildHandshakeRejectsStaleMutationsButLeavesStatusReadable(t *testing.T) {
 	daemonBuild := buildinfo.Info{Version: "0.2.0", Revision: "3d5921d9c5d8115359ed1519c9d448981cd5abc7"}
 	clientBuild := buildinfo.Info{Version: "0.1.0", Revision: "b062047f11111111111111111111111111111111"}
 	called := 0
-	handler := buildHandshakeHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := buildHandshakeHandlerWithPolicy(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called++
 		w.WriteHeader(http.StatusNoContent)
-	}), daemonBuild, &bytes.Buffer{})
+	}), daemonBuild, &bytes.Buffer{}, true)
 
 	blocked := []struct {
 		method string
@@ -459,6 +444,10 @@ func TestBuildHandshakeRejectsStaleMutationsButLeavesStatusReadable(t *testing.T
 		{method: http.MethodPost, path: "/v1/schedules/fire"},
 		{method: http.MethodPost, path: "/v1/manager-wake/sweep"},
 		{method: http.MethodPost, path: "/v1/topology/reload"},
+		{method: http.MethodPost, path: "/v1/stop"},
+		{method: http.MethodPost, path: "/v1/message"},
+		{method: http.MethodPost, path: "/v1/queue/queued-1/drop"},
+		{method: http.MethodPost, path: "/v1/team/charters/charter-1/reap"},
 	}
 	for _, tc := range blocked {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
@@ -479,13 +468,7 @@ func TestBuildHandshakeRejectsStaleMutationsButLeavesStatusReadable(t *testing.T
 	allowed := []struct {
 		method string
 		path   string
-	}{
-		{method: http.MethodGet, path: "/v1/status"},
-		{method: http.MethodPost, path: "/v1/stop"},
-		{method: http.MethodPost, path: "/v1/message"},
-		{method: http.MethodPost, path: "/v1/queue/queued-1/drop"},
-		{method: http.MethodPost, path: "/v1/team/charters/charter-1/reap"},
-	}
+	}{{method: http.MethodGet, path: "/v1/status"}}
 	for _, tc := range allowed {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		req.Header.Set(buildinfo.HeaderName, clientBuild.HeaderValue())
@@ -659,7 +642,7 @@ func newProductionActivationFixture(t *testing.T, topologyText string) productio
 	if err != nil {
 		t.Fatal(err)
 	}
-	if buildinfo.SameRevision(staleBuild, currentBuild) {
+	if comparison := buildinfo.Compare(staleBuild, currentBuild); !comparison.Comparable || comparison.Equal {
 		t.Fatalf("fixture binaries unexpectedly share revision: stale=%+v current=%+v", staleBuild, currentBuild)
 	}
 	loadedAssets, err := activationAssetDigest(teamDir)
@@ -675,22 +658,25 @@ func newProductionActivationFixture(t *testing.T, topologyText string) productio
 	}
 }
 
-func buildRevisionlessSiblings(t *testing.T) (string, string, buildinfo.Info, buildinfo.Info) {
+func buildRevisionlessSiblings(t *testing.T) (string, buildinfo.Info, buildinfo.Info) {
 	t.Helper()
-	_, sourceFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("resolve activation test source")
+	sourceRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
 	}
-	sourceRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
 	buildRoot := filepath.Join(t.TempDir(), "source")
-	for _, rel := range []string{"cmd", "internal", "template", "embed.go", "go.mod", "go.sum"} {
-		copyRevisionlessBuildPath(t, filepath.Join(sourceRoot, rel), filepath.Join(buildRoot, rel))
+	for _, rel := range []string{"cmd", "internal", "template", "scripts/build.sh", "embed.go", "go.mod", "go.sum"} {
+		copyActivationBuildPath(t, filepath.Join(sourceRoot, rel), filepath.Join(buildRoot, rel))
 	}
+	runActivationFixtureCommand(t, buildRoot, "git", "init", "-q")
+	runActivationFixtureCommand(t, buildRoot, "git", "config", "user.name", "Activation Fixture")
+	runActivationFixtureCommand(t, buildRoot, "git", "config", "user.email", "activation@example.invalid")
+	runActivationFixtureCommand(t, buildRoot, "git", "add", ".")
+	runActivationFixtureCommand(t, buildRoot, "git", "commit", "-qm", "coherent immutable source")
 	binDir := t.TempDir()
 	cliPath := filepath.Join(binDir, "agent-team")
 	daemonPath := filepath.Join(binDir, "agent-teamd")
-	runActivationFixtureCommand(t, buildRoot, "go", "build", "-buildvcs=true", "-o", cliPath, "./cmd/agent-team")
-	runActivationFixtureCommand(t, buildRoot, "go", "build", "-buildvcs=true", "-o", daemonPath, "./cmd/agent-teamd")
+	runActivationFixtureCommand(t, buildRoot, "env", "GOFLAGS=-buildvcs=false", filepath.Join(buildRoot, "scripts", "build.sh"), binDir)
 	cliBuild, err := buildinfo.ReadFile(cliPath)
 	if err != nil {
 		t.Fatal(err)
@@ -699,20 +685,20 @@ func buildRevisionlessSiblings(t *testing.T) (string, string, buildinfo.Info, bu
 	if err != nil {
 		t.Fatal(err)
 	}
-	return buildRoot, cliPath, cliBuild, daemonBuild
+	return cliPath, cliBuild, daemonBuild
 }
 
-func copyRevisionlessBuildPath(t *testing.T, src, dst string) {
+func copyActivationBuildPath(t *testing.T, src, dst string) {
 	t.Helper()
 	info, err := os.Lstat(src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !info.IsDir() {
-		copyRevisionlessBuildFile(t, src, dst, info.Mode())
+		copyActivationBuildFile(t, src, dst, info.Mode())
 		return
 	}
-	if err := filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
+	if err := filepath.WalkDir(src, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -741,7 +727,7 @@ func copyRevisionlessBuildPath(t *testing.T, src, dst string) {
 	}
 }
 
-func copyRevisionlessBuildFile(t *testing.T, src, dst string, mode fs.FileMode) {
+func copyActivationBuildFile(t *testing.T, src, dst string, mode os.FileMode) {
 	t.Helper()
 	body, err := os.ReadFile(src)
 	if err != nil {
@@ -787,8 +773,8 @@ func coherentActivationForTest(t *testing.T) ActivationStatus {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if build.Revision == "" {
-		build.Revision = "3d5921d9c5d8115359ed1519c9d448981cd5abc7"
+	if build.SourceID == "" {
+		build.SourceID = "git:3d5921d9c5d8115359ed1519c9d448981cd5abc7"
 	}
 	return ActivationStatus{
 		State:         ActivationStateCoherent,

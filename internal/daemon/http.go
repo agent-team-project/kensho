@@ -547,14 +547,18 @@ func handlerWithLogAndPolicy(m *InstanceManager, channels *ChannelStore, events 
 		if list == nil {
 			list = []*Metadata{}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		status := map[string]any{
 			"ready":      true,
 			"pid":        os.Getpid(),
 			"instances":  len(list),
 			"team_dir":   teamDir,
 			"started_at": daemonStartedAt(teamDir),
 			"build":      build,
-		})
+		}
+		if events != nil {
+			status["activation"] = events.activationStatus()
+		}
+		writeJSON(w, http.StatusOK, status)
 	})
 
 	mux.HandleFunc("/v1/reconcile", func(w http.ResponseWriter, r *http.Request) {
@@ -1159,10 +1163,14 @@ func handlerWithLogAndPolicy(m *InstanceManager, channels *ChannelStore, events 
 		}
 		topo, err := topology.LoadFromTeamDir(teamDir)
 		if err != nil {
+			events.SetTopologyLoadError(err)
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		events.SetTopology(topo)
+		if err := events.SetTopology(topo); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		writeJSON(w, http.StatusOK, marshalTopology(topo, events))
 	})
 
