@@ -483,7 +483,7 @@ func TestDoctorWarnsOnDaemonBuildMismatch(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatalf("decode doctor json: %v\nbody=%s", err, out.String())
 	}
-	if !result.OK || !containsDoctorMessage(result.Warnings, "daemon runs daemon-dev rev deadbeefcafe") {
+	if !result.OK || !containsDoctorMessage(result.Warnings, "daemon runs daemon-dev source git:deadbeefcafe") || !containsDoctorMessage(result.Warnings, "CLI is 0.1.0 missing provenance") {
 		t.Fatalf("doctor result = %+v, want daemon build mismatch warning", result)
 	}
 	if !containsDoctorMessage(result.Actions, "agent-team daemon restart") {

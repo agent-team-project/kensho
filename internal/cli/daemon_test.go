@@ -474,7 +474,7 @@ func TestDaemonStatusJSONWarnsOnBuildMismatch(t *testing.T) {
 	if body.Build.ShortRevision() != "deadbeefcafe" {
 		t.Fatalf("status build = %+v, want daemon test build", body.Build)
 	}
-	if len(body.Warnings) != 1 || !strings.Contains(body.Warnings[0], "daemon runs daemon-dev rev deadbeefcafe") || !strings.Contains(body.Warnings[0], "restart the daemon") {
+	if len(body.Warnings) != 1 || !strings.Contains(body.Warnings[0], "daemon runs daemon-dev source git:deadbeefcafe") || !strings.Contains(body.Warnings[0], "CLI is 0.1.0 missing provenance") || !strings.Contains(body.Warnings[0], "restart the daemon") {
 		t.Fatalf("status warnings = %+v, want build mismatch restart warning", body.Warnings)
 	}
 	if len(body.Actions) != 1 || body.Actions[0] != "agent-team daemon restart" {

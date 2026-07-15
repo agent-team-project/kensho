@@ -78,12 +78,46 @@ The difference between a smooth operating day and a grinding one is almost alway
 
 ## Upgrading binaries on a box with running daemons
 
+### Immutable build identity contract
+
+Activation compares source identity, not executable bytes (the CLI and daemon
+are necessarily different files) and never reads a source checkout at runtime.
+Supported build and launch classes are explicit:
+
+- Clean ordinary `go build`, `go install ./cmd/...`, and `go run` use the VCS
+  revision embedded by the Go toolchain. A dirty build is visible but is not
+  activation-comparable because `vcs.modified=true` does not identify content.
+- Revisionless and linked-worktree builds use `scripts/build.sh`, including
+  with `GOFLAGS=-buildvcs=false`. The script captures one clean `HEAD` and links
+  the same fixed marker into both binaries, rejects caller control of raw
+  linker flags, and verifies both emitted identities before succeeding. Plain
+  `-buildvcs=false` builds are unbound and fail closed.
+- GoReleaser links its exact full commit into both release binaries. Published
+  `go install ...@version` binaries may use the immutable main-module path and
+  version when VCS metadata is unavailable. Docker builds must pass
+  `--build-arg SOURCE_REVISION="$(git rev-parse HEAD)"`; the Dockerfile rejects
+  a missing or malformed revision before compiling either executable.
+- Direct `run` (interactive, one-shot, `--no-daemon`, `--detach`, ad-hoc names,
+  and runtime overrides), `instance up`, `team up`, `template run`, pipeline and
+  dynamic dispatch, and managed resume all reach either the local launch check
+  or the daemon write boundary. Unbound builds are rejected before a runtime or
+  daemon is spawned; every daemon mutation requires a comparable matching CLI.
+  Executable roles are selected by their compiled entrypoints, so copying or
+  renaming a binary cannot disable enforcement. Read-only status and
+  diagnostics remain available for repair.
+
 A long-running daemon plus an independently updated CLI is the *normal* state, and two traps live there (both hit in production):
 
 - `go install` replaces the shared binaries, but every running daemon keeps executing the old code — and `daemon restart` relaunches whatever path its launch-env snapshot recorded, which may not be the binary you just rebuilt. `daemon status`/`doctor` warn on CLI↔daemon build mismatch (SQU-54); trust that warning over your memory of what you built.
 - Wire compatibility is additive-tolerant (daemons ignore unknown request fields — SQU-55), but don't lean on it across large version gaps.
 
-The validated upgrade sequence: `go install ./cmd/agent-team ./cmd/agent-teamd` → wait for an empty fleet (or accept orphaned-adoption on running workers) → `agent-team daemon restart` (it prints which binary path it relaunched) → `agent-team doctor --canary` before dispatching real work.
+The validated upgrade sequence is: from a clean checkout, use ordinary
+VCS-stamped `go install ./cmd/agent-team ./cmd/agent-teamd` or
+`scripts/build.sh` for an explicitly revisionless paired build; wait for an
+empty fleet (or accept orphaned-adoption on running workers); then run
+`agent-team daemon restart` and `agent-team doctor --canary` before dispatching
+real work. Never activate plain `-buildvcs=false` binaries: they lack immutable
+source provenance and fail closed before launch or mutation.
 
 ## Recovery expectations
 

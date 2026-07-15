@@ -526,6 +526,9 @@ func runDaemonStartWithJSON(cmd *cobra.Command, target string, detach bool, read
 		if err != nil {
 			return err
 		}
+		if err := ensureDaemonBinaryCompatible(bin); err != nil {
+			return err
+		}
 		// Foreground: re-exec the daemon directly so the user sees its logs.
 		args := []string{"--repo", filepath.Dir(teamDir)}
 		if strings.TrimSpace(httpAddr) != "" {
@@ -602,6 +605,9 @@ type daemonDetachedLaunch struct {
 var daemonStartDetachedLaunch = startDaemonDetachedLaunch
 
 func daemonStartDetached(teamDir, bin string, readyTimeout time.Duration, httpAddr string) (daemonLifecycleJSON, error) {
+	if err := ensureDaemonBinaryCompatible(bin); err != nil {
+		return daemonLifecycleJSON{}, err
+	}
 	args := []string{bin, "--repo", filepath.Dir(teamDir)}
 	if strings.TrimSpace(httpAddr) != "" {
 		args = append(args, "--http-addr", httpAddr)
@@ -736,6 +742,9 @@ func daemonRelaunchFromSnapshot(cmd *cobra.Command, teamDir string, readyTimeout
 	if err != nil {
 		return daemonLifecycleJSON{}, err
 	}
+	if err := ensureDaemonBinaryCompatible(launch.Bin); err != nil {
+		return daemonLifecycleJSON{}, err
+	}
 	result, err := daemonStartDetachedLaunch(teamDir, launch, readyTimeout)
 	if err != nil {
 		if errors.Is(err, errDaemonReadyTimeout) {
@@ -759,6 +768,9 @@ func daemonRelaunchForegroundFromSnapshot(cmd *cobra.Command, teamDir string, ht
 	}
 	launch, err := daemonDetachedLaunchFromSnapshot(teamDir, le, httpAddr, httpAddrExplicit)
 	if err != nil {
+		return err
+	}
+	if err := ensureDaemonBinaryCompatible(launch.Bin); err != nil {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "relaunching agent-teamd from snapshot binary: %s\n", launch.Bin)
@@ -979,6 +991,9 @@ func runDaemonRestartWithJSON(cmd *cobra.Command, target string, detach bool, ti
 	if err != nil {
 		return err
 	}
+	if err := preflightDaemonRestart(cmd, teamDir, httpAddr, httpAddrExplicit); err != nil {
+		return err
+	}
 	stopResult, err := daemonStopOperation(teamDir, timeout)
 	if err != nil {
 		return err
@@ -1034,6 +1049,9 @@ func runDaemonRestartWithFormat(cmd *cobra.Command, target string, detach bool, 
 	}
 	teamDir, err := resolveTeamDir(cmd, target)
 	if err != nil {
+		return err
+	}
+	if err := preflightDaemonRestart(cmd, teamDir, httpAddr, httpAddrExplicit); err != nil {
 		return err
 	}
 	stopResult, err := daemonStopOperation(teamDir, timeout)
@@ -1626,11 +1644,12 @@ func daemonAlive(teamDir string) (int, bool) {
 var findAgentTeamd = defaultFindAgentTeamd
 
 // locateAgentTeamd finds the agent-teamd binary. Search order:
-//  1. PATH (`exec.LookPath`).
-//  2. The same directory as the running agent-team binary (so a `go install`
+//  1. The same directory as the running agent-team binary (so a `go install`
 //     that puts both binaries in the same `$GOBIN` works without a separate
 //     PATH entry, and so a release tarball that ships them side-by-side works
 //     too).
+//  2. PATH (`exec.LookPath`). Sibling-first keeps a stale ambient install from
+//     shadowing the explicitly invoked coherent pair.
 func locateAgentTeamd(cmd *cobra.Command) (string, error) {
 	path, err := findAgentTeamd()
 	if err == nil {
@@ -1642,9 +1661,6 @@ func locateAgentTeamd(cmd *cobra.Command) (string, error) {
 }
 
 func defaultFindAgentTeamd() (string, error) {
-	if path, err := exec.LookPath("agent-teamd"); err == nil {
-		return path, nil
-	}
 	exe, err := os.Executable()
 	if err == nil {
 		sibling := filepath.Join(filepath.Dir(exe), "agent-teamd")
@@ -1652,5 +1668,45 @@ func defaultFindAgentTeamd() (string, error) {
 			return sibling, nil
 		}
 	}
+	if path, err := exec.LookPath("agent-teamd"); err == nil {
+		return path, nil
+	}
 	return "", errors.New("agent-teamd binary not found")
+}
+
+func ensureDaemonBinaryCompatible(path string) error {
+	if !enforceActivationBuild {
+		return nil
+	}
+	daemonBuild, err := buildinfo.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("activation needed: inspect agent-teamd build provenance: %w", err)
+	}
+	comparison := buildinfo.Compare(BuildInfo(), daemonBuild)
+	if !comparison.Comparable {
+		return fmt.Errorf("activation needed: %s; build matching agent-team and agent-teamd executables", comparison.Reason)
+	}
+	if !comparison.Equal {
+		return fmt.Errorf("activation needed: CLI %s does not match daemon %s; build matching executables", BuildInfo().Display(), daemonBuild.Display())
+	}
+	return nil
+}
+
+func preflightDaemonRestart(cmd *cobra.Command, teamDir, httpAddr string, httpAddrExplicit bool) error {
+	launchEnv, err := daemon.ReadLaunchEnv(daemon.DaemonRoot(teamDir))
+	if err == nil {
+		launch, launchErr := daemonDetachedLaunchFromSnapshot(teamDir, launchEnv, httpAddr, httpAddrExplicit)
+		if launchErr != nil {
+			return launchErr
+		}
+		return ensureDaemonBinaryCompatible(launch.Bin)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	bin, err := locateAgentTeamd(cmd)
+	if err != nil {
+		return err
+	}
+	return ensureDaemonBinaryCompatible(bin)
 }

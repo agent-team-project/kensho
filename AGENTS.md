@@ -48,7 +48,7 @@ From repo root:
 
 ```sh
 go run ./cmd/agent-team --help
-go build -o bin/agent-team ./cmd/agent-team
+scripts/build.sh
 go test ./...
 ```
 
@@ -64,7 +64,7 @@ bin/agent-team init --target /tmp/team-smoke \
 The `scripts/ci/smoke_init.py` harness exercises the same path end-to-end:
 
 ```sh
-go build -o bin/agent-team ./cmd/agent-team
+scripts/build.sh
 python3 scripts/ci/smoke_init.py bin/agent-team
 ```
 

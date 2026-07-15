@@ -210,7 +210,7 @@ bin/agent-team job step SQU-N approve --status done --instance manager --force; 
 # capacity / cadence (edit .agent_team/instances.toml AND template/, then:)
 bin/agent-team topology reload
 # recover a dead daemon
-go install ./cmd/agent-team ./cmd/agent-teamd; bin/agent-team daemon stop; bin/agent-team daemon start
+scripts/build.sh; bin/agent-team daemon stop; bin/agent-team daemon start
 ```
 
 Keep the gate sacred. Fan wide across disjoint surfaces. Verify liveness, don't assume it. File

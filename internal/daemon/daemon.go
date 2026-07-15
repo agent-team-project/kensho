@@ -50,6 +50,11 @@ type Config struct {
 	// Build is the identity of the running daemon binary.
 	Build buildinfo.Info
 
+	// EnforceBuildIdentity rejects activation-sensitive HTTP requests from
+	// missing, malformed, or mismatched CLI builds. The shipped daemon
+	// entrypoint always enables this; in-process test handlers opt out.
+	EnforceBuildIdentity bool
+
 	// SpawnerOverride lets tests substitute a fake claude. nil -> DefaultSpawner.
 	SpawnerOverride Spawner
 }
@@ -252,7 +257,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("daemon: listen %s: %w", socket, err)
 	}
-	baseHandler := HandlerWithLog(d.manager, d.channels, d.events, d.cfg.TeamDir, d.cfg.LogOut, d.cfg.Build)
+	baseHandler := handlerWithLogAndPolicy(
+		d.manager,
+		d.channels,
+		d.events,
+		d.cfg.TeamDir,
+		d.cfg.LogOut,
+		d.cfg.EnforceBuildIdentity,
+		d.cfg.Build,
+	)
 	srv := &http.Server{
 		Handler:           loopbackAuthHandler(baseHandler, d.cfg.TeamDir, d.manager, d.cfg.Build),
 		ConnContext:       daemonConnContext,

@@ -1049,6 +1049,66 @@ func TestHTTP_BuildHandshakeSkewLogsOncePerClientIdentity(t *testing.T) {
 	}
 }
 
+func TestBuildHandshakeFailsClosedBeforeEveryActivationSensitiveRoute(t *testing.T) {
+	daemonBuild := buildinfo.Info{SourceID: "git:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	staleBuild := buildinfo.Info{SourceID: "git:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	called := 0
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called++
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := buildHandshakeHandlerWithPolicy(next, daemonBuild, io.Discard, true)
+	paths := []string{
+		"/v1/dispatch", "/v1/start", "/v1/stop", "/v1/restart", "/v1/interrupt", "/v1/reconcile",
+		"/v1/team/spawn", "/v1/event", "/v1/message", "/v1/jobs", "/v1/outbox/drain", "/v1/queue/drain",
+		"/v1/queue/item/retry", "/v1/schedules/fire", "/v1/manager-wake/sweep",
+		"/v1/topology/reload", "/v1/intake/github", "/v1/channel/review-requests/publish",
+	}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			for name, header := range map[string]string{
+				"missing":     "",
+				"malformed":   "source_id=bogus",
+				"unversioned": "version=0.1.0",
+				"stale":       staleBuild.HeaderValue(),
+			} {
+				t.Run(name, func(t *testing.T) {
+					req := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
+					if header != "" {
+						req.Header.Set(buildinfo.HeaderName, header)
+					}
+					recorder := httptest.NewRecorder()
+					handler.ServeHTTP(recorder, req)
+					if recorder.Code != http.StatusConflict {
+						t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+					}
+					if !strings.Contains(recorder.Body.String(), "activation needed") {
+						t.Fatalf("body = %s", recorder.Body.String())
+					}
+				})
+			}
+		})
+	}
+	if called != 0 {
+		t.Fatalf("guarded handler called %d times", called)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/dispatch", strings.NewReader("{}"))
+	req.Header.Set(buildinfo.HeaderName, daemonBuild.HeaderValue())
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusNoContent || called != 1 {
+		t.Fatalf("coherent request status=%d called=%d", recorder.Code, called)
+	}
+
+	readOnly := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, readOnly)
+	if recorder.Code != http.StatusNoContent || called != 2 {
+		t.Fatalf("read-only request status=%d called=%d", recorder.Code, called)
+	}
+}
+
 func TestHTTP_ErrorBodyIncludesDaemonBuild(t *testing.T) {
 	root := t.TempDir()
 	build := buildinfo.Info{

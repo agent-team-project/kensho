@@ -29,9 +29,11 @@ import (
 	"github.com/agent-team-project/agent-team/internal/topology"
 )
 
-// Handler builds the daemon's http.Handler. Routes are explicit (no library
-// router) — the surface is small and `http.ServeMux` is sufficient. All paths
-// are versioned `/v1/...` per orchestrator.md Open Q #7.
+// Handler builds an in-process daemon http.Handler with build enforcement
+// disabled. The shipped daemon enables enforcement explicitly through Config.
+// Routes are explicit (no library router) — the surface is small and
+// `http.ServeMux` is sufficient. All paths are versioned `/v1/...` per
+// orchestrator.md Open Q #7.
 //
 // If channels is nil, a fresh ChannelStore is constructed against the
 // instance manager's daemon root — convenient for tests that don't care about
@@ -50,6 +52,13 @@ func Handler(m *InstanceManager, channels *ChannelStore, events *EventResolver, 
 // HandlerWithLog builds the daemon HTTP handler and writes daemon diagnostics
 // such as build-skew warnings to logOut. nil logOut discards diagnostics.
 func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventResolver, teamDir string, logOut io.Writer, builds ...buildinfo.Info) http.Handler {
+	return handlerWithLogAndPolicy(m, channels, events, teamDir, logOut, false, builds...)
+}
+
+// handlerWithLogAndPolicy is the common constructor for the production daemon
+// and in-process test handlers. The executable entrypoint passes enforce=true;
+// test helpers opt out explicitly instead of inferring policy from a filename.
+func handlerWithLogAndPolicy(m *InstanceManager, channels *ChannelStore, events *EventResolver, teamDir string, logOut io.Writer, enforce bool, builds ...buildinfo.Info) http.Handler {
 	if channels == nil {
 		channels = NewChannelStore(m.daemonRoot)
 	}
@@ -1157,7 +1166,7 @@ func HandlerWithLog(m *InstanceManager, channels *ChannelStore, events *EventRes
 		writeJSON(w, http.StatusOK, marshalTopology(topo, events))
 	})
 
-	return buildHandshakeHandler(mux, build, logOut)
+	return buildHandshakeHandlerWithPolicy(mux, build, logOut, enforce)
 }
 
 func daemonStartedAt(teamDir string) time.Time {
@@ -1250,14 +1259,25 @@ func outcomeURIForJob(teamDir, deploymentID string, j *jobstore.Job) string {
 	return resource.OutcomeURI(deploymentID, j.ID)
 }
 
-func buildHandshakeHandler(next http.Handler, daemonBuild buildinfo.Info, logOut io.Writer) http.Handler {
+func buildHandshakeHandlerWithPolicy(next http.Handler, daemonBuild buildinfo.Info, logOut io.Writer, enforce bool) http.Handler {
 	if logOut == nil {
 		logOut = io.Discard
 	}
 	var seen sync.Map
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientBuild, ok := requestBuildIdentity(r)
-		if ok && !buildinfo.Equivalent(clientBuild, daemonBuild) {
+		comparison := buildinfo.Compare(clientBuild, daemonBuild)
+		if enforce && activationSensitiveRequest(r) && (!ok || !comparison.Comparable || !comparison.Equal) {
+			reason := "missing build provenance"
+			if ok && comparison.Reason != "" {
+				reason = comparison.Reason
+			} else if ok && comparison.Comparable {
+				reason = fmt.Sprintf("client %s does not match daemon %s", clientBuild.Display(), daemonBuild.Display())
+			}
+			writeErrorWithBuild(w, http.StatusConflict, "activation needed: "+reason+"; install matching agent-team and agent-teamd builds", daemonBuild)
+			return
+		}
+		if ok && (!comparison.Comparable || !comparison.Equal) {
 			key := clientBuild.ComparisonKey()
 			if _, loaded := seen.LoadOrStore(key, struct{}{}); !loaded {
 				fmt.Fprintf(logOut, "%s daemon build skew: client=%s daemon=%s\n",
@@ -1266,6 +1286,21 @@ func buildHandshakeHandler(next http.Handler, daemonBuild buildinfo.Info, logOut
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func activationSensitiveRequest(r *http.Request) bool {
+	if r == nil || !strings.HasPrefix(r.URL.Path, "/v1/") {
+		return false
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	default:
+		// All daemon writes are activation-sensitive. Keeping this rule at the
+		// transport boundary covers new mailbox/job/lifecycle routes by default
+		// instead of relying on each handler author to remember the guard.
+		return true
+	}
 }
 
 func requestBuildIdentity(r *http.Request) (buildinfo.Info, bool) {

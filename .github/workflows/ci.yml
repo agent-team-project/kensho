@@ -90,9 +90,7 @@ jobs:
         run: go test ./...
 
       - name: go build
-        run: |
-          go build -o bin/agent-team ./cmd/agent-team
-          go build -o bin/agent-teamd ./cmd/agent-teamd
+        run: scripts/build.sh
 
       - name: Check generated CLI reference
         run: bin/agent-team docs cli --check docs/reference/cli.generated.md
@@ -118,7 +116,7 @@ jobs:
         run: python3 scripts/demo/local_orchestration.py bin/agent-team --runtime claude
 
       - name: Docker build
-        run: docker build -t agent-team:ci .
+        run: docker build --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" -t agent-team:ci .
 
       - name: Shellcheck template scripts
         uses: ludeeus/action-shellcheck@2.0.0

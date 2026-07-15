@@ -116,6 +116,9 @@ func promptTextWithFile(prompt, promptFile string) (string, error) {
 }
 
 func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []string) error {
+	if err := requireActivationBuild(); err != nil {
+		return err
+	}
 	if cfg.format != "" && cfg.jsonOut {
 		fmt.Fprintln(cmd.ErrOrStderr(), "agent-team run: --format cannot be combined with --json.")
 		return exitErr(2)

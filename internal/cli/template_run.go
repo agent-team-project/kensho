@@ -77,6 +77,9 @@ func newTemplateRunCmd() *cobra.Command {
 }
 
 func runTemplateRun(cmd *cobra.Command, cfg templateRunConfig, ref, agent string, forwarded []string) error {
+	if err := requireActivationBuild(); err != nil {
+		return err
+	}
 	prompt, err := promptTextWithFile(cfg.prompt, cfg.promptFile)
 	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "agent-team template run: %v\n", err)

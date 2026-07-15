@@ -28,6 +28,7 @@ builds:
     ldflags:
       - -s -w
       - -X github.com/agent-team-project/agent-team/internal/cli.Version={{.Version}}
+      - -X github.com/agent-team-project/agent-team/internal/buildinfo.LinkedSourceIdentity=agent-team-source-v1:git:{{.FullCommit}}:end
 
   - id: agent-teamd
     main: ./cmd/agent-teamd
@@ -43,6 +44,7 @@ builds:
     ldflags:
       - -s -w
       - -X main.Version={{.Version}}
+      - -X github.com/agent-team-project/agent-team/internal/buildinfo.LinkedSourceIdentity=agent-team-source-v1:git:{{.FullCommit}}:end
 
 archives:
   - id: agent-team

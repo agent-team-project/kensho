@@ -64,8 +64,7 @@ for the full install and runtime-auth walkthrough.
 git clone https://github.com/agent-team-project/kensho.git agent-team
 cd agent-team
 
-go build -o bin/agent-team ./cmd/agent-team
-go build -o bin/agent-teamd ./cmd/agent-teamd
+scripts/build.sh
 export PATH="$PWD/bin:$PATH"
 
 mkdir -p /tmp/agent-team-demo
@@ -289,10 +288,18 @@ The main contributor loop is:
 
 ```sh
 go test ./...
-go build -o bin/agent-team ./cmd/agent-team
-go build -o bin/agent-teamd ./cmd/agent-teamd
+scripts/build.sh
 python3 scripts/ci/smoke_init.py bin/agent-team
 ```
+
+`scripts/build.sh` captures one clean source revision and links it immutably
+into both executables, validates both emitted identities, and does not accept
+caller-supplied raw linker flags. Ordinary clean VCS-stamped `go build`,
+`go install`, and `go run` builds carry the same identity through Go build
+info. Revisionless builds (including `-buildvcs=false` linked-worktree builds)
+must use the script; unbound, dirty, or malformed builds are rejected before
+daemon launch or any activation-sensitive daemon mutation. Copying or renaming
+either executable cannot disable those checks.
 
 The CI job also validates agent frontmatter, TOML, shell scripts, generated docs,
 and the init smoke path. See [CLAUDE.md](./CLAUDE.md) for contributor

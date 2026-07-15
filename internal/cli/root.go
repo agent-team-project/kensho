@@ -19,6 +19,27 @@ func BuildInfo() buildinfo.Info {
 	return buildinfo.Current(Version)
 }
 
+var enforceActivationBuild bool
+
+// NewExecutableRootCmd builds the command tree for the shipped CLI process.
+// Enforcement is selected by the compiled entrypoint, not by the executable
+// path, so renaming or copying the binary cannot change its activation policy.
+func NewExecutableRootCmd() *cobra.Command {
+	enforceActivationBuild = true
+	return NewRootCmd()
+}
+
+func requireActivationBuild() error {
+	if !enforceActivationBuild {
+		return nil
+	}
+	comparison := buildinfo.Compare(BuildInfo(), BuildInfo())
+	if comparison.Comparable {
+		return nil
+	}
+	return fmt.Errorf("activation needed: %s; rebuild from clean VCS metadata or with scripts/build.sh", comparison.Reason)
+}
+
 const (
 	rootRepoFlagName = "repo"
 	repoFlagHelp     = "Repo root containing .agent_team."
@@ -31,7 +52,9 @@ type ExitCode int
 
 func (e ExitCode) Error() string { return fmt.Sprintf("exit %d", int(e)) }
 
-// NewRootCmd builds the root `agent-team` command with all subcommands attached.
+// NewRootCmd builds an in-process command tree with activation enforcement
+// disabled. The shipped executable must use NewExecutableRootCmd; tests and
+// embedding helpers opt out through this constructor explicitly.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "agent-team",
