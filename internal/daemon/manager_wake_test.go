@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +83,157 @@ func newManagerGoalJob(t *testing.T, now time.Time) *jobstore.Job {
 	j.Instance = "manager"
 	j.UpdatedAt = now
 	return j
+}
+
+func seedActivatedStoppedManager(t *testing.T, root, teamDir, instance string, fixture productionActivationFixture) {
+	t.Helper()
+	seedStoppedCodexManager(t, root, teamDir, instance)
+	launch, err := ReadInstanceLaunchEnv(root, instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch.Build = fixture.currentBuild
+	launch.Assets = fixture.loadedAssets
+	if err := WriteInstanceLaunchEnv(root, instance, launch); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestActivationBlockDoesNotConsumeManagerWake(t *testing.T) {
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+
+	t.Run("idle", func(t *testing.T) {
+		fixture := newProductionActivationFixture(t, managerWakeTestTopology)
+		root := DaemonRoot(fixture.teamDir)
+		seedActivatedStoppedManager(t, root, fixture.teamDir, "manager", fixture)
+		fake := newFakeSpawner(30 * time.Second)
+		mgr := NewInstanceManager(root, fake.spawn)
+		resolver := NewEventResolver(mgr, fixture.teamDir, mustParseCustomTopo(t, managerWakeTestTopology))
+		setActivationContextForTest(resolver, fixture.activationContext())
+		j := newManagerGoalJob(t, now.Add(-time.Hour))
+		writeManagerWakeJob(t, fixture.teamDir, j)
+
+		fixture.useCLI(t, fixture.staleCLI)
+		result, err := resolver.SweepManagerWakeupsWithResult(now)
+		if err == nil || !strings.Contains(err.Error(), "activation needed") {
+			t.Fatalf("stale idle sweep result=%+v err=%v", result, err)
+		}
+		if result == nil || len(result.IdleWakeups) != 0 || len(result.Overdue) != 0 {
+			t.Fatalf("stale idle sweep consumed work: %+v", result)
+		}
+		assertBlockedManagerWakeUntouched(t, root, fixture.teamDir, j, "idle")
+		if fake.callCount() != 0 {
+			t.Fatalf("stale idle sweep spawned %d process(es), want 0", fake.callCount())
+		}
+
+		fixture.useCLI(t, fixture.currentCLI)
+		result, err = resolver.SweepManagerWakeupsWithResult(now)
+		if err != nil {
+			t.Fatalf("coherent idle retry: %v", err)
+		}
+		if len(result.IdleWakeups) != 1 || result.IdleWakeups[0].Action != "dispatched" || fake.callCount() != 1 {
+			t.Fatalf("coherent idle retry result=%+v spawn_calls=%d", result, fake.callCount())
+		}
+		messages, err := ReadMessages(root, "manager")
+		if err != nil || len(messages) != 1 {
+			t.Fatalf("coherent idle retry messages=%+v err=%v", messages, err)
+		}
+		state, err := readManagerIdleWakeState(root, "manager")
+		if err != nil || !state.LastWakeAt.Equal(now) {
+			t.Fatalf("coherent idle retry state=%+v err=%v", state, err)
+		}
+		_, _ = mgr.Stop("manager")
+		waitForStatusNot(t, mgr, "manager", StatusRunning)
+	})
+
+	t.Run("overdue", func(t *testing.T) {
+		fixture := newProductionActivationFixture(t, managerWakeTestTopology)
+		root := DaemonRoot(fixture.teamDir)
+		seedActivatedStoppedManager(t, root, fixture.teamDir, "manager", fixture)
+		fake := newFakeSpawner(30 * time.Second)
+		mgr := NewInstanceManager(root, fake.spawn)
+		resolver := NewEventResolver(mgr, fixture.teamDir, mustParseCustomTopo(t, managerWakeTestTopology))
+		setActivationContextForTest(resolver, fixture.activationContext())
+		j, err := jobstore.New("GH-424-overdue", "worker", "activation-blocked overdue review", now.Add(-time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		j.Status = jobstore.StatusRunning
+		j.Origin = origin.Envelope{Instance: "manager", Agent: "manager"}
+		j.Steps = []jobstore.Step{{
+			ID:         "review",
+			Target:     "reviewer",
+			Status:     jobstore.StatusRunning,
+			Instance:   "reviewer-gh-424",
+			RunningAt:  now.Add(-31 * time.Minute),
+			TimeBudget: "30m",
+		}}
+		j.UpdatedAt = now.Add(-31 * time.Minute)
+		writeManagerWakeJob(t, fixture.teamDir, j)
+
+		fixture.useCLI(t, fixture.staleCLI)
+		result, err := resolver.SweepManagerWakeupsWithResult(now)
+		if err == nil || !strings.Contains(err.Error(), "activation needed") {
+			t.Fatalf("stale overdue sweep result=%+v err=%v", result, err)
+		}
+		if result == nil || len(result.IdleWakeups) != 0 || len(result.Overdue) != 0 {
+			t.Fatalf("stale overdue sweep consumed work: %+v", result)
+		}
+		assertBlockedManagerWakeUntouched(t, root, fixture.teamDir, j, "overdue")
+		if fake.callCount() != 0 {
+			t.Fatalf("stale overdue sweep spawned %d process(es), want 0", fake.callCount())
+		}
+
+		fixture.useCLI(t, fixture.currentCLI)
+		result, err = resolver.SweepManagerWakeupsWithResult(now)
+		if err != nil {
+			t.Fatalf("coherent overdue retry: %v", err)
+		}
+		if len(result.Overdue) != 1 || result.Overdue[0].Action != "dispatched" || fake.callCount() != 1 {
+			t.Fatalf("coherent overdue retry result=%+v spawn_calls=%d", result, fake.callCount())
+		}
+		messages, err := ReadMessages(root, "manager")
+		if err != nil || len(messages) != 1 {
+			t.Fatalf("coherent overdue retry messages=%+v err=%v", messages, err)
+		}
+		state, err := readManagerOverdueWakeState(root, j.ID, "review")
+		if err != nil || !state.LastNotifiedAt.Equal(now) {
+			t.Fatalf("coherent overdue retry state=%+v err=%v", state, err)
+		}
+		_, _ = mgr.Stop("manager")
+		waitForStatusNot(t, mgr, "manager", StatusRunning)
+	})
+}
+
+func assertBlockedManagerWakeUntouched(t *testing.T, root, teamDir string, want *jobstore.Job, stateKind string) {
+	t.Helper()
+	messages, err := ReadMessages(root, "manager")
+	if err != nil || len(messages) != 0 {
+		t.Fatalf("blocked %s messages=%+v err=%v, want none", stateKind, messages, err)
+	}
+	if stateKind == "idle" {
+		if _, err := readManagerIdleWakeState(root, "manager"); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("blocked idle state err=%v, want not exist", err)
+		}
+	} else if _, err := readManagerOverdueWakeState(root, want.ID, "review"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("blocked overdue state err=%v, want not exist", err)
+	}
+	got, err := jobstore.Read(teamDir, want.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastEvent != want.LastEvent || got.LastStatus != want.LastStatus || !got.UpdatedAt.Equal(want.UpdatedAt) {
+		t.Fatalf("blocked %s job mutated: before=%+v after=%+v", stateKind, want, got)
+	}
+	events, err := ListLifecycleEvents(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Action == managerIdleWakeLifecycleAction || event.Action == managerOverdueWakeLifecycleAction {
+			t.Fatalf("blocked %s lifecycle event persisted: %+v", stateKind, event)
+		}
+	}
 }
 
 func TestManagerWakeSweepWakesStoppedManagerWithUnfinishedGoal(t *testing.T) {

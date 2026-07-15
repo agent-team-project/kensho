@@ -3,11 +3,13 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -332,6 +334,104 @@ allow = ["job.gate.*:team", "job.merge:team"]
 	})
 }
 
+func TestActivationAllowsRevisionlessSiblingBuilds(t *testing.T) {
+	topologyText := `
+[instances.manager]
+agent = "manager"
+ephemeral = false
+
+[instances.worker]
+agent = "worker"
+ephemeral = true
+
+[[instances.worker.triggers]]
+event = "schedule"
+match.name = "revisionless-check"
+
+[schedules.revisionless-check]
+every = "1h"
+run_on_start = true
+
+[authority]
+enforcement = "enforce"
+
+[authority.instances.manager]
+allow = ["job.gate.*:team", "job.merge:team"]
+
+[authority.instances.worker]
+allow = ["job.gate.*:team"]
+`
+	buildRoot, cliPath, cliBuild, daemonBuild := buildRevisionlessSiblings(t)
+	teamDir := filepath.Join(buildRoot, ".agent_team")
+	writeFixtureAgent(t, teamDir, "manager")
+	writeFixtureAgent(t, teamDir, "worker")
+	if err := os.WriteFile(filepath.Join(teamDir, "instances.toml"), []byte(topologyText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(teamDir, "config.toml"), []byte("# revisionless sibling fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cliBuild.Revision != "" || daemonBuild.Revision != "" {
+		t.Fatalf("revisionless sibling fixture unexpectedly has VCS settings: cli=%+v daemon=%+v", cliBuild, daemonBuild)
+	}
+	if cliBuild.Cohort == "" || cliBuild.Cohort != daemonBuild.Cohort || cliBuild.BuildID == "" || daemonBuild.BuildID == "" {
+		t.Fatalf("revisionless sibling identities are not comparable: cli=%+v daemon=%+v", cliBuild, daemonBuild)
+	}
+	t.Setenv("PATH", filepath.Dir(cliPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	loadedAssets, err := activationAssetDigest(teamDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	top := mustParseCustomTopo(t, topologyText)
+	fake := newFakeSpawner(100 * time.Millisecond)
+	mgr := NewInstanceManager(DaemonRoot(teamDir), fake.spawn)
+	t.Cleanup(func() {
+		for _, running := range mgr.List() {
+			_, _ = mgr.Stop(running.Instance)
+			waitForStatusNot(t, mgr, running.Instance, StatusRunning)
+		}
+	})
+	resolver := NewEventResolver(mgr, teamDir, top)
+	setActivationContextForTest(resolver, activationContext{
+		Build:        daemonBuild,
+		LoadedAssets: loadedAssets,
+		Inspect:      InspectActivation,
+	})
+	if status := resolver.activationStatus(); !status.Coherent() {
+		t.Fatalf("revisionless sibling activation verdict = %+v, want coherent", status)
+	}
+
+	fired, err := resolver.FireDueSchedulesWithResult(time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("revisionless scheduled launch: %v", err)
+	}
+	if fired.Fired != 1 || fake.callCount() != 1 {
+		t.Fatalf("revisionless scheduled result=%+v spawn_calls=%d", fired, fake.callCount())
+	}
+	meta, launched, err := launchDeclaredFreshWithPrompt(teamDir, mgr, top, top.Find("manager"), nil, "revisionless sibling control")
+	if err != nil {
+		t.Fatalf("revisionless persistent launch: %v", err)
+	}
+	if !launched || meta == nil || fake.callCount() != 2 {
+		t.Fatalf("revisionless persistent meta=%+v launched=%t spawn_calls=%d", meta, launched, fake.callCount())
+	}
+	buildInfoPath := filepath.Join(buildRoot, "internal", "buildinfo", "buildinfo.go")
+	body, err := os.ReadFile(buildInfoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drifted := bytes.Replace(body, []byte("activation-coherence-v1"), []byte("activation-coherence-v2"), 1)
+	if bytes.Equal(drifted, body) {
+		t.Fatal("revisionless fixture cohort marker not found")
+	}
+	if err := os.WriteFile(buildInfoPath, drifted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status := resolver.activationStatus(); status.State != ActivationStateNeeded || !strings.Contains(strings.Join(status.Reasons, "\n"), "current source tree") {
+		t.Fatalf("revisionless stale-source verdict = %+v, want activation_needed", status)
+	}
+}
+
 func TestBuildHandshakeRejectsStaleMutationsButLeavesStatusReadable(t *testing.T) {
 	daemonBuild := buildinfo.Info{Version: "0.2.0", Revision: "3d5921d9c5d8115359ed1519c9d448981cd5abc7"}
 	clientBuild := buildinfo.Info{Version: "0.1.0", Revision: "b062047f11111111111111111111111111111111"}
@@ -572,6 +672,86 @@ func newProductionActivationFixture(t *testing.T, topologyText string) productio
 		currentCLI:   currentCLI,
 		currentBuild: currentBuild,
 		loadedAssets: loadedAssets,
+	}
+}
+
+func buildRevisionlessSiblings(t *testing.T) (string, string, buildinfo.Info, buildinfo.Info) {
+	t.Helper()
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve activation test source")
+	}
+	sourceRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
+	buildRoot := filepath.Join(t.TempDir(), "source")
+	for _, rel := range []string{"cmd", "internal", "template", "embed.go", "go.mod", "go.sum"} {
+		copyRevisionlessBuildPath(t, filepath.Join(sourceRoot, rel), filepath.Join(buildRoot, rel))
+	}
+	binDir := t.TempDir()
+	cliPath := filepath.Join(binDir, "agent-team")
+	daemonPath := filepath.Join(binDir, "agent-teamd")
+	runActivationFixtureCommand(t, buildRoot, "go", "build", "-buildvcs=true", "-o", cliPath, "./cmd/agent-team")
+	runActivationFixtureCommand(t, buildRoot, "go", "build", "-buildvcs=true", "-o", daemonPath, "./cmd/agent-teamd")
+	cliBuild, err := buildinfo.ReadFile(cliPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	daemonBuild, err := buildinfo.ReadFile(daemonPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return buildRoot, cliPath, cliBuild, daemonBuild
+}
+
+func copyRevisionlessBuildPath(t *testing.T, src, dst string) {
+	t.Helper()
+	info, err := os.Lstat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		copyRevisionlessBuildFile(t, src, dst, info.Mode())
+		return
+	}
+	if err := filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		entryInfo, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, body, entryInfo.Mode().Perm())
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func copyRevisionlessBuildFile(t *testing.T, src, dst string, mode fs.FileMode) {
+	t.Helper()
+	body, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, body, mode.Perm()); err != nil {
+		t.Fatal(err)
 	}
 }
 

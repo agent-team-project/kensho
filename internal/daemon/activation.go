@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
 	"github.com/agent-team-project/agent-team/internal/runtimeshim"
@@ -228,6 +229,18 @@ func newActivationContext(teamDir string, build buildinfo.Info) activationContex
 	if build.Empty() || !activationBinaryEligible() {
 		return activationContext{}
 	}
+	// Go can omit VCS settings for a clean detached linked worktree. Recover
+	// the executable's deterministic build ID once at daemon construction; the
+	// production inspector will verify it against the current source packages
+	// before accepting that revisionless development build.
+	if strings.TrimSpace(build.Revision) == "" {
+		if exe, err := os.Executable(); err == nil {
+			if fileBuild, err := buildinfo.ReadFile(exe); err == nil {
+				fileBuild.Version = build.Version
+				build = fileBuild
+			}
+		}
+	}
 	digest, err := activationAssetDigest(teamDir)
 	ctx := activationContext{Build: build, LoadedAssets: digest, Inspect: InspectActivation}
 	if err != nil {
@@ -277,6 +290,7 @@ func InspectActivation(teamDir string, daemonBuild buildinfo.Info, loadedAssets 
 	addReason := func(format string, args ...any) {
 		status.Reasons = append(status.Reasons, fmt.Sprintf(format, args...))
 	}
+	repoRoot := filepath.Dir(filepath.Clean(teamDir))
 
 	cliPath, err := runtimeshim.ResolveRealAgentTeam("")
 	if err != nil {
@@ -286,8 +300,15 @@ func InspectActivation(teamDir string, daemonBuild buildinfo.Info, loadedAssets 
 		status.CLI, err = buildinfo.ReadFile(cliPath)
 		if err != nil {
 			addReason("managed CLI build cannot be read from %s: %v", cliPath, err)
-		} else if !buildinfo.SameRevision(status.CLI, daemonBuild) {
-			addReason("managed CLI %s does not match daemon %s", status.CLI.Display(), daemonBuild.Display())
+		} else {
+			matched, matchErr := activationBuildsMatch(repoRoot, status.CLI, daemonBuild)
+			if !matched {
+				if matchErr != nil {
+					addReason("managed CLI %s does not match daemon %s: %v", status.CLI.Display(), daemonBuild.Display(), matchErr)
+				} else {
+					addReason("managed CLI %s does not match daemon %s", status.CLI.Display(), daemonBuild.Display())
+				}
+			}
 		}
 	}
 
@@ -300,13 +321,141 @@ func InspectActivation(teamDir string, daemonBuild buildinfo.Info, loadedAssets 
 		addReason("topology, config, prompt, or skill assets changed after the daemon loaded them")
 	}
 
-	repoRoot := filepath.Dir(filepath.Clean(teamDir))
 	inspectActivationGit(repoRoot, daemonBuild, &status, addReason)
 	if len(status.Reasons) > 0 {
 		status.State = ActivationStateNeeded
 		status.Action = activationAction
 	}
 	return status
+}
+
+func activationBuildsMatch(repoRoot string, cliBuild, daemonBuild buildinfo.Info) (bool, error) {
+	if buildinfo.SameRevision(cliBuild, daemonBuild) {
+		return true, nil
+	}
+	if strings.TrimSpace(cliBuild.Revision) != "" || strings.TrimSpace(daemonBuild.Revision) != "" {
+		return false, nil
+	}
+	cliCohort := strings.TrimSpace(cliBuild.Cohort)
+	if cliCohort == "" || cliCohort != strings.TrimSpace(daemonBuild.Cohort) {
+		return false, errors.New("revisionless binaries do not share an activation cohort")
+	}
+	if strings.TrimSpace(cliBuild.BuildID) == "" || strings.TrimSpace(daemonBuild.BuildID) == "" {
+		return false, errors.New("revisionless binary build IDs are unavailable")
+	}
+	expected, err := expectedRevisionlessBuildIDs(repoRoot)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(cliBuild.BuildID) != expected.CLI {
+		return false, errors.New("revisionless CLI was not built from the current source tree")
+	}
+	if strings.TrimSpace(daemonBuild.BuildID) != expected.Daemon {
+		return false, errors.New("revisionless daemon was not built from the current source tree")
+	}
+	return true, nil
+}
+
+type revisionlessBuildIDs struct {
+	CLI    string
+	Daemon string
+}
+
+var revisionlessBuildIdentityCache = struct {
+	sync.Mutex
+	bySource map[string]revisionlessBuildIDs
+}{bySource: make(map[string]revisionlessBuildIDs)}
+
+func expectedRevisionlessBuildIDs(repoRoot string) (revisionlessBuildIDs, error) {
+	digest, err := activationBuildSourceDigest(repoRoot)
+	if err != nil {
+		return revisionlessBuildIDs{}, fmt.Errorf("fingerprint revisionless build source: %w", err)
+	}
+	cacheKey := filepath.Clean(repoRoot) + "\x00" + digest
+	revisionlessBuildIdentityCache.Lock()
+	defer revisionlessBuildIdentityCache.Unlock()
+	if cached, ok := revisionlessBuildIdentityCache.bySource[cacheKey]; ok {
+		return cached, nil
+	}
+
+	tmpDir, err := os.MkdirTemp("", "agent-team-activation-build-*")
+	if err != nil {
+		return revisionlessBuildIDs{}, err
+	}
+	defer os.RemoveAll(tmpDir)
+	var result revisionlessBuildIDs
+	for _, candidate := range []struct {
+		name   string
+		pkg    string
+		output string
+		assign func(string)
+	}{
+		{name: "CLI", pkg: "./cmd/agent-team", output: filepath.Join(tmpDir, "agent-team"), assign: func(id string) { result.CLI = id }},
+		{name: "daemon", pkg: "./cmd/agent-teamd", output: filepath.Join(tmpDir, "agent-teamd"), assign: func(id string) { result.Daemon = id }},
+	} {
+		build := exec.Command("go", "build", "-buildvcs=true", "-o", candidate.output, candidate.pkg)
+		build.Dir = repoRoot
+		if output, err := build.CombinedOutput(); err != nil {
+			return revisionlessBuildIDs{}, fmt.Errorf("verify revisionless %s against current source: %w: %s", candidate.name, err, strings.TrimSpace(string(output)))
+		}
+		buildID := exec.Command("go", "tool", "buildid", candidate.output)
+		output, err := buildID.Output()
+		if err != nil {
+			return revisionlessBuildIDs{}, fmt.Errorf("read revisionless %s build ID: %w", candidate.name, err)
+		}
+		candidate.assign(strings.TrimSpace(string(output)))
+	}
+	revisionlessBuildIdentityCache.bySource[cacheKey] = result
+	return result, nil
+}
+
+func activationBuildSourceDigest(repoRoot string) (string, error) {
+	var assets []activationAsset
+	for _, rel := range []string{"cmd", "internal", "template", "embed.go", "go.mod", "go.sum"} {
+		root := filepath.Join(repoRoot, rel)
+		info, err := os.Stat(root)
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			body, err := os.ReadFile(root)
+			if err != nil {
+				return "", err
+			}
+			assets = append(assets, activationAsset{Path: filepath.ToSlash(rel), Body: body})
+			continue
+		}
+		err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			logical, err := filepath.Rel(repoRoot, path)
+			if err != nil {
+				return err
+			}
+			assets = append(assets, activationAsset{Path: filepath.ToSlash(logical), Body: body})
+			return nil
+		})
+		if err != nil {
+			return "", err
+		}
+	}
+	sort.Slice(assets, func(i, j int) bool { return assets[i].Path < assets[j].Path })
+	h := sha256.New()
+	for _, asset := range assets {
+		_, _ = h.Write([]byte(asset.Path))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write(asset.Body)
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // ReadActivationStatus reconstructs the last live daemon tuple from its

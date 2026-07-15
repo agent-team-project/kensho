@@ -119,6 +119,14 @@ func (r *EventResolver) managerWakeupsWithResult(now time.Time, dryRun bool) (*M
 	if topo == nil {
 		return result, nil
 	}
+	// A policy wake is launch-producing work. Refuse an incompatible tuple
+	// before reading candidates into any mailbox, wake clock, job audit, or
+	// lifecycle state. Preview remains read-only and useful during activation.
+	if !dryRun {
+		if err := r.requireActivation(); err != nil {
+			return result, err
+		}
+	}
 	jobs, err := jobstore.List(r.teamDir)
 	if err != nil {
 		return result, err
@@ -401,6 +409,10 @@ func (r *EventResolver) wakeIdleManagerOrPreview(now time.Time, inst *topology.I
 	if err != nil {
 		result.Action = "failed"
 		result.Reason = err.Error()
+		var activationErr *ActivationNeededError
+		if errors.As(err, &activationErr) {
+			return result
+		}
 	}
 	updated := &managerIdleWakeState{
 		Instance:                 inst.Name,
@@ -572,6 +584,18 @@ func (r *EventResolver) wakeManagerForOverdueStepOrPreview(now time.Time, inst *
 		payload["step_instance"] = step.Instance
 	}
 	meta, wakeErr := r.deliverManagerPolicyWake(now, inst, managerOverdueWakeEventType, payload)
+	if wakeErr != nil {
+		var activationErr *ActivationNeededError
+		if errors.As(wakeErr, &activationErr) {
+			return ManagerWakeupResult{
+				Manager: inst.Name,
+				JobID:   j.ID,
+				StepID:  step.ID,
+				Action:  "failed",
+				Reason:  wakeErr.Error(),
+			}, wakeErr
+		}
+	}
 	j.LastEvent = managerOverdueWakeEventType
 	j.LastStatus = message
 	j.UpdatedAt = now
@@ -614,6 +638,11 @@ func (r *EventResolver) wakeManagerForOverdueStepOrPreview(now time.Time, inst *
 }
 
 func (r *EventResolver) deliverManagerPolicyWake(now time.Time, inst *topology.Instance, eventType string, payload map[string]any) (*Metadata, error) {
+	// Keep the mailbox and all caller-owned bookkeeping untouched when the
+	// active CLI/daemon/assets tuple cannot safely launch this manager.
+	if err := r.requireActivation(); err != nil {
+		return nil, err
+	}
 	body := map[string]any{"event": eventType, "payload": payload}
 	encoded, err := json.Marshal(body)
 	if err != nil {

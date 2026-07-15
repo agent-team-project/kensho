@@ -203,6 +203,12 @@ func New(cfg Config) (*Daemon, error) {
 		topo = nil
 	}
 	events := NewEventResolver(mgr, cfg.TeamDir, topo, cfg.Build)
+	if !events.activation.Build.Empty() {
+		// Persist and serve the hydrated identity (including the deterministic
+		// build ID used by revisionless linked-worktree builds), not the partial
+		// identity captured before the activation context inspected the binary.
+		cfg.Build = events.activation.Build
+	}
 	if terr != nil {
 		events.SetTopologyLoadError(terr)
 	}
