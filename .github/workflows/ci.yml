@@ -72,6 +72,11 @@ jobs:
           python3 scripts/ci/validate_tui_inventory.py --mutant
           python3 scripts/ci/validate_tui_inventory.py
 
+      - name: Validate daemon API inventory
+        run: |
+          python3 scripts/ci/validate_daemon_api_inventory.py --self-test
+          python3 scripts/ci/validate_daemon_api_inventory.py
+
       - name: Validate env_allow required vars
         run: |
           python3 scripts/ci/validate_env_allow.py --self-test

@@ -103,78 +103,52 @@ Loopback is same-host only and deliberately has no TLS. If the transport graduat
 
 **Live today:**
 
-```
-POST /v1/dispatch
-  { "agent": "worker", "name": "worker-squ-14", "prompt": "<task>", "workspace": "<abs-path>" }
-  → { "instance_id": "...", "started_at": "...", "pid": <int>, "session_id": "<uuid>" }
+<!-- daemon-api-inventory:start -->
 
-POST /v1/stop
-  { "instance": "worker-squ-14" }
-  → { "stopped": true }
+Authority below is action authorization after transport authentication. Operator calls are always allowed. Read handlers are instance-callable because they do not audit a mutation verb. Under enforced authority, each mutation is instance-callable only with the listed grant; without that grant it is operator-only. Audit mode records the same decision without blocking it.
 
-POST /v1/start
-  { "instance": "manager-billing" }     # resumes a stopped instance via --resume
-  → { "instance_id": "...", "session_resumed": true, "pid": <int> }
+| Method(s) | Path | Purpose | Authority |
+|---|---|---|---|
+| POST | `/v1/dispatch` | Spawn a named runtime instance from resolved agent, workspace, runtime, and environment inputs. | Operator; instance needs `instance.dispatch`. |
+| POST | `/v1/stop` | Gracefully stop a runtime instance, with optional force and timeout controls. | Operator; instance needs `instance.stop`. |
+| POST | `/v1/extend` | Extend an instance's runtime deadline by the requested duration. | Operator; instance needs `instance.extend`. |
+| POST | `/v1/start` | Start or resume a stopped instance, optionally forcing a fresh launch. | Operator; instance needs `instance.start`. |
+| POST | `/v1/restart` | Stop and start an instance with optional force and timeout controls. | Operator; instance needs `instance.restart`. |
+| POST | `/v1/interrupt` | Deliver an interrupt message and interrupt or restart the target runtime for immediate steering. | Operator; instance needs `instance.interrupt`. |
+| POST | `/v1/remove` | Remove an instance's runtime metadata and state, optionally forcing a stop first. | Operator; instance needs `instance.remove`. |
+| GET | `/v1/instances` | List daemon-known runtime instance metadata. | Operator or instance (read is open). |
+| GET | `/v1/jobs` | List durable jobs with their pipeline and outcome metadata. | Operator or instance (read is open). |
+| GET | `/v1/resources` | Resolve the `uri` query parameter to a structured deployment resource read. | Operator or instance (read is open). |
+| POST | `/v1/team/spawn` | Create a dynamic-team charter when dynamic spawning is enabled. | Operator; instance needs `team.spawn`. |
+| GET, POST | `/v1/team/charters/{id}/{verb}` | Read a charter with no verb, or reap it with the `/reap` POST verb. | GET: operator or instance; POST: instance needs `team.reap`. |
+| GET | `/v1/status` | Report daemon readiness, process, build, instance count, and activation status. | Operator or instance (read is open). |
+| POST | `/v1/reconcile` | Reconcile persisted runtime metadata against the live topology. | Operator; instance needs `daemon.reconcile`. |
+| GET | `/v1/events` | Stream daemon lifecycle events as JSONL, with optional `follow` and `tail` queries. | Operator or instance (read is open). |
+| POST | `/v1/message` | Append a direct message to a resolved instance mailbox. | Operator; instance needs `inbox.send`. |
+| POST | `/v1/feedback/deliver` | Persist structured feedback and notify the manager for incident-category items. | Operator; instance needs `feedback.deliver`. |
+| GET | `/v1/logs/{instance}` | Stream an instance's child log, with optional `follow` and `tail` queries. | Operator or instance (read is open). |
+| GET | `/v1/channels` | List summaries for all known pub/sub channels. | Operator or instance (read is open). |
+| GET, POST, DELETE | `/v1/channel/{name}/{verb}` | Publish, subscribe, unsubscribe, acknowledge, or read `/messages`; DELETE with no verb removes the channel. | GET: operator or instance; POST/DELETE: instance needs the corresponding `channel.*` grant. |
+| POST | `/v1/event` | Resolve and actuate one topology event, optionally returning a trace. | Operator; instance needs `event.publish`. |
+| POST | `/v1/intake/{provider}` | Normalize a `linear` or `github` webhook payload and publish its topology event. | Operator; instance needs `intake.publish`. |
+| GET | `/v1/outbox` | List pending, processed, and failed outbox items. | Operator or instance (read is open). |
+| POST | `/v1/outbox/drain` | Preview or deliver pending outbox items. | Operator; instance needs `outbox.drain`. |
+| GET | `/v1/queue` | List pending and dead-letter queue items. | Operator or instance (read is open). |
+| GET | `/v1/locks` | List the event resolver's current lock snapshots. | Operator or instance (read is open). |
+| POST | `/v1/queue/drain` | Preview or dispatch queued work, optionally limited by queue item ID. | Operator; instance needs `queue.drain`. |
+| GET, POST | `/v1/queue/{id}/{verb}` | Read an item with no verb, or POST the `/retry` or `/drop` verb. | GET: operator or instance; POST: instance needs `queue.retry` or `queue.drop`. |
+| POST | `/v1/schedules/fire` | Preview or fire due schedules, optionally limited by schedule name. | Operator; instance needs `schedule.fire`. |
+| POST | `/v1/manager-wake/sweep` | Preview or deliver due manager wake-ups. | Operator; instance needs `manager_wake.sweep`. |
+| GET | `/v1/topology` | Read declared instances, pipelines, teams, budgets, schedules, triggers, and runtime counts. | Operator or instance (read is open). |
+| POST | `/v1/topology/reload` | Reload `instances.toml` and replace the live topology without restarting instances. | Operator; instance needs `topology.reload`. |
 
-POST /v1/restart
-  { "instance": "manager-billing", "force": false, "timeout_ms": 30000 }
-  → { "instance_id": "...", "restarted": true, "pid": <int> }
+<!-- daemon-api-inventory:end -->
 
-POST /v1/remove
-  { "instance": "worker-squ-14", "force": true }
-  → { "removed": true }
+Keep this table synchronized with the literal registrations in `internal/daemon/http.go`:
 
-GET /v1/instances
-  → [{ "instance": "...", "agent": "...", "status": "running|stopped|exited|crashed",
-       "pid": <int>, "session_id": "...", "workspace": "...", "started_at": "...", ... }]
-
-POST /v1/reconcile
-  → { "reconciled": true, "changed": <int>, "instances": [...], "changes": [...] }
-
-GET /v1/queue
-  → [{ "id": "...", "state": "pending|dead", "event_type": "...", ... }]
-
-POST /v1/queue/drain[?dry_run=true]
-  → { "attempted": <int>, "dispatched": <int>, "rejected": <int>,
-       "would_dispatch": <int>, "pending": <int>, "dead": <int>,
-       "dry_run": <bool>, "outcomes": [...] }
-
-POST /v1/schedules/fire[?dry_run=true]
-  → { "fired": <int>, "would_fire": <int>, "dry_run": <bool>,
-       "schedules": [{ "name": "...", "reason": "run_on_start|interval",
-                       "event_type": "schedule", "payload": {...}, "outcomes": [...] }] }
-
-GET /v1/outbox
-  → [{ "id": "...", "state": "pending|processed|failed", "type": "...", ... }]
-
-POST /v1/outbox/drain[?dry_run=true]
-  → { "attempted": <int>, "published": <int>, "rejected": <int>,
-       "would_publish": <int>, "pending": <int>, "processed": <int>,
-       "failed": <int>, "dry_run": <bool>, "items": [...] }
-
-POST /v1/queue/{id}/retry
-  → { "instance": "...", "action": "dispatched|queued|rejected", ... }
-
-POST /v1/queue/{id}/drop
-  → { "dropped": true, "id": "..." }
-```
-
-**Landed in SQU-29:**
-
-```
-POST /v1/message
-  { "to": "worker-squ-14", "from": "manager", "body": "<message>" }
-  → { "delivered": true, "id": "<uuid>", "ts": "<rfc3339>" }
-
-GET /v1/logs/{instance}[?follow=true][&tail=N]
-  → chunked text stream of <daemon-root>/<instance>/child.log.
-    Without follow=true: dump current file and close.
-    With follow=true: dump, then tail until ctx cancels.
-    With tail=N: initial dump is limited to the last N lines.
-
-GET /v1/events[?follow=true][&tail=N]
-  → chunked JSONL stream of daemon lifecycle events from <daemon-root>/events.jsonl.
-    Events include dispatch/start/stop/restart/remove/exit/crash records.
+```sh
+python3 scripts/ci/validate_daemon_api_inventory.py --self-test
+python3 scripts/ci/validate_daemon_api_inventory.py
 ```
 
 Chunked text over SSE: the consumer is a CLI doing either a one-shot dump or a long-running tail piped to stdout — neither benefits from SSE's reconnect/event-typed semantics, and chunked text is what `curl --no-buffer` and Go's `http.Client` produce naturally.
