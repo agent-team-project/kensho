@@ -210,6 +210,11 @@ Important layering rules:
   processes; ephemeral loops pick up the change on their next firing, while a
   persistent instance needs a fresh forced `instance up` after reload to
   regenerate its shim.
+- Activation inspects the generated shim and registered skill root recorded in
+  each persistent launch snapshot. Missing attestation, non-comparable source
+  provenance, a daemon/CLI mismatch, or changed skill content makes the tuple
+  activation-needed. Managed start/restart then uses a fresh declared launch to
+  regenerate the surface before the runtime can issue a write.
 
 ## Contributor Checks
 

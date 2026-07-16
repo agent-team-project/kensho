@@ -82,6 +82,8 @@ func TestInstanceLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
 		RecordedAt: recordedAt,
 		PID:        4321,
 		Version:    1,
+		ShimPath:   "/repo/.agent_team/state/manager/runtime/bin/agent-team",
+		SkillsPath: "/repo/.agent_team/state/manager/runtime/.claude/skills",
 	}
 
 	if err := WriteInstanceLaunchEnv(root, "manager", le); err != nil {
@@ -93,6 +95,9 @@ func TestInstanceLaunchEnvWriteReadRoundTripStripsDeniedKeys(t *testing.T) {
 	}
 	if got.Bin != le.Bin || got.Dir != le.Dir || got.PID != le.PID || !got.RecordedAt.Equal(recordedAt) {
 		t.Fatalf("round trip mismatch: got %+v want %+v", got, le)
+	}
+	if got.ShimPath != le.ShimPath || got.SkillsPath != le.SkillsPath {
+		t.Fatalf("runtime surface paths = shim %q skills %q, want %q / %q", got.ShimPath, got.SkillsPath, le.ShimPath, le.SkillsPath)
 	}
 	if envHasKey(got.Env, DefaultStrippedEnvKeys[0]) {
 		t.Fatalf("denied key persisted in env: %+v", got.Env)

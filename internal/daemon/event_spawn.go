@@ -590,11 +590,19 @@ func (r *EventResolver) prepareEphemeralAgentArgs(inst *topology.Instance, agent
 		AuthorityAllowlist: authorityAllow,
 		StrictAuthority:    authorityStrict,
 		RealAgentTeam:      activation.CLIPath,
+		RealAgentTeamBuild: activation.CLI,
+		DaemonBuild:        activation.Daemon,
+		Assets:             activation.LoadedAssets,
 	})
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, nil, fmt.Errorf("event runtime: %w", err)
 	}
 	env = runtimeshim.PrependPath(env, shimBinDir)
+	attestationEnv, err := runtimeshim.AttestationEnv(shimBinDir)
+	if err != nil {
+		return nil, "", runtimebin.Runtime{}, nil, nil, fmt.Errorf("event runtime: read generated shim attestation: %w", err)
+	}
+	env = append(env, attestationEnv...)
 	env, err = filterEnvAllow(env, envAllow)
 	if err != nil {
 		return nil, "", runtimebin.Runtime{}, nil, nil, fmt.Errorf("event runtime: %w", err)

@@ -381,6 +381,14 @@ future launches only: scheduled ephemeral instances receive a new shim on the
 next firing, and running persistent instances need `instance up --fresh
 --force` after reload.
 
+Per-instance launch snapshots also pin the concrete generated-shim path and
+registered skill root. Daemon activation is `coherent` only while the live shim
+attestation, its target CLI/daemon identities, activation fingerprint, and the
+skill files used by the running persistent instance all match the active tuple.
+A legacy, missing, provenance-free, or stale shim produces `activation_needed`
+with the action to start that instance fresh; managed restart/resume takes that
+fresh path before spawning instead of replaying the stale `PATH`.
+
 ## Job TOML
 
 Jobs live at `.agent_team/jobs/<job-id>.toml`.

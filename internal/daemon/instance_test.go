@@ -2266,6 +2266,10 @@ func TestInstance_StartExportsContextThatCanSendAfterHTTPBecomesStale(t *testing
 	claudeConfigDir := t.TempDir()
 	stateDir := filepath.Join(teamDir, "state", "manager")
 	now := time.Now().UTC()
+	shimPath := filepath.Join(t.TempDir(), "agent-team")
+	if err := os.WriteFile(shimPath, []byte("#!/usr/bin/env bash\nif [[ $1 == --build-attestation && $2 == --header ]]; then printf '%s\\n' 'source_id=test-build'; exit 0; fi\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	writeClaudeSession(t, claudeConfigDir, workspace, "session-1")
 	if err := WriteMetadata(root, &Metadata{
 		Instance:      "manager",
@@ -2292,6 +2296,8 @@ func TestInstance_StartExportsContextThatCanSendAfterHTTPBecomesStale(t *testing
 			"AGENT_TEAM_ROOT=" + teamDir,
 			"AGENT_TEAM_INSTANCE=manager",
 			"AGENT_TEAM_STATE_DIR=" + stateDir,
+			"AGENT_TEAM_SHIM_PATH=" + shimPath,
+			"AGENT_TEAM_DAEMON_BUILD_HEADER=source_id=test-build",
 			daemonHTTPURLEnv + "=http://127.0.0.1:11111",
 			"AGENT_TEAM_DAEMON_SOCKET=/tmp/stale.sock",
 		},

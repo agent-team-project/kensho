@@ -451,13 +451,27 @@ func runAgent(cmd *cobra.Command, cfg runConfig, agentName string, forwarded []s
 	if launch.Persistent {
 		shimRoot = stateDir
 	}
-	shimBinDir, err := runtimeshim.Install(shimRoot, skillPaths, runtimeshim.Options{
+	shimOptions := runtimeshim.Options{
 		EnforceAuthority:   authorityEnforce,
 		AuthorityAllowlist: authorityAllow,
-	})
+	}
+	if dispatchClient != nil {
+		if daemonStatus, statusErr := dispatchClient.Status(); statusErr == nil && daemonStatus.Activation != nil {
+			shimOptions.RealAgentTeam = daemonStatus.Activation.CLIPath
+			shimOptions.RealAgentTeamBuild = daemonStatus.Activation.CLI
+			shimOptions.DaemonBuild = daemonStatus.Activation.Daemon
+			shimOptions.Assets = daemonStatus.Activation.LoadedAssets
+		}
+	}
+	shimBinDir, err := runtimeshim.Install(shimRoot, skillPaths, shimOptions)
 	if err != nil {
 		return err
 	}
+	attestationEnv, err := runtimeshim.AttestationEnv(shimBinDir)
+	if err != nil {
+		return fmt.Errorf("read generated shim attestation: %w", err)
+	}
+	teamEnv = append(teamEnv, attestationEnv...)
 
 	baseEnv := os.Environ()
 	if otelCfg.Configured() {

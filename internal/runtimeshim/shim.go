@@ -3,13 +3,37 @@ package runtimeshim
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
 )
 
-const BinDirName = "bin"
+const (
+	BinDirName           = "bin"
+	EnvBuildHeader       = "AGENT_TEAM_BUILD_HEADER"
+	EnvDaemonBuildHeader = "AGENT_TEAM_DAEMON_BUILD_HEADER"
+	EnvShimPath          = "AGENT_TEAM_SHIM_PATH"
+)
+
+// AttestationEnv returns the immutable CLI and daemon build headers baked into
+// the generated shim for bundled direct-HTTP skill transports.
+func AttestationEnv(binDir string) ([]string, error) {
+	shimPath := filepath.Join(binDir, "agent-team")
+	attestation, err := ReadAttestation(shimPath)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{EnvShimPath + "=" + filepath.Clean(shimPath)}
+	if attestation.CLIHeader != "" {
+		out = append(out, EnvBuildHeader+"="+attestation.CLIHeader)
+	}
+	if attestation.DaemonHeader != "" {
+		out = append(out, EnvDaemonBuildHeader+"="+attestation.DaemonHeader)
+	}
+	return out, nil
+}
 
 type Spec struct {
 	Command string
@@ -21,6 +45,14 @@ type Options struct {
 	// RealAgentTeam is the binary that the generated agent-team shim execs
 	// after its verb check. Empty means resolve the current real CLI binary.
 	RealAgentTeam string
+	// RealAgentTeamBuild supplies an already-inspected target identity. Empty
+	// makes Install read the immutable identity directly from RealAgentTeam.
+	RealAgentTeamBuild buildinfo.Info
+	// DaemonBuild is the active daemon identity the generated shim must match.
+	// Empty is valid for direct/no-daemon launches and is attested as unchecked.
+	DaemonBuild buildinfo.Info
+	// Assets is the daemon's loaded activation asset fingerprint.
+	Assets string
 	// EnforceAuthority bakes closed-world verb enforcement into the generated
 	// shim. When false the shim is a pass-through (instances that declare no
 	// authority). When true the resolved AuthorityAllowlist is embedded as a
@@ -50,7 +82,7 @@ func Install(root string, skillPaths map[string]string, opts Options) (string, e
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return "", fmt.Errorf("create runtime shim bin: %w", err)
 	}
-	if err := installAgentTeamShim(binDir, opts); err != nil {
+	if err := installAgentTeamShim(binDir, skillPaths, opts); err != nil {
 		return "", err
 	}
 	for _, spec := range DefaultSpecs {
@@ -68,7 +100,11 @@ func Install(root string, skillPaths map[string]string, opts Options) (string, e
 		} else if st.IsDir() {
 			return "", fmt.Errorf("runtime shim %s target is a directory: %s", spec.Command, target)
 		}
-		body := "#!/bin/sh\nexec " + shellQuote(target) + " \"$@\"\n"
+		body := "#!/bin/sh\n" +
+			"if [ \"${1:-}\" = \"--build-attestation\" ]; then\n" +
+			"  exec " + shellQuote(filepath.Join(binDir, "agent-team")) + " \"$@\"\n" +
+			"fi\n" +
+			"exec " + shellQuote(target) + " \"$@\"\n"
 		if err := os.WriteFile(link, []byte(body), 0o755); err != nil {
 			return "", fmt.Errorf("create runtime shim %s: %w", spec.Command, err)
 		}
@@ -100,25 +136,35 @@ func PrependPath(env []string, dir string) []string {
 	return append(out, key+dir)
 }
 
-func installAgentTeamShim(binDir string, opts Options) error {
+func installAgentTeamShim(binDir string, skillPaths map[string]string, opts Options) error {
 	link := filepath.Join(binDir, "agent-team")
 	if err := os.Remove(link); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("replace runtime shim agent-team: %w", err)
 	}
-	real, err := resolveRealAgentTeam(opts.RealAgentTeam)
+	real, err := ResolveRealAgentTeamForBuild(opts.RealAgentTeam, opts.DaemonBuild)
 	if err != nil {
 		return fmt.Errorf("runtime shim agent-team target: %w", err)
 	}
-	body := agentTeamShimBody(real, opts)
+	cliBuild := buildinfo.Info{}
+	if filepath.Clean(real) == filepath.Clean(strings.TrimSpace(opts.RealAgentTeam)) {
+		cliBuild = opts.RealAgentTeamBuild
+	}
+	if cliBuild.Empty() {
+		cliBuild, _ = buildinfo.ReadFile(real)
+	}
+	skills, err := SkillAssetsDigest(skillPaths)
+	if err != nil {
+		return fmt.Errorf("runtime shim skill assets: %w", err)
+	}
+	attestation := newAttestation(real, cliBuild, opts.DaemonBuild, opts.Assets, skills)
+	body, err := agentTeamShimBody(real, opts, attestation)
+	if err != nil {
+		return fmt.Errorf("runtime shim attestation: %w", err)
+	}
 	if err := os.WriteFile(link, []byte(body), 0o755); err != nil {
 		return fmt.Errorf("create runtime shim agent-team: %w", err)
 	}
 	return nil
-}
-
-func resolveRealAgentTeam(explicit string) (string, error) {
-	exe, _ := os.Executable()
-	return resolveRealAgentTeamFrom(explicit, exe, exec.LookPath)
 }
 
 // ResolveRealAgentTeam returns the exact CLI executable a generated managed
@@ -126,21 +172,60 @@ func resolveRealAgentTeam(explicit string) (string, error) {
 // this strict surface never accepts agent-teamd (or an arbitrary host binary)
 // as the CLI.
 func ResolveRealAgentTeam(explicit string) (string, error) {
-	if explicit = strings.TrimSpace(explicit); explicit != "" {
-		return explicit, validateExecutableFile(explicit)
-	}
+	return ResolveRealAgentTeamForBuild(explicit, buildinfo.Info{})
+}
+
+// ResolveRealAgentTeamForBuild applies the managed CLI precedence rule:
+// explicit native CLI, the current CLI/sibling pair, then PATH candidates.
+// Generated per-instance shims are never eligible. When daemonBuild is known,
+// a source-comparable candidate wins over an earlier stale native candidate;
+// the first native candidate is returned only for activation diagnostics when
+// no coherent candidate exists.
+func ResolveRealAgentTeamForBuild(explicit string, daemonBuild buildinfo.Info) (string, error) {
 	exe, _ := os.Executable()
-	if exe != "" && filepath.Base(exe) == "agent-team" {
-		return exe, validateExecutableFile(exe)
+	candidates := make([]string, 0, 8)
+	if explicit = strings.TrimSpace(explicit); explicit != "" {
+		candidates = append(candidates, explicit)
 	}
-	if exe != "" {
-		sibling := filepath.Join(filepath.Dir(exe), "agent-team")
-		if validateExecutableFile(sibling) == nil {
-			return sibling, nil
+	if exe != "" && filepath.Base(exe) == "agent-team" {
+		candidates = append(candidates, exe)
+	} else if exe != "" {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "agent-team"))
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if strings.TrimSpace(dir) == "" {
+			dir = "."
+		}
+		candidates = append(candidates, filepath.Join(dir, "agent-team"))
+	}
+	seen := map[string]bool{}
+	firstNative := ""
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(candidate)
+		if seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if validateExecutableFile(candidate) != nil || isGeneratedShim(candidate) {
+			continue
+		}
+		if firstNative == "" {
+			firstNative = candidate
+		}
+		if daemonBuild.Empty() {
+			return candidate, nil
+		}
+		candidateBuild, err := buildinfo.ReadFile(candidate)
+		if err != nil {
+			continue
+		}
+		comparison := buildinfo.Compare(candidateBuild, daemonBuild)
+		if comparison.Comparable && comparison.Equal {
+			return candidate, nil
 		}
 	}
-	if path, err := exec.LookPath("agent-team"); err == nil {
-		return path, validateExecutableFile(path)
+	if firstNative != "" {
+		return firstNative, nil
 	}
 	return "", fmt.Errorf("managed agent-team CLI binary not found alongside %s or on PATH", exe)
 }
@@ -153,22 +238,25 @@ func ResolveRealAgentTeam(explicit string) (string, error) {
 // current executable.
 func resolveRealAgentTeamFrom(explicit, currentExe string, lookPath func(string) (string, error)) (string, error) {
 	if explicit = strings.TrimSpace(explicit); explicit != "" {
+		if isGeneratedShim(explicit) {
+			return "", fmt.Errorf("generated runtime shim is not a managed CLI: %s", explicit)
+		}
 		return explicit, validateExecutableFile(explicit)
 	}
 	// Current executable is exactly the CLI (the `agent-team run` path).
-	if currentExe != "" && filepath.Base(currentExe) == "agent-team" {
+	if currentExe != "" && filepath.Base(currentExe) == "agent-team" && !isGeneratedShim(currentExe) {
 		return currentExe, validateExecutableFile(currentExe)
 	}
 	// Otherwise (daemon-installed shim: currentExe is agent-teamd) prefer the
 	// sibling agent-team binary — they are installed together.
 	if currentExe != "" {
 		sibling := filepath.Join(filepath.Dir(currentExe), "agent-team")
-		if validateExecutableFile(sibling) == nil {
+		if validateExecutableFile(sibling) == nil && !isGeneratedShim(sibling) {
 			return sibling, nil
 		}
 	}
 	if lookPath != nil {
-		if path, err := lookPath("agent-team"); err == nil {
+		if path, err := lookPath("agent-team"); err == nil && !isGeneratedShim(path) {
 			return path, validateExecutableFile(path)
 		}
 	}
@@ -197,17 +285,30 @@ func validateExecutableFile(path string) error {
 	return nil
 }
 
-func agentTeamShimBody(real string, opts Options) string {
+func agentTeamShimBody(real string, opts Options, attestation Attestation) (string, error) {
+	marker, attestationJSON, err := encodeAttestation(attestation)
+	if err != nil {
+		return "", err
+	}
+	attestationSurface := marker + "\n" +
+		"if [ \"${1:-}\" = \"--build-attestation\" ]; then\n" +
+		"  case \"${2:---json}\" in\n" +
+		"    --json) printf '%s\\n' " + shellQuote(attestationJSON) + " ;;\n" +
+		"    --header) printf '%s\\n' " + shellQuote(attestation.CLIHeader) + " ;;\n" +
+		"    *) echo \"agent-team shim: usage: --build-attestation [--json|--header]\" >&2; exit 2 ;;\n" +
+		"  esac\n" +
+		"  exit 0\n" +
+		"fi\n"
 	// No declared authority => the shim is a pass-through. This decision is
 	// baked into the generated script at install time; it is never read from
 	// the (caller-controlled) environment, so an agent cannot reach the
 	// pass-through branch through caller-controlled launch state.
 	if !opts.EnforceAuthority {
-		return "#!/bin/sh\n" +
-			"exec " + shellQuote(real) + " \"$@\"\n"
+		return "#!/bin/sh\n" + attestationSurface +
+			"exec " + shellQuote(real) + " \"$@\"\n", nil
 	}
 	baked := strings.Join(normalizeAllowlist(opts.AuthorityAllowlist), ",")
-	return "#!/bin/sh\n" +
+	return "#!/bin/sh\n" + attestationSurface +
 		"REAL_AGENT_TEAM=" + shellQuote(real) + "\n" +
 		"# Closed-world enforcement baked in at install time; the allowlist is a\n" +
 		"# script literal, NOT read from the environment.\n" +
@@ -253,7 +354,7 @@ func agentTeamShimBody(real string, opts Options) string {
 		"  exec \"$REAL_AGENT_TEAM\" \"$@\"\n" +
 		"fi\n" +
 		"echo \"agent-team shim: denied verb $verb\" >&2\n" +
-		"exit 3\n"
+		"exit 3\n", nil
 }
 
 func shimAllowCondition(strict bool) string {

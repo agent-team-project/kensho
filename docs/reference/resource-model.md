@@ -98,6 +98,22 @@ verbs are denied before wildcard allowlists are considered. The allowlist is
 baked into the generated shim, so an agent cannot widen it by editing
 environment variables.
 
+Managed CLI resolution has one precedence rule: an explicit native CLI, then
+the launching CLI or its sibling pair, then native `agent-team` executables in
+`PATH` order. Generated per-instance shims are never eligible targets. When the
+daemon identity is known, a source-comparable candidate wins over an earlier
+stale native executable; if none is comparable, activation reports the first
+native candidate only as a diagnostic and does not claim coherence.
+
+Every generated shim exposes `agent-team --build-attestation [--json|--header]`
+before Cobra or authority resolution. The read-only result is baked at launch
+and separates CLI source identity, daemon comparison (`coherent`, `mismatch`,
+missing provenance, or not checked), activation assets, and the registered
+skill fingerprint. Bundled inbox/channel/dispatch helpers accept a build
+header only from a generated shim or native managed CLI whose immutable
+identity matches the active daemon. Activation-sensitive writes fail with a
+fresh-start action when no comparable surface exists.
+
 Because URI reads are ordinary CLI verbs, grant `read` when an enforced agent
 should read daemon resources by `agt://` URI. Scoped grants such as
 `job.gate.*:own` are evaluated by the real CLI or daemon using the caller's

@@ -14,6 +14,17 @@
 
 set -euo pipefail
 
+BUILD_HELPER="$(dirname "$0")/../../../scripts/skills/daemon-build.sh"
+if [[ ! -f "$BUILD_HELPER" && -n "${AGENT_TEAM_ROOT:-}" ]]; then
+    BUILD_HELPER="$AGENT_TEAM_ROOT/scripts/skills/daemon-build.sh"
+fi
+if [[ ! -f "$BUILD_HELPER" ]]; then
+    echo "inbox.sh: immutable build helper not found: $BUILD_HELPER" >&2
+    exit 1
+fi
+# shellcheck source=../../../scripts/skills/daemon-build.sh
+source "$BUILD_HELPER"
+
 usage() {
     cat <<'EOF' >&2
 usage:
@@ -67,8 +78,10 @@ daemon_token() {
 }
 
 curl_daemon() {
+    local build_header
+    build_header="$(agent_team_build_header "inbox.sh")" || return 1
     if [[ -n "${AGENT_TEAM_DAEMON_URL:-}" ]]; then
-        local args=("$@")
+        local args=(-H "X-Agent-Team-Build: $build_header" "$@")
         local last_index=$((${#args[@]} - 1))
         local endpoint="${args[last_index]}"
         args[last_index]="${AGENT_TEAM_DAEMON_URL%/}${endpoint#http://daemon}"
@@ -100,7 +113,7 @@ curl_daemon() {
         echo "  Start it with \`agent-team daemon start\`." >&2
         exit 1
     fi
-    curl --unix-socket "$sock" -sS --fail-with-body "$@"
+    curl --unix-socket "$sock" -sS --fail-with-body -H "X-Agent-Team-Build: $build_header" "$@"
 }
 
 [[ $# -ge 1 ]] || usage

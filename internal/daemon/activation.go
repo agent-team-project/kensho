@@ -117,10 +117,11 @@ func (e *ActivationNeededError) Error() string {
 type activationInspector func(teamDir string, daemonBuild buildinfo.Info, loadedAssets string) ActivationStatus
 
 type activationContext struct {
-	Build         buildinfo.Info
-	LoadedAssets  string
-	TopologyError string
-	Inspect       activationInspector
+	Build              buildinfo.Info
+	LoadedAssets       string
+	TopologyError      string
+	Inspect            activationInspector
+	PersistentInstance func(string) bool
 }
 
 func (r *EventResolver) activationStatus() ActivationStatus {
@@ -199,7 +200,8 @@ func (m *InstanceManager) requireActivation() error {
 }
 
 func (m *InstanceManager) launchSnapshotActivationStale(instance string, status ActivationStatus) (bool, string, error) {
-	if !m.activationContext().enabled() {
+	ctx := m.activationContext()
+	if !ctx.enabled() {
 		return false, "", nil
 	}
 	snapshot, err := ReadInstanceLaunchEnv(m.daemonRoot, instance)
@@ -209,10 +211,18 @@ func (m *InstanceManager) launchSnapshotActivationStale(instance string, status 
 		}
 		return false, "", err
 	}
-	return activationSnapshotStale(snapshot, status)
+	requireDurableSurface := true
+	if ctx.PersistentInstance != nil {
+		requireDurableSurface = ctx.PersistentInstance(instance)
+	}
+	return activationSnapshotStaleForSurface(snapshot, status, requireDurableSurface)
 }
 
 func activationSnapshotStale(snapshot *LaunchEnv, status ActivationStatus) (bool, string, error) {
+	return activationSnapshotStaleForSurface(snapshot, status, true)
+}
+
+func activationSnapshotStaleForSurface(snapshot *LaunchEnv, status ActivationStatus, requireDurableSurface bool) (bool, string, error) {
 	if snapshot == nil {
 		return true, "instance launch bundle has no activation provenance", nil
 	}
@@ -226,6 +236,28 @@ func activationSnapshotStale(snapshot *LaunchEnv, status ActivationStatus) (bool
 	}
 	if strings.TrimSpace(snapshot.Assets) == "" || snapshot.Assets != status.LoadedAssets {
 		return true, "instance prompt, skill, topology, or authority-shim bundle differs from the active asset fingerprint", nil
+	}
+	if !requireDurableSurface {
+		return false, "", nil
+	}
+	shimPath := strings.TrimSpace(snapshot.ShimPath)
+	if shimPath == "" {
+		return true, "generated shim path is missing; start the instance fresh to regenerate its managed command surface", nil
+	}
+	attestation, err := runtimeshim.ReadAttestation(shimPath)
+	if err != nil {
+		return true, fmt.Sprintf("generated shim %s has no readable immutable build attestation: %v; start the instance fresh", shimPath, err), nil
+	}
+	skillsPath := strings.TrimSpace(snapshot.SkillsPath)
+	if skillsPath == "" {
+		return true, "running instance skill path is missing; start the instance fresh to regenerate its skill bundle", nil
+	}
+	skills, err := runtimeshim.SkillAssetsDigestRoot(skillsPath)
+	if err != nil {
+		return true, fmt.Sprintf("running instance skill assets at %s cannot be attested: %v; start the instance fresh", skillsPath, err), nil
+	}
+	if err := attestation.CheckActive(status.Daemon, status.CLI, status.LoadedAssets, skills); err != nil {
+		return true, fmt.Sprintf("generated shim %s is stale: %v; start the instance fresh", shimPath, err), nil
 	}
 	return false, "", nil
 }
@@ -277,7 +309,7 @@ func InspectActivation(teamDir string, daemonBuild buildinfo.Info, loadedAssets 
 	}
 	repoRoot := filepath.Dir(filepath.Clean(teamDir))
 
-	cliPath, err := runtimeshim.ResolveRealAgentTeam("")
+	cliPath, err := runtimeshim.ResolveRealAgentTeamForBuild("", daemonBuild)
 	if err != nil {
 		addReason("managed CLI cannot be resolved: %v", err)
 	} else {

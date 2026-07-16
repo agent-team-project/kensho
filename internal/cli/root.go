@@ -67,6 +67,7 @@ func NewRootCmd() *cobra.Command {
 	root.SetVersionTemplate("agent-team " + BuildInfo().VersionLine() + "\n")
 	root.PersistentFlags().String(rootRepoFlagName, "", "Repo root containing .agent_team for commands that read repo state.")
 	root.AddCommand(newResolveVerbCmd())
+	root.AddCommand(newBuildAttestationCmd())
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newUpgradeCmd())
 	root.AddCommand(newStartCmd())

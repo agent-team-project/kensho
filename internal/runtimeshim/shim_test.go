@@ -1,14 +1,105 @@
 package runtimeshim
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
 )
+
+func TestAgentTeamShimExposesImmutableBuildAttestationBeforeAuthority(t *testing.T) {
+	current := buildinfo.Info{Version: "0.1.0", SourceID: "git:d45bb80522222222222222222222222222222222"}
+	shim, _, calls := installShim(t, Options{
+		RealAgentTeamBuild: current,
+		DaemonBuild:        current,
+		Assets:             "active-assets",
+		EnforceAuthority:   true,
+		AuthorityAllowlist: []string{"job.show"},
+	})
+
+	cmd := exec.Command(shim, "--build-attestation", "--json")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("read attestation: %v", err)
+	}
+	var got Attestation
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("parse attestation: %v\n%s", err, out)
+	}
+	if got.Schema != AttestationSchema || got.Kind != "generated_shim" || got.DaemonComparison != ComparisonCoherent {
+		t.Fatalf("attestation = %+v", got)
+	}
+	if got.CLI.SourceID != current.SourceID || got.Daemon.SourceID != current.SourceID || got.Assets != "active-assets" || got.Skills == "" {
+		t.Fatalf("attestation tuple = %+v", got)
+	}
+	if _, err := os.Stat(calls); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only attestation invoked target CLI, stat err=%v", err)
+	}
+	read, err := ReadAttestation(shim)
+	if err != nil || read.CLIHeader != current.HeaderValue() {
+		t.Fatalf("read baked attestation = %+v, %v", read, err)
+	}
+}
+
+func TestAgentTeamShimAttestationDistinguishesStaleAndMissingProvenance(t *testing.T) {
+	daemon := buildinfo.Info{Version: "0.1.0", SourceID: "git:d45bb80522222222222222222222222222222222"}
+	stale := buildinfo.Info{Version: "0.1.0", SourceID: "git:b062047f11111111111111111111111111111111"}
+
+	staleShim, _, _ := installShim(t, Options{RealAgentTeamBuild: stale, DaemonBuild: daemon, Assets: "assets"})
+	staleAttestation, err := ReadAttestation(staleShim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staleAttestation.DaemonComparison != ComparisonMismatch || !strings.Contains(staleAttestation.Reason, "does not match") {
+		t.Fatalf("stale attestation = %+v", staleAttestation)
+	}
+
+	missingShim, _, _ := installShim(t, Options{DaemonBuild: daemon, Assets: "assets"})
+	missingAttestation, err := ReadAttestation(missingShim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missingAttestation.DaemonComparison != ComparisonMissingCLIProvenance || missingAttestation.Reason != "missing build provenance" {
+		t.Fatalf("missing-provenance attestation = %+v", missingAttestation)
+	}
+}
+
+func TestResolveRealAgentTeamForBuildSkipsGeneratedShimForComparableManagedCLI(t *testing.T) {
+	managedDir := t.TempDir()
+	managed := filepath.Join(managedDir, "agent-team")
+	body, err := os.ReadFile(builtAgentTeam(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(managed, body, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	daemonBuild, err := buildinfo.ReadFile(managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shimDir := t.TempDir()
+	legacyShim := filepath.Join(shimDir, "agent-team")
+	if err := os.WriteFile(legacyShim, []byte("#!/bin/sh\nREAL_AGENT_TEAM='/stale/agent-team'\n# Closed-world enforcement baked in at install time\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+managedDir)
+
+	got, err := ResolveRealAgentTeamForBuild("", daemonBuild)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != managed {
+		t.Fatalf("resolved CLI = %q, want comparable managed CLI %q", got, managed)
+	}
+}
 
 func TestAgentTeamShimAllowsReadOnlyVerbs(t *testing.T) {
 	// Read-only verbs are always allowed, even under a narrow enforced allowlist.
@@ -393,13 +484,20 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	out := filepath.Join(dir, "agent-team")
-	if b, err := exec.Command("go", "build", "-o", out, "github.com/agent-team-project/agent-team/cmd/agent-team").CombinedOutput(); err != nil {
+	goBinary := filepath.Join(runtime.GOROOT(), "bin", "go")
+	if b, err := exec.Command(goBinary, "build", "-o", out, "github.com/agent-team-project/agent-team/cmd/agent-team").CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "build agent-team for shim tests: %v\n%s", err, b)
 		os.RemoveAll(dir)
 		os.Exit(1)
 	}
 	builtAgentTeamPath = out
+	oldPath := os.Getenv("PATH")
+	if err := os.Setenv("PATH", dir+string(os.PathListSeparator)+oldPath); err != nil {
+		os.RemoveAll(dir)
+		panic(err)
+	}
 	code := m.Run()
+	_ = os.Setenv("PATH", oldPath)
 	os.RemoveAll(dir)
 	os.Exit(code)
 }

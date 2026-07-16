@@ -13,6 +13,17 @@
 
 set -euo pipefail
 
+BUILD_HELPER="$(dirname "$0")/../../../scripts/skills/daemon-build.sh"
+if [[ ! -f "$BUILD_HELPER" && -n "${AGENT_TEAM_ROOT:-}" ]]; then
+    BUILD_HELPER="$AGENT_TEAM_ROOT/scripts/skills/daemon-build.sh"
+fi
+if [[ ! -f "$BUILD_HELPER" ]]; then
+    echo "channel.sh: immutable build helper not found: $BUILD_HELPER" >&2
+    exit 1
+fi
+# shellcheck source=../../../scripts/skills/daemon-build.sh
+source "$BUILD_HELPER"
+
 usage() {
     cat <<'EOF' >&2
 usage:
@@ -91,12 +102,14 @@ url_encode_channel_name() {
 }
 
 curl_daemon() {
+    local build_header
+    build_header="$(agent_team_build_header "channel.sh")" || return 1
     # Prefer AGENT_TEAM_DAEMON_URL when present so Codex sandboxes that block
     # Unix sockets can still use the daemon. Fall back to the Unix socket.
     # `-sS` keeps stderr quiet on success but loud on failure.
     # `--fail-with-body` returns non-zero on >= 400 while printing error JSON.
     if [[ -n "${AGENT_TEAM_DAEMON_URL:-}" ]]; then
-        local args=("$@")
+        local args=(-H "X-Agent-Team-Build: $build_header" "$@")
         local last_index=$((${#args[@]} - 1))
         local endpoint="${args[last_index]}"
         args[last_index]="${AGENT_TEAM_DAEMON_URL%/}${endpoint#http://daemon}"
@@ -107,7 +120,7 @@ curl_daemon() {
     fi
     local sock
     sock="$(socket_path)"
-    curl --unix-socket "$sock" -sS --fail-with-body "$@"
+    curl --unix-socket "$sock" -sS --fail-with-body -H "X-Agent-Team-Build: $build_header" "$@"
 }
 
 [[ $# -ge 1 ]] || usage

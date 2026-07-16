@@ -170,6 +170,7 @@ func NewEventResolver(mgr *InstanceManager, teamDir string, topo *topology.Topol
 		otel:        loadOrchestrationTracer(teamDir, mgr.daemonRoot),
 		activation:  newActivationContext(teamDir, build),
 	}
+	r.activation = activationContextForTopology(r.activation, topo)
 	mgr.setActivationContext(r.activation)
 	mgr.SetReapHook(r.onReap)
 	mgr.SetTerminalHook(r.onTerminalMetadata)
@@ -203,12 +204,24 @@ func (r *EventResolver) SetTopology(t *topology.Topology) error {
 	}
 	r.mu.Lock()
 	r.topo = t
+	activation = activationContextForTopology(activation, t)
 	r.activation = activation
 	r.setConcurrencyConfigLocked(t)
 	r.recoverLockStateLocked(time.Now().UTC())
 	r.mu.Unlock()
 	r.mgr.setActivationContext(activation)
 	return nil
+}
+
+func activationContextForTopology(ctx activationContext, topo *topology.Topology) activationContext {
+	ctx.PersistentInstance = func(instance string) bool {
+		if topo == nil {
+			return false
+		}
+		declared := topo.Find(instance)
+		return declared != nil && !declared.Ephemeral
+	}
+	return ctx
 }
 
 // SetTopologyLoadError makes a parser/schema incompatibility part of the

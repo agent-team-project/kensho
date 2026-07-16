@@ -24,6 +24,7 @@ import (
 	"github.com/agent-team-project/agent-team/internal/origin"
 	"github.com/agent-team-project/agent-team/internal/runtimebin"
 	"github.com/agent-team-project/agent-team/internal/runtimeotel"
+	"github.com/agent-team-project/agent-team/internal/runtimeshim"
 	teamtemplate "github.com/agent-team-project/agent-team/internal/template"
 	"github.com/agent-team-project/agent-team/internal/topology"
 )
@@ -2152,11 +2153,46 @@ func (m *InstanceManager) writeInstanceLaunchEnv(instance string, args, env []st
 		RecordedAt: recordedAt,
 		PID:        pid,
 		Version:    1,
+		ShimPath:   runtimeShimPath(env),
+		SkillsPath: runtimeSkillsPath(args),
+	}
+	if previous, err := ReadInstanceLaunchEnv(m.daemonRoot, instance); err == nil {
+		if snapshot.ShimPath == "" {
+			snapshot.ShimPath = previous.ShimPath
+		}
+		if snapshot.SkillsPath == "" {
+			snapshot.SkillsPath = previous.SkillsPath
+		}
 	}
 	activation := m.activationContext()
 	snapshot.Build = activation.Build
 	snapshot.Assets = activation.LoadedAssets
 	return WriteInstanceLaunchEnv(m.daemonRoot, instance, snapshot)
+}
+
+func runtimeShimPath(env []string) string {
+	pathValue := envValue(env, "PATH")
+	for _, dir := range filepath.SplitList(pathValue) {
+		if strings.TrimSpace(dir) == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, "agent-team")
+		if _, err := runtimeshim.ReadAttestation(candidate); err == nil {
+			return filepath.Clean(candidate)
+		}
+	}
+	if entries := filepath.SplitList(pathValue); len(entries) > 0 && strings.TrimSpace(entries[0]) != "" {
+		return filepath.Clean(filepath.Join(entries[0], "agent-team"))
+	}
+	return ""
+}
+
+func runtimeSkillsPath(args []string) string {
+	addDir := strings.TrimSpace(launchArgValue(args, "--add-dir"))
+	if addDir == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Clean(addDir), ".claude", "skills")
 }
 
 func (m *InstanceManager) ensureExpectedTrackedLocked(expected *Metadata) error {

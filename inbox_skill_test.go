@@ -13,9 +13,17 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/runtimeshim"
 )
 
 const inboxSkillHelper = "template/skills/inbox/scripts/inbox.sh"
+
+const (
+	staleInboxBuildHeader   = "source_id=git%3Ab062047f11111111111111111111111111111111&version=0.1.0"
+	currentInboxBuildHeader = "source_id=git%3Ad45bb80522222222222222222222222222222222&version=0.1.0"
+)
 
 func TestInboxSkillSendReadsMessageFileWithoutShellRoundTrip(t *testing.T) {
 	type payload struct {
@@ -25,6 +33,7 @@ func TestInboxSkillSendReadsMessageFileWithoutShellRoundTrip(t *testing.T) {
 	}
 	type received struct {
 		payload payload
+		header  string
 		err     error
 	}
 
@@ -32,7 +41,7 @@ func TestInboxSkillSendReadsMessageFileWithoutShellRoundTrip(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var got payload
 		err := json.NewDecoder(r.Body).Decode(&got)
-		requests <- received{payload: got, err: err}
+		requests <- received{payload: got, header: r.Header.Get("X-Agent-Team-Build"), err: err}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"delivered":true}`)
 	}))
@@ -50,6 +59,7 @@ func TestInboxSkillSendReadsMessageFileWithoutShellRoundTrip(t *testing.T) {
 	if err := os.Symlink(helperPath, filepath.Join(helperDir, "inbox.sh")); err != nil {
 		t.Fatal(err)
 	}
+	runtimeEnv := inboxSkillRuntimeEnv(t, teamRoot, currentInboxBuildHeader)
 	tokenFile := filepath.Join(t.TempDir(), "daemon-token")
 	if err := os.WriteFile(tokenFile, []byte("test-token\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -91,7 +101,7 @@ func TestInboxSkillSendReadsMessageFileWithoutShellRoundTrip(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := exec.Command("bash", append([]string{inboxSkillHelper}, tc.args(t)...)...)
-			cmd.Env = append(os.Environ(),
+			cmd.Env = append(append(os.Environ(), runtimeEnv...),
 				"AGENT_TEAM_ROOT="+teamRoot,
 				"AGENT_TEAM_INSTANCE=worker-gh409",
 				"AGENT_TEAM_DAEMON_URL="+server.URL,
@@ -108,6 +118,9 @@ func TestInboxSkillSendReadsMessageFileWithoutShellRoundTrip(t *testing.T) {
 			}
 			if request.payload.To != "manager" || request.payload.From != "worker-gh409" || request.payload.Body != tc.want {
 				t.Fatalf("payload = %#v, want exact body %q", request.payload, tc.want)
+			}
+			if request.header != currentInboxBuildHeader {
+				t.Fatalf("build header = %q, want coherent %q", request.header, currentInboxBuildHeader)
 			}
 		})
 	}
@@ -129,7 +142,7 @@ FOLLOW_UP`
 
 		followUp := "Please preserve $(printf INJECTED) $HOME and * ? [x]\r\nsecond line"
 		cmd := exec.Command("bash", "-c", strings.Replace(recipe, placeholder, followUp, 1))
-		cmd.Env = append(os.Environ(),
+		cmd.Env = append(append(os.Environ(), runtimeEnv...),
 			"AGENT_TEAM_ROOT="+teamRoot,
 			"AGENT_TEAM_INSTANCE=manager",
 			"AGENT_TEAM_DAEMON_URL="+server.URL,
@@ -148,6 +161,77 @@ FOLLOW_UP`
 			t.Fatalf("payload = %#v, want exact body %q", request.payload, want)
 		}
 	})
+}
+
+func TestInboxSkillSelectsDaemonComparableManagedCLIOverStaleShim(t *testing.T) {
+	var gotHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("X-Agent-Team-Build")
+		fmt.Fprint(w, `{"delivered":true}`)
+	}))
+	t.Cleanup(server.Close)
+	tokenFile := filepath.Join(t.TempDir(), "daemon.token")
+	if err := os.WriteFile(tokenFile, []byte("instance-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staleDir := t.TempDir()
+	currentDir := t.TempDir()
+	writeAttestationCandidate(t, filepath.Join(staleDir, "agent-team"), "--build-attestation", staleInboxBuildHeader)
+	writeAttestationCandidate(t, filepath.Join(currentDir, "agent-team"), "__build-attestation", currentInboxBuildHeader)
+
+	cmd := exec.Command("bash", inboxSkillHelper, "send", "manager", "coherent selection")
+	cmd.Env = append(os.Environ(),
+		"AGENT_TEAM_ROOT="+t.TempDir(),
+		"AGENT_TEAM_INSTANCE=worker-gh481",
+		"AGENT_TEAM_DAEMON_URL="+server.URL,
+		"AGENT_TEAM_DAEMON_TOKEN_FILE="+tokenFile,
+		"AGENT_TEAM_SHIM_PATH=",
+		"AGENT_TEAM_BUILD_HEADER="+staleInboxBuildHeader,
+		"AGENT_TEAM_DAEMON_BUILD_HEADER="+currentInboxBuildHeader,
+		"PATH="+staleDir+string(os.PathListSeparator)+currentDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("inbox helper: %v\n%s", err, output)
+	}
+	if gotHeader != currentInboxBuildHeader {
+		t.Fatalf("build header = %q, want managed current %q", gotHeader, currentInboxBuildHeader)
+	}
+}
+
+func TestInboxSkillFailsClosedWithoutComparableProvenance(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		fmt.Fprint(w, `{"delivered":true}`)
+	}))
+	t.Cleanup(server.Close)
+	tokenFile := filepath.Join(t.TempDir(), "daemon.token")
+	if err := os.WriteFile(tokenFile, []byte("instance-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provenanceFreeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(provenanceFreeDir, "agent-team"), []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("bash", inboxSkillHelper, "send", "manager", "must fail closed")
+	cmd.Env = append(os.Environ(),
+		"AGENT_TEAM_ROOT="+t.TempDir(),
+		"AGENT_TEAM_INSTANCE=worker-gh481",
+		"AGENT_TEAM_DAEMON_URL="+server.URL,
+		"AGENT_TEAM_DAEMON_TOKEN_FILE="+tokenFile,
+		"AGENT_TEAM_SHIM_PATH="+filepath.Join(provenanceFreeDir, "agent-team"),
+		"AGENT_TEAM_BUILD_HEADER=",
+		"AGENT_TEAM_DAEMON_BUILD_HEADER="+currentInboxBuildHeader,
+		"PATH="+provenanceFreeDir+string(os.PathListSeparator)+"/usr/bin:/bin",
+	)
+	output, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "activation needed") {
+		t.Fatalf("provenance-free helper error = %v output=%s", err, output)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("daemon write hits = %d, want 0", hits.Load())
+	}
 }
 
 func TestInboxSkillSendFallsBackFromStaleHTTPToLiveUnixSocket(t *testing.T) {
@@ -173,8 +257,9 @@ func TestInboxSkillSendFallsBackFromStaleHTTPToLiveUnixSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("bash", inboxSkillHelper, "send", "manager", "stale HTTP fallback")
-	cmd.Env = append(os.Environ(),
-		"AGENT_TEAM_ROOT="+t.TempDir(),
+	teamRoot := t.TempDir()
+	cmd.Env = append(append(os.Environ(), inboxSkillRuntimeEnv(t, teamRoot, currentInboxBuildHeader)...),
+		"AGENT_TEAM_ROOT="+teamRoot,
 		"AGENT_TEAM_INSTANCE=worker-gh391",
 		"AGENT_TEAM_DAEMON_URL="+closedInboxLoopbackURL(t),
 		"AGENT_TEAM_DAEMON_SOCKET="+socket,
@@ -203,8 +288,9 @@ func TestInboxSkillSendFallbackPropagatesUnixHTTPFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			cmd := exec.Command("bash", inboxSkillHelper, "send", "manager", "must stay failed")
-			cmd.Env = append(os.Environ(),
-				"AGENT_TEAM_ROOT="+t.TempDir(),
+			teamRoot := t.TempDir()
+			cmd.Env = append(append(os.Environ(), inboxSkillRuntimeEnv(t, teamRoot, currentInboxBuildHeader)...),
+				"AGENT_TEAM_ROOT="+teamRoot,
 				"AGENT_TEAM_INSTANCE=worker-gh391",
 				"AGENT_TEAM_DAEMON_URL="+closedInboxLoopbackURL(t),
 				"AGENT_TEAM_DAEMON_SOCKET="+socket,
@@ -243,8 +329,9 @@ func TestInboxSkillSendDoesNotFallbackFromHTTPFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			cmd := exec.Command("bash", inboxSkillHelper, "send", "manager", "must stay failed")
-			cmd.Env = append(os.Environ(),
-				"AGENT_TEAM_ROOT="+t.TempDir(),
+			teamRoot := t.TempDir()
+			cmd.Env = append(append(os.Environ(), inboxSkillRuntimeEnv(t, teamRoot, currentInboxBuildHeader)...),
+				"AGENT_TEAM_ROOT="+teamRoot,
 				"AGENT_TEAM_INSTANCE=worker-gh391",
 				"AGENT_TEAM_DAEMON_URL="+httpServer.URL,
 				"AGENT_TEAM_DAEMON_SOCKET="+socket,
@@ -259,6 +346,63 @@ func TestInboxSkillSendDoesNotFallbackFromHTTPFailures(t *testing.T) {
 				t.Fatalf("Unix socket hits = %d, want 0", unixHits.Load())
 			}
 		})
+	}
+}
+
+func inboxSkillRuntimeEnv(t *testing.T, teamRoot, header string) []string {
+	t.Helper()
+	helper, err := filepath.Abs("template/scripts/skills/daemon-build.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	helperDir := filepath.Join(teamRoot, "scripts", "skills")
+	if err := os.MkdirAll(helperDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(helperDir, "daemon-build.sh")
+	if err := os.Symlink(helper, link); err != nil && !errors.Is(err, os.ErrExist) {
+		t.Fatal(err)
+	}
+	build, err := buildinfo.ParseHeaderValue(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "agent-team")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binDir, err := runtimeshim.Install(t.TempDir(), map[string]string{}, runtimeshim.Options{
+		RealAgentTeam:      target,
+		RealAgentTeamBuild: build,
+		DaemonBuild:        build,
+		Assets:             "inbox-skill-test-assets",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(binDir, "agent-team")
+	return []string{
+		"AGENT_TEAM_SHIM_PATH=" + shim,
+		"AGENT_TEAM_BUILD_HEADER=" + header,
+		"AGENT_TEAM_DAEMON_BUILD_HEADER=" + header,
+		"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	}
+}
+
+func writeAttestationCandidate(t *testing.T, path, command, header string) {
+	t.Helper()
+	marker := ""
+	if command == "--build-attestation" {
+		marker = "# Closed-world enforcement baked in at install time\n"
+	}
+	body := "#!/bin/sh\n" + marker +
+		"if [ \"$1\" = \"" + command + "\" ] && [ \"$2\" = \"--header\" ]; then\n" +
+		"  printf '%s\\n' '" + header + "'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exit 3\n"
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 

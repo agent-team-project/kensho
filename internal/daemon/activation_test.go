@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/agent-team-project/agent-team/internal/buildinfo"
+	"github.com/agent-team-project/agent-team/internal/runtimeshim"
 )
 
 func TestActivationRejectsStaleCLIForScheduledTeamAuthorityBeforeSpawn(t *testing.T) {
@@ -254,9 +255,14 @@ allow = ["job.gate.*:team", "job.merge:team"]
 		if got := fake.callCount(); got != 1 {
 			t.Fatalf("persistent stale tuple spawned process; calls=%d", got)
 		}
+		if err := mgr.WaitForReaper("manager", 2*time.Second); err != nil {
+			t.Fatalf("wait coherent persistent reaper: %v", err)
+		}
 	})
 
 	t.Run("persistent resume regenerates stale bundle", func(t *testing.T) {
+		workspaceBuild := buildinfo.Info{Version: "0.1.0", SourceID: "git:b062047f11111111111111111111111111111111"}
+		currentBuild := buildinfo.Info{Version: "0.1.0", SourceID: "git:d45bb80522222222222222222222222222222222"}
 		teamDir := fixtureTeamDir(t)
 		writeFixtureAgent(t, teamDir, "manager")
 		topologyText := `
@@ -279,7 +285,27 @@ allow = ["job.gate.*:team", "job.merge:team"]
 		root := DaemonRoot(teamDir)
 		mgr := NewInstanceManager(root, fake.spawn)
 		resolver := NewEventResolver(mgr, teamDir, top)
-		coherent := coherentActivationForTest(t)
+		currentCLI := filepath.Join(t.TempDir(), "agent-team")
+		cliCalls := filepath.Join(t.TempDir(), "cli-calls.txt")
+		currentCLIBody := "#!/bin/sh\n" +
+			"if [ \"$1\" = __resolve-verb ]; then\n" +
+			"  shift\n" +
+			"  if [ \"${1:-}\" = job ] && [ \"${2:-}\" = show ]; then echo job.show; exit 0; fi\n" +
+			"  exit 2\n" +
+			"fi\n" +
+			"printf '%s\\n' \"$*\" >> " + shellQuoteTest(cliCalls) + "\n"
+		if err := os.WriteFile(currentCLI, []byte(currentCLIBody), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		coherent := ActivationStatus{
+			State:             ActivationStateCoherent,
+			CLIPath:           currentCLI,
+			CLI:               currentBuild,
+			Daemon:            currentBuild,
+			WorkspaceRevision: workspaceBuild.SourceID[len("git:"):],
+			LoadedAssets:      "d45bb805-assets",
+			CurrentAssets:     "d45bb805-assets",
+		}
 		setActivationForTest(resolver, coherent)
 		meta := &Metadata{
 			Instance:      "manager",
@@ -294,14 +320,32 @@ allow = ["job.gate.*:team", "job.merge:team"]
 		if err := WriteMetadata(root, meta); err != nil {
 			t.Fatal(err)
 		}
+		staleRoot := filepath.Join(teamDir, "state", "manager", "stale-runtime")
+		staleSkills := filepath.Join(staleRoot, ".claude", "skills")
+		if err := os.MkdirAll(staleSkills, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		staleBin, err := runtimeshim.Install(staleRoot, map[string]string{}, runtimeshim.Options{
+			RealAgentTeam:      currentCLI,
+			RealAgentTeamBuild: workspaceBuild,
+			DaemonBuild:        currentBuild,
+			Assets:             coherent.LoadedAssets,
+			EnforceAuthority:   true,
+			AuthorityAllowlist: []string{"job.show"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := WriteInstanceLaunchEnv(root, "manager", &LaunchEnv{
-			Bin:     "codex",
-			Args:    []string{"codex", "resume", "old-session"},
-			Dir:     filepath.Dir(teamDir),
-			Env:     os.Environ(),
-			Version: 1,
-			Build:   coherent.Daemon,
-			Assets:  "stale-assets",
+			Bin:        "codex",
+			Args:       []string{"codex", "exec", "--add-dir", staleRoot},
+			Dir:        filepath.Dir(teamDir),
+			Env:        append(os.Environ(), "PATH="+staleBin+string(os.PathListSeparator)+os.Getenv("PATH")),
+			Version:    1,
+			Build:      coherent.Daemon,
+			Assets:     coherent.LoadedAssets,
+			ShimPath:   filepath.Join(staleBin, "agent-team"),
+			SkillsPath: staleSkills,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -312,6 +356,9 @@ allow = ["job.gate.*:team", "job.merge:team"]
 		status := resolver.activationStatus()
 		if status.State != ActivationStateNeeded || len(status.StaleInstances) != 1 || status.StaleInstances[0] != "manager" {
 			t.Fatalf("stale persistent status = %+v", status)
+		}
+		if reasons := strings.Join(status.Reasons, "\n"); !strings.Contains(reasons, "b062047f") || !strings.Contains(reasons, "d45bb805") || !strings.Contains(reasons, "start the instance fresh") {
+			t.Fatalf("stale persistent diagnostic = %s", reasons)
 		}
 		started, err := mgr.Start("manager")
 		if err != nil {
@@ -328,10 +375,42 @@ allow = ["job.gate.*:team", "job.merge:team"]
 			t.Fatal(err)
 		}
 		comparison := buildinfo.Compare(snapshot.Build, coherent.Daemon)
-		if snapshot.Assets != coherent.LoadedAssets || !comparison.Comparable || !comparison.Equal {
+		if snapshot.Assets != coherent.LoadedAssets || !comparison.Comparable || !comparison.Equal || snapshot.ShimPath == "" || snapshot.SkillsPath == "" {
 			t.Fatalf("regenerated activation provenance = %+v", snapshot)
 		}
+		attestation, err := runtimeshim.ReadAttestation(snapshot.ShimPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		skills, err := runtimeshim.SkillAssetsDigestRoot(snapshot.SkillsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := attestation.CheckActive(coherent.Daemon, coherent.CLI, coherent.LoadedAssets, skills); err != nil {
+			t.Fatalf("regenerated shim is not coherent: %v\n%+v", err, attestation)
+		}
+		readOnly := exec.Command(snapshot.ShimPath, "job", "show", "gh481-stale-command-shims")
+		readOnly.Env = snapshot.Env
+		if out, err := readOnly.CombinedOutput(); err != nil {
+			t.Fatalf("read-only job command through regenerated shim: %v\n%s", err, out)
+		}
+		if calls, err := os.ReadFile(cliCalls); err != nil || !strings.Contains(string(calls), "job show gh481-stale-command-shims") {
+			t.Fatalf("managed CLI calls = %q, err=%v", calls, err)
+		}
 	})
+}
+
+func TestActivationDurableShimGuardIsScopedToPersistentInstances(t *testing.T) {
+	current := buildinfo.Info{Version: "0.1.0", SourceID: "git:d45bb80522222222222222222222222222222222"}
+	snapshot := &LaunchEnv{Build: current, Assets: "active-assets"}
+	status := ActivationStatus{Daemon: current, LoadedAssets: "active-assets"}
+
+	if stale, reason, err := activationSnapshotStaleForSurface(snapshot, status, false); err != nil || stale {
+		t.Fatalf("transient launch surface stale=%t reason=%q err=%v", stale, reason, err)
+	}
+	if stale, reason, err := activationSnapshotStaleForSurface(snapshot, status, true); err != nil || !stale || !strings.Contains(reason, "shim path is missing") {
+		t.Fatalf("persistent launch surface stale=%t reason=%q err=%v", stale, reason, err)
+	}
 }
 
 func TestInstanceBriefFlagsPersistentInstanceMissingActivationProvenance(t *testing.T) {
