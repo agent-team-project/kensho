@@ -15,11 +15,21 @@ DEFAULT_HTTP_SOURCE = Path("internal/daemon/http.go")
 DEFAULT_DOCUMENTATION = Path("documentation/orchestrator.md")
 INVENTORY_START = "<!-- daemon-api-inventory:start -->"
 INVENTORY_END = "<!-- daemon-api-inventory:end -->"
-REGISTERED_ROUTE_RE = re.compile(
-    r'\bmux\.Handle(?:Func)?\(\s*"(?P<path>/v1/[^"\s]+)"'
-)
 DOCUMENTED_ROUTE_RE = re.compile(r"/v1/[A-Za-z0-9_.~{}/-]+")
 METHODS = frozenset({"DELETE", "GET", "PATCH", "POST", "PUT"})
+GO_SIMPLE_ESCAPES = {
+    "a": "\a",
+    "b": "\b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "v": "\v",
+    "\\": "\\",
+    '"': '"',
+    "'": "'",
+}
+GO_HEX_ESCAPE_WIDTHS = {"x": 2, "u": 4, "U": 8}
 
 
 def normalize_route(path: str) -> str:
@@ -33,8 +43,130 @@ def normalize_route(path: str) -> str:
     return "/".join(segments).rstrip("/")
 
 
+def scan_go_interpreted_string(source: str, start: int) -> tuple[str, int]:
+    """Decode one Go interpreted string and return its value and end offset."""
+    value: list[str] = []
+    index = start + 1
+    while index < len(source):
+        character = source[index]
+        if character == '"':
+            return "".join(value), index + 1
+        if character in "\r\n":
+            raise ValueError(f"unterminated interpreted string at offset {start}")
+        if character != "\\":
+            value.append(character)
+            index += 1
+            continue
+
+        index += 1
+        if index >= len(source):
+            raise ValueError(f"unterminated escape at offset {start}")
+        escape = source[index]
+        if escape in GO_SIMPLE_ESCAPES:
+            value.append(GO_SIMPLE_ESCAPES[escape])
+            index += 1
+            continue
+        if escape in "01234567":
+            digits = source[index : index + 3]
+            if len(digits) != 3 or any(digit not in "01234567" for digit in digits):
+                raise ValueError(f"invalid Go octal escape at offset {index - 1}")
+            codepoint = int(digits, 8)
+            if codepoint > 0xFF:
+                raise ValueError(f"Go octal escape exceeds one byte at offset {index - 1}")
+            value.append(chr(codepoint))
+            index += 3
+            continue
+        if escape in GO_HEX_ESCAPE_WIDTHS:
+            width = GO_HEX_ESCAPE_WIDTHS[escape]
+            digits = source[index + 1 : index + 1 + width]
+            if len(digits) != width or any(digit not in "0123456789abcdefABCDEF" for digit in digits):
+                raise ValueError(f"invalid Go hexadecimal escape at offset {index - 1}")
+            codepoint = int(digits, 16)
+            if codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+                raise ValueError(f"invalid Go Unicode escape at offset {index - 1}")
+            value.append(chr(codepoint))
+            index += width + 1
+            continue
+        raise ValueError(f"invalid Go escape \\{escape} at offset {index - 1}")
+    raise ValueError(f"unterminated interpreted string at offset {start}")
+
+
+def skip_go_rune(source: str, start: int) -> int:
+    """Skip a rune literal so comment and string delimiters inside it stay inert."""
+    index = start + 1
+    while index < len(source):
+        character = source[index]
+        if character == "'":
+            return index + 1
+        if character in "\r\n":
+            raise ValueError(f"unterminated rune literal at offset {start}")
+        index += 2 if character == "\\" else 1
+    raise ValueError(f"unterminated rune literal at offset {start}")
+
+
+def scan_go_tokens(source: str) -> list[tuple[str, str]]:
+    """Return the Go tokens needed to identify active mux registrations."""
+    tokens: list[tuple[str, str]] = []
+    index = 0
+    while index < len(source):
+        character = source[index]
+        if character.isspace():
+            index += 1
+            continue
+        if source.startswith("//", index):
+            newline = source.find("\n", index + 2)
+            index = len(source) if newline == -1 else newline + 1
+            continue
+        if source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            if end == -1:
+                raise ValueError(f"unterminated block comment at offset {index}")
+            index = end + 2
+            continue
+        if character == '"':
+            value, index = scan_go_interpreted_string(source, index)
+            tokens.append(("string", value))
+            continue
+        if character == "`":
+            end = source.find("`", index + 1)
+            if end == -1:
+                raise ValueError(f"unterminated raw string at offset {index}")
+            tokens.append(("string", source[index + 1 : end].replace("\r", "")))
+            index = end + 1
+            continue
+        if character == "'":
+            index = skip_go_rune(source, index)
+            continue
+        if character == "_" or character.isalpha():
+            end = index + 1
+            while end < len(source) and (source[end] == "_" or source[end].isalnum()):
+                end += 1
+            tokens.append(("identifier", source[index:end]))
+            index = end
+            continue
+        tokens.append((character, character))
+        index += 1
+    return tokens
+
+
 def extract_registered_routes(source: str) -> list[str]:
-    return [match.group("path") for match in REGISTERED_ROUTE_RE.finditer(source)]
+    tokens = scan_go_tokens(source)
+    routes: list[str] = []
+    for index in range(len(tokens) - 5):
+        if (
+            tokens[index] == ("identifier", "mux")
+            and tokens[index + 1] == (".", ".")
+            and tokens[index + 2] in {
+                ("identifier", "Handle"),
+                ("identifier", "HandleFunc"),
+            }
+            and tokens[index + 3] == ("(", "(")
+            and tokens[index + 4][0] == "string"
+            and tokens[index + 4][1].startswith("/v1/")
+            and tokens[index + 5] == (",", ",")
+        ):
+            routes.append(tokens[index + 4][1])
+    return routes
 
 
 def inventory_block(documentation: str) -> tuple[str, list[str]]:
@@ -105,7 +237,11 @@ def describe_counts(counts: Counter[str]) -> str:
 
 def validate_text(source: str, documentation: str) -> list[str]:
     failures: list[str] = []
-    registered = extract_registered_routes(source)
+    try:
+        registered = extract_registered_routes(source)
+    except ValueError as error:
+        failures.append(f"could not lex daemon HTTP source: {error}")
+        registered = []
     if not registered:
         failures.append("no literal /v1 route registrations found in daemon HTTP source")
 
@@ -140,6 +276,31 @@ def fixture_documentation(rows: list[tuple[str, str, str, str]], outside: str = 
 
 
 def run_self_test() -> list[str]:
+    lexical_source = "\n".join(
+        [
+            'mux.HandleFunc("/v1/func-interpreted", handler)',
+            'mux.Handle("/v1/handle-interpreted", handler)',
+            "mux.HandleFunc(`/v1/func-raw`, handler)",
+            "mux.Handle(`/v1/handle-raw`, handler)",
+            '// mux.HandleFunc("/v1/line-comment-only", handler)',
+            '/* mux.Handle("/v1/block-comment-only", handler) */',
+            '_ = `mux.HandleFunc("/v1/raw-string-lookalike", handler)`',
+            'mux.HandleFunc("/v1/composed-" + suffix, handler)',
+        ]
+    )
+    expected_lexical_routes = [
+        "/v1/func-interpreted",
+        "/v1/handle-interpreted",
+        "/v1/func-raw",
+        "/v1/handle-raw",
+    ]
+    failures: list[str] = []
+    if (got := extract_registered_routes(lexical_source)) != expected_lexical_routes:
+        failures.append(
+            "Go lexical extraction did not isolate active Handle calls: "
+            f"expected {expected_lexical_routes}, got {got}"
+        )
+
     source = "\n".join(
         [
             'mux.HandleFunc("/v1/status", handler)',
@@ -154,9 +315,22 @@ def run_self_test() -> list[str]:
         ("GET", "/v1/queue", "List queue items.", "Operator or instance."),
         ("GET, POST", "/v1/queue/{id}/{verb}", "Read or mutate one item.", "Grant required for writes."),
     ]
-    failures: list[str] = []
     if got := validate_text(source, fixture_documentation(rows)):
         failures.append(f"valid dynamic and trailing-slash fixture failed: {got}")
+
+    raw_route = source + "\nmux.HandleFunc(`/v1/raw-new`, handler)"
+    got = validate_text(raw_route, fixture_documentation(rows))
+    expected = "documented inventory omits: /v1/raw-new"
+    if expected not in got:
+        failures.append(f"raw-string registration mutant did not fail with {expected!r}: {got}")
+
+    for label, commented_route in (
+        ("line", '// mux.HandleFunc("/v1/comment-only", handler)'),
+        ("block", '/* mux.Handle("/v1/comment-only", handler) */'),
+    ):
+        got = validate_text(source + "\n" + commented_route, fixture_documentation(rows))
+        if got:
+            failures.append(f"{label}-commented route was treated as a registration: {got}")
 
     missing_row = rows[:-1]
     got = validate_text(source, fixture_documentation(missing_row))
@@ -205,7 +379,7 @@ def main() -> int:
             for failure in failures:
                 print(f"  - {failure}", file=sys.stderr)
             return 1
-        print("OK  daemon API inventory validator rejects missing and stale route families")
+        print("OK  daemon API inventory validator rejects lexical lookalikes, missing, and stale route families")
         return 0
 
     repo_root = args.repo_root.resolve()
