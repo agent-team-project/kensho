@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const githubIssueReferenceError = "GitHub issue reference is required (accepted forms: GH-N, #N, N, owner/repo#N, owner/repo/issues/N, or a canonical GitHub issue URL)"
+
 type githubTicketRecord struct {
 	Number  int    `json:"number"`
 	HTMLURL string `json:"html_url"`
@@ -96,7 +98,7 @@ func (c *GitHubClient) applyGitHubTicketCreate(ctx context.Context, token string
 func (c *GitHubClient) applyGitHubTicketUpdate(ctx context.Context, token string, cfg config, req TicketRequest, result TicketResult) TicketResult {
 	issue, ok := parseGitHubIssueRef(req.Ticket, cfg.GitHub.Owner, cfg.GitHub.Repo)
 	if !ok {
-		result.Error = "GitHub issue reference is required"
+		result.Error = githubIssueReferenceError
 		result.Message = "github ticket update failed"
 		return result
 	}
@@ -141,7 +143,7 @@ func (c *GitHubClient) applyGitHubTicketUpdate(ctx context.Context, token string
 func (c *GitHubClient) applyGitHubTicketComment(ctx context.Context, token string, cfg config, req TicketRequest, result TicketResult) TicketResult {
 	issue, ok := parseGitHubIssueRef(req.Ticket, cfg.GitHub.Owner, cfg.GitHub.Repo)
 	if !ok {
-		result.Error = "GitHub issue reference is required"
+		result.Error = githubIssueReferenceError
 		result.Message = "github ticket comment failed"
 		return result
 	}
@@ -166,7 +168,7 @@ func (c *GitHubClient) applyGitHubTicketComment(ctx context.Context, token strin
 func (c *GitHubClient) applyGitHubTicketClose(ctx context.Context, token string, cfg config, req TicketRequest, result TicketResult) TicketResult {
 	issue, ok := parseGitHubIssueRef(req.Ticket, cfg.GitHub.Owner, cfg.GitHub.Repo)
 	if !ok {
-		result.Error = "GitHub issue reference is required"
+		result.Error = githubIssueReferenceError
 		result.Message = "github ticket close failed"
 		return result
 	}

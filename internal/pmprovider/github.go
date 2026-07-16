@@ -457,11 +457,30 @@ func parseGitHubIssueRef(raw, defaultOwner, defaultRepo string) (githubIssueRef,
 	if len(parts) >= 4 && parts[2] == "issues" {
 		return issueRefFromParts(parts[0], parts[1], parts[3], "")
 	}
+	if len(raw) >= len("GH-") && strings.EqualFold(raw[:len("GH-")], "GH-") {
+		number := raw[len("GH-"):]
+		if !asciiDigits(number) {
+			return githubIssueRef{}, false
+		}
+		return issueRefFromParts(defaultOwner, defaultRepo, number, "")
+	}
 	number := strings.TrimPrefix(raw, "#")
 	if _, err := strconv.Atoi(number); err == nil && strings.TrimSpace(defaultOwner) != "" && strings.TrimSpace(defaultRepo) != "" {
 		return issueRefFromParts(defaultOwner, defaultRepo, number, "")
 	}
 	return githubIssueRef{}, false
+}
+
+func asciiDigits(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, char := range raw {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func cleanPathParts(raw string) []string {

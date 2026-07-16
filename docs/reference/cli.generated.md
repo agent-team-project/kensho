@@ -10626,6 +10626,8 @@ Create and update PM tickets through the configured provider.
 
 Create and update PM tickets through `[pm].provider`. Supported providers are Linear and GitHub.
 
+For GitHub, &lt;ticket&gt; accepts GH-N (case-insensitive), #N, N, owner/repo#N, owner/repo/issues/N, https://github.com/owner/repo/issues/N, or https://api.github.com/repos/owner/repo/issues/N. GH-N, #N, and N use the configured default owner/repo.
+
 ```text
 agent-team ticket
 ```
@@ -10647,6 +10649,10 @@ Subcommands:
 
 Close a ticket using the configured PM provider.
 
+Close a ticket using the configured PM provider.
+
+For GitHub, &lt;ticket&gt; accepts GH-N (case-insensitive), #N, N, owner/repo#N, owner/repo/issues/N, https://github.com/owner/repo/issues/N, or https://api.github.com/repos/owner/repo/issues/N. GH-N, #N, and N use the configured default owner/repo.
+
 ```text
 agent-team ticket close <ticket> [flags]
 ```
@@ -10664,6 +10670,10 @@ Flags:
 ## `agent-team ticket comment`
 
 Comment on a ticket using the configured PM provider.
+
+Comment on a ticket using the configured PM provider.
+
+For GitHub, &lt;ticket&gt; accepts GH-N (case-insensitive), #N, N, owner/repo#N, owner/repo/issues/N, https://github.com/owner/repo/issues/N, or https://api.github.com/repos/owner/repo/issues/N. GH-N, #N, and N use the configured default owner/repo.
 
 ```text
 agent-team ticket comment <ticket> [flags]
@@ -10701,6 +10711,10 @@ Flags:
 ## `agent-team ticket update`
 
 Update a ticket using the configured PM provider.
+
+Update a ticket using the configured PM provider.
+
+For GitHub, &lt;ticket&gt; accepts GH-N (case-insensitive), #N, N, owner/repo#N, owner/repo/issues/N, https://github.com/owner/repo/issues/N, or https://api.github.com/repos/owner/repo/issues/N. GH-N, #N, and N use the configured default owner/repo.
 
 ```text
 agent-team ticket update <ticket> [flags]

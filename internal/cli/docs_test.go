@@ -30,6 +30,10 @@ func TestDocsCLIGeneratesMarkdown(t *testing.T) {
 		"--repo string",
 		`(default "<repo>")`,
 		"--verify-pr",
+		"GH-N (case-insensitive), #N, N, owner/repo#N, owner/repo/issues/N",
+		"https://github.com/owner/repo/issues/N",
+		"https://api.github.com/repos/owner/repo/issues/N",
+		"configured default owner/repo",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("generated docs missing %q", want)

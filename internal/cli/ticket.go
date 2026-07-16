@@ -22,12 +22,14 @@ type ticketCommandOptions struct {
 	labels   []string
 }
 
+const githubTicketReferenceHelp = "For GitHub, <ticket> accepts GH-N (case-insensitive), #N, N, owner/repo#N, owner/repo/issues/N, https://github.com/owner/repo/issues/N, or https://api.github.com/repos/owner/repo/issues/N. GH-N, #N, and N use the configured default owner/repo."
+
 func newTicketCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ticket",
 		Short: "Create and update PM tickets through the configured provider.",
 		Long: "Create and update PM tickets through `[pm].provider`. " +
-			"Supported providers are Linear and GitHub.",
+			"Supported providers are Linear and GitHub.\n\n" + githubTicketReferenceHelp,
 	}
 	cmd.AddCommand(newTicketCreateCmd())
 	cmd.AddCommand(newTicketUpdateCmd())
@@ -74,6 +76,7 @@ func newTicketUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <ticket>",
 		Short: "Update a ticket using the configured PM provider.",
+		Long:  "Update a ticket using the configured PM provider.\n\n" + githubTicketReferenceHelp,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, err := ticketBody(opts)
@@ -108,6 +111,7 @@ func newTicketCommentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "comment <ticket>",
 		Short: "Comment on a ticket using the configured PM provider.",
+		Long:  "Comment on a ticket using the configured PM provider.\n\n" + githubTicketReferenceHelp,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, err := ticketBody(opts)
@@ -136,6 +140,7 @@ func newTicketCloseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "close <ticket>",
 		Short: "Close a ticket using the configured PM provider.",
+		Long:  "Close a ticket using the configured PM provider.\n\n" + githubTicketReferenceHelp,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body, err := ticketBody(opts)

@@ -386,13 +386,119 @@ func TestParseGitHubIssueRef(t *testing.T) {
 		{raw: "https://github.com/acme/widgets/issues/42", want: "acme/widgets#42"},
 		{raw: "https://api.github.com/repos/acme/widgets/issues/42", want: "acme/widgets#42"},
 		{raw: "acme/widgets#42", want: "acme/widgets#42"},
+		{raw: "acme/widgets/issues/42", want: "acme/widgets#42"},
 		{raw: "#42", want: "acme/widgets#42"},
+		{raw: "42", want: "acme/widgets#42"},
+		{raw: "GH-42", want: "acme/widgets#42"},
+		{raw: "gh-42", want: "acme/widgets#42"},
+		{raw: "gH-00042", want: "acme/widgets#42"},
 	}
 	for _, tt := range tests {
-		ref, ok := parseGitHubIssueRef(tt.raw, "acme", "widgets")
-		if !ok || ref.String() != tt.want {
-			t.Fatalf("parseGitHubIssueRef(%q) = %+v/%v, want %s", tt.raw, ref, ok, tt.want)
+		t.Run(tt.raw, func(t *testing.T) {
+			ref, ok := parseGitHubIssueRef(tt.raw, "acme", "widgets")
+			if !ok || ref.String() != tt.want {
+				t.Fatalf("parseGitHubIssueRef(%q) = %+v/%v, want %s", tt.raw, ref, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseGitHubIssueRefRejectsMalformedGHIdentifiers(t *testing.T) {
+	for _, raw := range []string{
+		"GH-",
+		"GH-0",
+		"GH--1",
+		"GH-nope",
+		"GH-42x",
+		"GH-+42",
+		"SQU-42",
+		"prefix-GH-42",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			if ref, ok := parseGitHubIssueRef(raw, "acme", "widgets"); ok {
+				t.Fatalf("parseGitHubIssueRef(%q) = %+v/true, want rejection", raw, ref)
+			}
+		})
+	}
+}
+
+func TestGitHubTicketActionsAcceptGHIdentifiers(t *testing.T) {
+	teamDir := testGitHubTeamDir(t, ``)
+	tests := []struct {
+		name       string
+		request    TicketRequest
+		wantMethod string
+		wantPath   string
+	}{
+		{
+			name:       "update uppercase",
+			request:    TicketRequest{Action: TicketUpdate, Ticket: "GH-42", Title: "Updated title"},
+			wantMethod: http.MethodPatch,
+			wantPath:   "/repos/acme/widgets/issues/42",
+		},
+		{
+			name:       "comment lowercase",
+			request:    TicketRequest{Action: TicketComment, Ticket: "gh-42", Body: "A comment"},
+			wantMethod: http.MethodPost,
+			wantPath:   "/repos/acme/widgets/issues/42/comments",
+		},
+		{
+			name:       "close mixed case",
+			request:    TicketRequest{Action: TicketClose, Ticket: "Gh-42"},
+			wantMethod: http.MethodPatch,
+			wantPath:   "/repos/acme/widgets/issues/42",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requests []githubRequest
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, githubRequest{Method: r.Method, Path: r.URL.Path})
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"number":42,"html_url":"https://github.com/acme/widgets/issues/42","title":"Issue","state":"closed"}`))
+			}))
+			defer server.Close()
+			t.Setenv("AGENT_TEAM_GITHUB_REST_URL", server.URL)
+			t.Setenv("AGENT_TEAM_GITHUB_TOKEN", "gh-key")
+
+			result := ApplyTicket(context.Background(), teamDir, tt.request)
+			if result.Error != "" || result.Issue != "acme/widgets#42" {
+				t.Fatalf("ApplyTicket(%s, %q) = %+v, want normalized issue", tt.request.Action, tt.request.Ticket, result)
+			}
+			if len(requests) != 1 || requests[0].Method != tt.wantMethod || requests[0].Path != tt.wantPath {
+				t.Fatalf("requests = %+v, want %s %s", requests, tt.wantMethod, tt.wantPath)
+			}
+		})
+	}
+}
+
+func TestGitHubTicketActionsRejectMalformedGHIdentifiers(t *testing.T) {
+	teamDir := testGitHubTeamDir(t, ``)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+	t.Setenv("AGENT_TEAM_GITHUB_REST_URL", server.URL)
+	t.Setenv("AGENT_TEAM_GITHUB_TOKEN", "gh-key")
+	actions := []TicketRequest{
+		{Action: TicketUpdate, Title: "Updated title"},
+		{Action: TicketComment, Body: "A comment"},
+		{Action: TicketClose},
+	}
+	for _, action := range actions {
+		for _, raw := range []string{"GH-", "GH-0", "GH--1", "GH-nope", "GH-+42", "SQU-42"} {
+			t.Run(string(action.Action)+"/"+raw, func(t *testing.T) {
+				action.Ticket = raw
+				result := ApplyTicket(context.Background(), teamDir, action)
+				if !strings.Contains(result.Error, "GitHub issue reference is required") || !strings.Contains(result.Error, "accepted forms") {
+					t.Fatalf("ApplyTicket(%s, %q).Error = %q, want clear reference error with accepted forms", action.Action, raw, result.Error)
+				}
+			})
 		}
+	}
+	if requests != 0 {
+		t.Fatalf("malformed references made %d HTTP requests, want zero", requests)
 	}
 }
 
