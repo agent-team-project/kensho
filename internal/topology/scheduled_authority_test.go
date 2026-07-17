@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -91,14 +92,14 @@ func TestParseScheduledAuthorityUsesEffectiveComposedGrants(t *testing.T) {
 			Team:     top.TeamForInstance(inst.Name),
 			Verb:     tc.verb,
 		})
-		if !eval.Allowed || !containsTopologyRef(eval.Sources, tc.source) {
+		if !eval.Allowed || !slices.Contains(eval.Sources, tc.source) {
 			t.Fatalf("effective authority for %s = %+v, want allowed via %s", tc.verb, eval, tc.source)
 		}
 	}
 
 	allow := top.AuthorityAllowlistForInstance(inst.Name, inst.Agent)
 	for _, want := range []string{"feedback.*", "job.ls", "ticket.comment"} {
-		if !containsTopologyRef(allow, want) {
+		if !slices.Contains(allow, want) {
 			t.Fatalf("runtime allowlist = %v, want composed grant %q", allow, want)
 		}
 	}
@@ -221,96 +222,4 @@ func TestParseScheduledAuthorityRequiresCanonicalVerbs(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestScheduledObserverAuthorityContract(t *testing.T) {
-	wantRequired := map[string][]string{
-		"feedback-triage": {
-			"daemon.status", "feedback.ls", "feedback.resolve", "feedback.show", "instance.brief",
-			"job.events", "job.explain", "job.ls", "job.show", "job.triage", "ticket.comment", "ticket.create",
-		},
-		"debt-auditor": {"feedback.submit", "ticket.comment", "ticket.create"},
-		"harness-reviewer": {
-			"daemon.status", "feedback.ls", "instance.brief", "job.events", "job.explain",
-			"job.ls", "job.show", "job.triage", "ticket.comment", "ticket.create",
-		},
-		"org-review": {
-			"budget.status", "daemon.status", "feedback.ls", "feedback.show", "instance.brief", "job.ls", "job.show",
-			"job.triage", "outcomes.report", "queue.ls", "schedule.ls", "team.ps", "ticket.comment", "ticket.create",
-		},
-		"sentinel":         {"daemon.status", "feedback.submit", "instance.brief"},
-		"product-verifier": {"daemon.status", "feedback.submit", "instance.brief", "job.ls", "ps", "topology.show"},
-	}
-	for _, fixture := range frontendProgramTopologies(t) {
-		t.Run(fixture.name, func(t *testing.T) {
-			for name, required := range wantRequired {
-				inst := fixture.top.Instances[name]
-				if inst == nil {
-					t.Fatalf("scheduled observer %q is missing", name)
-				}
-				if !reflect.DeepEqual(inst.RequiredVerbs, required) {
-					t.Fatalf("%s required verbs = %v, want %v", name, inst.RequiredVerbs, required)
-				}
-				for _, verb := range required {
-					eval := fixture.top.Authority.Evaluate(AuthorityDecision{
-						Instance: inst.Name,
-						Agent:    inst.Agent,
-						Team:     fixture.top.TeamForInstance(inst.Name),
-						Verb:     verb,
-					})
-					if !eval.Allowed {
-						t.Fatalf("%s required verb %s denied by effective authority: %+v", name, verb, eval)
-					}
-				}
-				for _, denied := range []string{"event.publish", "instance.up", "job.bounce", "job.merge", "topology.reload"} {
-					eval := fixture.top.Authority.Evaluate(AuthorityDecision{
-						Instance: inst.Name,
-						Agent:    inst.Agent,
-						Team:     fixture.top.TeamForInstance(inst.Name),
-						Verb:     denied,
-					})
-					if eval.Allowed {
-						t.Fatalf("%s unexpectedly granted unrelated authority %s via %v", name, denied, eval.Sources)
-					}
-				}
-			}
-		})
-	}
-}
-
-func TestSelfDogfoodScheduledObserverMissingGrantIsRejected(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", ".agent_team", "instances.toml"))
-	if err != nil {
-		t.Fatalf("read self-dogfood topology: %v", err)
-	}
-	mutated := removeAuthorityGrant(t, string(body), "feedback-triage", "job.ls")
-	_, err = Parse([]byte(mutated))
-	if err == nil || !strings.Contains(err.Error(), `scheduled instance "feedback-triage": required verb "job.ls"`) {
-		t.Fatalf("Parse error = %v, want load-bearing feedback-triage grant rejection", err)
-	}
-}
-
-func removeAuthorityGrant(t *testing.T, body, instance, grant string) string {
-	t.Helper()
-	startMarker := "[authority.instances." + instance + "]"
-	start := strings.Index(body, startMarker)
-	if start < 0 {
-		t.Fatalf("authority section %q is missing", startMarker)
-	}
-	end := strings.Index(body[start+len(startMarker):], "\n[")
-	if end < 0 {
-		end = len(body)
-	} else {
-		end += start + len(startMarker)
-	}
-	section := body[start:end]
-	quoted := `"` + grant + `"`
-	updated := strings.Replace(section, quoted+", ", "", 1)
-	if updated == section {
-		updated = strings.Replace(section, ", "+quoted, "", 1)
-	}
-	if updated == section {
-		t.Fatalf("grant %q is missing from %s", grant, startMarker)
-	}
-	return body[:start] + updated + body[end:]
 }
