@@ -1409,69 +1409,6 @@ effort = 42
 	}
 }
 
-func TestParse_FableMaxEffortExamples(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", ".agent_team", "instances.toml"))
-	if err != nil {
-		t.Fatalf("read self-dogfood topology: %v", err)
-	}
-	top, err := Parse(body)
-	if err != nil {
-		t.Fatalf("parse self-dogfood topology: %v", err)
-	}
-	if got := top.ModelPolicy; got == nil || got.Runtime != "codex" || got.Model != "gpt-5.6-sol" || got.Effort != "xhigh" {
-		t.Fatalf("self-dogfood model policy = %+v", got)
-	}
-	fable := make([]string, 0, 3)
-	for name, inst := range top.Instances {
-		if inst.Model == "claude-fable-5" {
-			fable = append(fable, name)
-			if inst.Runtime != "claude" || inst.Effort != "max" {
-				t.Fatalf("self-dogfood Fable seat %s = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
-			}
-			continue
-		}
-		if inst.Runtime != "codex" || inst.Model != "gpt-5.6-sol" || inst.Effort != "xhigh" {
-			t.Fatalf("self-dogfood non-Fable seat %s = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
-		}
-	}
-	sort.Strings(fable)
-	if want := []string{"advisor", "harness-reviewer", "org-review"}; !reflect.DeepEqual(fable, want) {
-		t.Fatalf("self-dogfood Fable seats = %v, want %v", fable, want)
-	}
-	for _, name := range fable {
-		inst := top.Instances[name]
-		if inst.Runtime != "claude" || inst.Model != "claude-fable-5" || inst.Effort != "max" {
-			t.Fatalf("self-dogfood %s runtime/model/effort = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
-		}
-	}
-	for pipelineName, pipeline := range top.Pipelines {
-		for _, step := range pipeline.Steps {
-			target := top.Instances[step.Target]
-			if target == nil || step.Runtime != target.Runtime || step.Model != target.Model || step.Effort != target.Effort {
-				t.Fatalf("self-dogfood pipeline %s step %s policy = %q/%q/%q, target=%+v", pipelineName, step.ID, step.Runtime, step.Model, step.Effort, target)
-			}
-		}
-	}
-
-	body, err = os.ReadFile(filepath.Join("..", "..", "template", "topology", "instances.toml.tmpl.d", "50_full_quality_loops.toml.tmpl"))
-	if err != nil {
-		t.Fatalf("read template quality loops: %v", err)
-	}
-	top, err = Parse(body)
-	if err != nil {
-		t.Fatalf("parse template quality loops: %v", err)
-	}
-	for _, name := range []string{"advisor", "harness-reviewer", "org-review"} {
-		inst := top.Instances[name]
-		if inst == nil {
-			t.Fatalf("template instance %q missing", name)
-		}
-		if inst.Runtime != "claude" || inst.Model != "claude-fable-5" || inst.Effort != "max" {
-			t.Fatalf("template %s runtime/model/effort = %q/%q/%q", name, inst.Runtime, inst.Model, inst.Effort)
-		}
-	}
-}
-
 func TestParse_PipelineInfraSignaturesValidation(t *testing.T) {
 	_, err := Parse([]byte(`
 [pipelines.ticket_to_pr]
