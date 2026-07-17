@@ -1,0 +1,30 @@
++ agent-team | FLEET / TOPOLOGY -------------------------------------------------------------------CONNECTED 12:04:05 -+
+| Overview  Work  [Fleet]  Activity  Logs  Research  Requirements  Release                                     ? Help  |
++----------------------------------------------------------------------------------------------------------------------+
+|   Org Instances [Topology]                                                                              Query: none  |
++----------------------------------------------------------------------------------------------------------------------+
+|   deployments pipelines budgets [schedules] deadlines teams                                                          |
++---------------------------------------------------------------------------+------------------------------------------+
+| > debt-sweep               24h        pending                  team p...  | Detail                                   |
+|   docs-freshness           24h        pending                  team q...  | debt-sweep                               |
+|   feedback                 4h         pending                  team p...  | cadence 24h                              |
+|   product-verify           24h        2026-07-10 09:04:05 UTC  team q...  | last fired pending                       |
+|   release                  168h       pending                  team q...  | team platform                            |
+|                                                                           | payload kind=debt-sweep                  |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
++----------------------------------------------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus topology/list | Opened Fleet / Top... |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                 |
++----------------------------------------------------------------------------------------------------------------------+

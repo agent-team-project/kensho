@@ -1,0 +1,30 @@
++ agent-team | FLEET / TOPOLOGY -------------------------------------------------------------------CONNECTED 12:04:05 -+
+| Overview  Work  [Fleet]  Activity  Logs  Research  Requirements  Release                                     ? Help  |
++----------------------------------------------------------------------------------------------------------------------+
+|   Org Instances [Topology]                                                                              Query: none  |
++----------------------------------------------------------------------------------------------------------------------+
+|   deployments [pipelines] budgets schedules deadlines teams                                                          |
++---------------------------------------------------------------------------+------------------------------------------+
+| > frontend_ticket_to_pr        agent.dispatch kind=frontend 2 active      | Detail                                   |
+|   platform_ticket_to_pr        agent.dispatch kind=platform 2 active      | frontend_ticket_to_pr                    |
+|   quality                      schedule                     2 active      | trigger agent.dispatch kind=frontend     |
+|   release                      release.ready                1 active      | steps implement -> worker (60M / 1h);... |
+|                                                                           | 2 active                                 |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
++----------------------------------------------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus topology/list | Opened Fleet / Top... |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                 |
++----------------------------------------------------------------------------------------------------------------------+

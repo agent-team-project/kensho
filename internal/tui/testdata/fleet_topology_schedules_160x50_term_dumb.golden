@@ -1,0 +1,50 @@
++ agent-team | FLEET / TOPOLOGY -----------------------------------------------------------------------------------------------------------CONNECTED 12:04:05 -+
+| Overview  Work  [Fleet]  Activity  Logs  Research  Requirements  Release                                                                             ? Help  |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|   Org Instances [Topology]                                                                                                                      Query: none  |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|   deployments pipelines budgets [schedules] deadlines teams                                                                                                  |
++---------------------------------------------------------------------------------------------------------+----------------------------------------------------+
+| > debt-sweep               24h        pending                  team platform                            | Detail                                             |
+|   docs-freshness           24h        pending                  team quality                             | debt-sweep                                         |
+|   feedback                 4h         pending                  team platform                            | cadence 24h                                        |
+|   product-verify           24h        2026-07-10 09:04:05 UTC  team quality                             | last fired pending                                 |
+|   release                  168h       pending                  team quality                             | team platform                                      |
+|                                                                                                         | payload kind=debt-sweep                            |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
+|                                                                                                         |                                                    |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus topology/list | Opened Fleet / Topology                                       |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                                                         |
++--------------------------------------------------------------------------------------------------------------------------------------------------------------+

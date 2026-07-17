@@ -6,19 +6,19 @@
 | Telemetry  4 model tiers 4 bounce classes   2 deployments                    |
 | Capacity   4 pipelines   2 budgets   5 schedules  3 deadlines                |
 + Attention -------------------------------------------------------------------+
-|   job      job-03                   failed         frontend_ticket_to_pr     |
-|   job      job-08                   blocked        frontend_ticket_to_pr     |
-|   job      release-2026-07          blocked        frontend_ticket_to_pr     |
+|   job      job-03                   failed         release                   |
+|   job      job-08                   blocked        quality                   |
+|   job      release-2026-07          blocked        platform_ticket_to_pr     |
 |   instance verifier-2               crashed        exit 1                    |
 + Live org --------------------------------------------------------------------+
-|   auditor          0 working  0 idle  0 crashed  [0/1 running, 0 queued]     |
+|   auditor          0 working  1 idle  0 crashed  [0/1 running, 0 queued]     |
 |   comms            0 working  1 idle  0 crashed  [0/1 running, 0 queued]     |
-|   manager          1 working  0 idle  0 crashed  [1/1 running, 0 queued]     |
+|   manager          0 working  1 idle  0 crashed  [1/1 running, 0 queued]     |
 |   reviewer         1 working  0 idle  0 crashed  [1/2 running, 0 queued]     |
-|   ticket-manager   0 working  0 idle  0 crashed  [0/1 running, 0 queued]     |
+|   ticket-manager   0 working  1 idle  0 crashed  [0/1 running, 0 queued]     |
 |   verifier         0 working  0 idle  1 crashed  [0/2 running, 0 queued]     |
-|   worker           2 working  0 idle  0 crashed  [2/4 running, 1 queued]     |
+|   worker           2 working  0 idle  0 crashed  [3/4 running, 1 queued]     |
 +------------------------------------------------------------------------------+
-|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 24/24 | ... |
-| Tab focus  Enter inspect  / filter  r refresh  ? help  q quit                |
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |
+| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |
 +------------------------------------------------------------------------------+

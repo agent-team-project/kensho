@@ -2,29 +2,29 @@
 | [Overview]  Work  Fleet  Activity  Logs  Research  Requirements  Release                                     ? Help  |
 +----------------------------------------------------------------------------------------------------------------------+
 + Summary --------------------------------------------------|-Attention------------------------------------------------+
-| > Fleet       instances 6    running 4    teams 3         |   job      job-03                   failed         fr... |
-|   Work        jobs 12        active 7     blocked 2  ...  |   job      job-08                   blocked        fr... |
-| Telemetry   model/tier 4   bounce classes 4   deploym...  |   job      release-2026-07          blocked        fr... |
+| > Fleet       instances 6    running 4    teams 3         |   job      job-03                   failed         re... |
+|   Work        jobs 12        active 7     blocked 2  ...  |   job      job-08                   blocked        qu... |
+| Telemetry   model/tier 4   bounce classes 4   deploym...  |   job      release-2026-07          blocked        pl... |
 | Topology    pipelines 4    budgets 2    schedules 5  ...  |   instance verifier-2               crashed        ex... |
 |                                                           |   job      gh383-tui-spec           running        fr... |
-|                                                           |   job      job-06                   running        fr... |
-|                                                           |   job      job-11                   running        fr... |
-|                                                           |   job      job-04                   queued         fr... |
+|                                                           |   job      job-06                   running        pl... |
+|                                                           |   job      job-11                   running        re... |
+|                                                           |   job      job-04                   queued         qu... |
 |                                                           |                                                          |
 + Live org ------------------------------------------------------------------------------------------------------------+
-|   auditor          0 working  0 idle  0 crashed  [0/1 running, 0 queued]                                             |
+|   auditor          0 working  1 idle  0 crashed  [0/1 running, 0 queued]                                             |
 |   comms            0 working  1 idle  0 crashed  [0/1 running, 0 queued]                                             |
-|   manager          1 working  0 idle  0 crashed  [1/1 running, 0 queued]                                             |
+|   manager          0 working  1 idle  0 crashed  [1/1 running, 0 queued]                                             |
 |   reviewer         1 working  0 idle  0 crashed  [1/2 running, 0 queued]                                             |
-|   ticket-manager   0 working  0 idle  0 crashed  [0/1 running, 0 queued]                                             |
+|   ticket-manager   0 working  1 idle  0 crashed  [0/1 running, 0 queued]                                             |
 |   verifier         0 working  0 idle  1 crashed  [0/2 running, 0 queued]                                             |
-|   worker           2 working  0 idle  0 crashed  [2/4 running, 1 queued]                                             |
+|   worker           2 working  0 idle  0 crashed  [3/4 running, 1 queued]                                             |
 |                                                           |                                                          |
 |                                                           |                                                          |
 |                                                           |                                                          |
 |                                                           |                                                          |
 |                                                           |                                                          |
 +----------------------------------------------------------------------------------------------------------------------+
-|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 24/24 | focus summary/fleet                         |
-| Tab focus  arrows/hjkl move  Enter inspect  / filter  g+key screen  r refresh  ? help  q quit                        |
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus summary/fleet                         |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                 |
 +----------------------------------------------------------------------------------------------------------------------+

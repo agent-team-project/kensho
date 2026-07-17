@@ -72,6 +72,28 @@ func TestSeededLiveDaemonDiscoveryAndOverviewParity(t *testing.T) {
 	if oracle != want || snapshot.DeploymentID != "tui-small-v1" {
 		t.Fatalf("seeded tui-small-v1 oracle = %+v want=%+v deployment=%q", oracle, want, snapshot.DeploymentID)
 	}
+	parityJobs := projectJobs(navigateTo(model, RouteWork, ScreenWorkJobs))
+	parityTelemetry := projectTelemetry(model)
+	parityInstances := projectInstances(navigateTo(model, RouteFleet, ScreenFleetInstances))
+	parityOrg := projectLiveOrg(navigateTo(model, RouteFleet, ScreenFleetOrg))
+	parityTopology := projectTopology(navigateTo(model, RouteFleet, ScreenFleetTopology))
+	if len(parityJobs) != len(jobs) || parityJobs[0].ID != "gh383-tui-spec" || parityJobs[0].Model != "gpt-5.6" || parityJobs[0].Tier != "T2" || parityJobs[0].Bounces["capability"] != 1 {
+		t.Fatalf("seeded typed Jobs parity = %+v", parityJobs)
+	}
+	if len(parityTelemetry.Models) != 4 || len(parityTelemetry.Bounces) != 4 || len(parityInstances) != len(instances) || len(parityOrg) != 7 {
+		t.Fatalf("seeded telemetry/instance/org parity models=%+v bounces=%+v instances=%d org=%+v", parityTelemetry.Models, parityTelemetry.Bounces, len(parityInstances), parityOrg)
+	}
+	if len(parityTopology.Deployments) != 2 || len(parityTopology.Pipelines) != len(topology.Pipelines) || len(parityTopology.Budgets) != len(topology.Budgets) || len(parityTopology.Schedules) != len(topology.Schedules) || len(parityTopology.Deadlines) != 3 || len(parityTopology.Teams) != len(topology.Teams) {
+		t.Fatalf("seeded topology parity = %+v", parityTopology)
+	}
+	for _, screen := range parityScreens {
+		screenModel := navigateTo(model, routeForScreen(screen), screen)
+		screenModel, _ = Update(screenModel, Resize{Width: 120, Height: 30})
+		frame := Render(screenModel)
+		if !strings.Contains(frame, strings.ToUpper(screenTitle(screen))) || strings.Contains(frame, "arrives after the dashboard parity cutover") {
+			t.Fatalf("seeded live screen %s did not render its typed projection:\n%s", screen, frame)
+		}
+	}
 	child := snapshot.Resources[resource.DeploymentURI("tui-small-child")]
 	childData := liveResourceData(t, child)
 	if child == nil || childData["charter_uri"] == "" || childData["parent_uri"] != resource.DeploymentURI("tui-small-v1") {

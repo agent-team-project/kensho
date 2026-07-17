@@ -1,0 +1,50 @@
+[36m+ agent-team | FLEET / LIVE ORG -----------------------------------------------------------------------------------------------------------CONNECTED 12:04:05 -+[0m
+[36m| Overview  Work  [Fleet]  Activity  Logs  Research  Requirements  Release                                                                             ? Help  |[0m
+[36m+--------------------------------------------------------------------------------------------------------------------------------------------------------------+[0m
+[36m| > [Org] Instances Topology                                                                                                                      Query: none  |[0m
+[36m+---------------------------------------------------------------------------------------------------------+----------------------------------------------------+[0m
+[36m| Live org                                                                                                | Context                                            |[0m
+[36m| Auditor: 0 working  1 idle  0 queued  0 crashed                                                         | auditor                                            |[0m
+[36m|   auditor                  idle       0/1 running                                                       | role auditor                                       |[0m
+[36m| Comms: 0 working  1 idle  0 queued  0 crashed                                                           | state idle                                         |[0m
+[36m|   comms                    idle       0/1 running / persistent                                          | capacity 0/1 running                               |[0m
+[36m| Manager: 0 working  1 idle  0 queued  0 crashed                                                         | idle - no runtime instance                         |[0m
+[36m|   manager                  idle       1/1 running / persistent                                          |                                                    |[0m
+[36m| Reviewer: 1 working  0 idle  0 queued  0 crashed                                                        |                                                    |[0m
+[36m|   reviewer                 working    1/2 running                                                       |                                                    |[0m
+[36m| Ticket-manager: 0 working  1 idle  0 queued  0 crashed                                                  |                                                    |[0m
+[36m|   ticket-manager           idle       0/1 running                                                       |                                                    |[0m
+[36m| Verifier: 0 working  0 idle  0 queued  1 crashed                                                        |                                                    |[0m
+[36m|   verifier                 crashed    0/2 running                                                       |                                                    |[0m
+[36m| Worker: 2 working  0 idle  0 queued  0 crashed                                                          |                                                    |[0m
+[36m|   frontend-worker          working    2/2 running / 1 queued                                            |                                                    |[0m
+[36m|   platform-worker          working    1/2 running                                                       |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m+--------------------------------------------------------------------------------------------------------------------------------------------------------------+[0m
+[36m|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus screen/tabs | Opened Fleet / Live org                                         |[0m
+[36m| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                                                         |[0m
+[36m+--------------------------------------------------------------------------------------------------------------------------------------------------------------+[0m

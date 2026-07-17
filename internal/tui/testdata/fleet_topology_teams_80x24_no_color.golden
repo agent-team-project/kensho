@@ -1,0 +1,24 @@
++ agent-team | FLEET / TOPOLOGY ---------------------------CONNECTED 12:04:05 -+
+| Overview Work [Fleet] Activity Logs More...                          ? Help  |
++------------------------------------------------------------------------------+
+|   Org Instances [Topology]                                      Query: none  |
++------------------------------------------------------------------------------+
+|   deployments pipelines budgets schedules deadlines [teams]                  |
++------------------------------------------------------------------------------+
+| > frontend             2 instances  1 pipelines  1 channels  2 active        |
+|   platform             2 instances  1 pipelines  2 channels  2 active        |
+|   quality              2 instances  2 pipelines  1 channels  3 active        |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |
+| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |
++------------------------------------------------------------------------------+

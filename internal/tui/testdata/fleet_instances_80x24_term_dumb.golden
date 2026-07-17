@@ -1,0 +1,24 @@
++ agent-team | FLEET / INSTANCES --------------------------CONNECTED 12:04:05 -+
+| Overview Work [Fleet] Activity Logs More...                          ? Help  |
++------------------------------------------------------------------------------+
+| > Org [Instances] Topology                                      Query: none  |
++------------------------------------------------------------------------------+
+| Instances                                                                    |
+|   NAME                     AGENT          STATUS       PHASE       MODEL/... |
+|   comms                    stopped      -                                    |
+|   frontend-worker-1        running      gh383-tui-spec                       |
+|   manager                  running      -                                    |
+|   platform-worker-2        running      gh381-research                       |
+|   reviewer-gh382           running      gh382-discord                        |
+|   verifier-2               crashed      -                                    |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |
+| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |
++------------------------------------------------------------------------------+

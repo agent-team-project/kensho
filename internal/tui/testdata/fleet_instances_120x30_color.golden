@@ -1,0 +1,30 @@
+[36m+ agent-team | FLEET / INSTANCES ------------------------------------------------------------------CONNECTED 12:04:05 -+[0m
+[36m| Overview  Work  [Fleet]  Activity  Logs  Research  Requirements  Release                                     ? Help  |[0m
+[36m+----------------------------------------------------------------------------------------------------------------------+[0m
+[36m| > Org [Instances] Topology                                                                              Query: none  |[0m
+[36m+---------------------------------------------------------------------+------------------------------------------------+[0m
+[36m| Instances                                                           | Detail                                         |[0m
+[36m|   NAME                     AGENT          STATUS       PHASE   ...  | comms                                          |[0m
+[36m|   comms                    comms          stopped      idle    ...  | agent comms                                    |[0m
+[36m|   frontend-worker-1        worker         running      implemen...  | lifecycle stopped                              |[0m
+[36m|   manager                  manager        running      idle    ...  | phase idle                                     |[0m
+[36m|   platform-worker-2        worker         running      implemen...  | job -                                          |[0m
+[36m|   reviewer-gh382           reviewer       running      implemen...  | ticket -                                       |[0m
+[36m|   verifier-2               verifier       crashed      idle    ...  | model/tier not reported                        |[0m
+[36m|                                                                     | runtime codex                                  |[0m
+[36m|                                                                     | description waiting                            |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m|                                                                     |                                                |[0m
+[36m+----------------------------------------------------------------------------------------------------------------------+[0m
+[36m|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus screen/tabs | Opened Fleet / Insta... |[0m
+[36m| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                 |[0m
+[36m+----------------------------------------------------------------------------------------------------------------------+[0m

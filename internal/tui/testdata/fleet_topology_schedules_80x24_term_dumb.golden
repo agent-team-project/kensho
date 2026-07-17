@@ -1,0 +1,24 @@
++ agent-team | FLEET / TOPOLOGY ---------------------------CONNECTED 12:04:05 -+
+| Overview Work [Fleet] Activity Logs More...                          ? Help  |
++------------------------------------------------------------------------------+
+|   Org Instances [Topology]                                      Query: none  |
++------------------------------------------------------------------------------+
+|   deployments pipelines budgets [schedules] deadlines teams                  |
++------------------------------------------------------------------------------+
+| > debt-sweep               24h        pending                  team platform |
+|   docs-freshness           24h        pending                  team quality  |
+|   feedback                 4h         pending                  team platform |
+|   product-verify           24h        2026-07-10 09:04:05 UTC  team quality  |
+|   release                  168h       pending                  team quality  |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |
+| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |
++------------------------------------------------------------------------------+

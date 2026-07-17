@@ -94,6 +94,53 @@ func TestTeatestKeyboardResizeDisconnectReconnectFlow(t *testing.T) {
 	}
 }
 
+func TestTeatestParityNavigationFilterInspectAndResize(t *testing.T) {
+	domain := smallFixtureModel(Capabilities{Dumb: true})
+	domain.Polling = false
+	var plain bytes.Buffer
+	program := NewTestProgramModel(domain)
+	program.plainOutput = &plain
+	testModel := teatest.NewTestModel(t, program, teatest.WithInitialTermSize(80, 24))
+
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune{'g'}}, {Type: tea.KeyRunes, Runes: []rune{'w'}},
+		{Type: tea.KeyTab}, {Type: tea.KeyDown}, {Type: tea.KeyEnter},
+		{Type: tea.KeyRunes, Runes: []rune{'/'}},
+	} {
+		testModel.Send(key)
+	}
+	testModel.Type("status:blocked")
+	testModel.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	teatest.WaitFor(t, testModel.Output(), func(output []byte) bool {
+		return bytes.Contains(output, []byte("WORK / JOBS")) && bytes.Contains(output, []byte("release-2026-07")) && bytes.Contains(output, []byte("status:blocked"))
+	}, teatest.WithDuration(2*time.Second))
+
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune{']'}},
+		{Type: tea.KeyRunes, Runes: []rune{'g'}}, {Type: tea.KeyRunes, Runes: []rune{'f'}},
+		{Type: tea.KeyRunes, Runes: []rune{']'}}, {Type: tea.KeyRunes, Runes: []rune{']'}},
+	} {
+		testModel.Send(key)
+	}
+	testModel.Send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	testModel.Send(tea.WindowSizeMsg{Width: 160, Height: 50})
+	testModel.Send(tea.KeyMsg{Type: tea.KeyTab})
+	testModel.Send(tea.KeyMsg{Type: tea.KeyTab})
+	testModel.Send(tea.KeyMsg{Type: tea.KeyDown})
+	testModel.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	testModel.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+
+	final := testModel.FinalModel(t, teatest.WithFinalTimeout(3*time.Second)).(ProgramModel)
+	if final.Domain.Screen != ScreenFleetTopology || final.Domain.Width != 160 || final.Domain.Height != 50 || final.Domain.Focus.ItemID == "" || !final.Domain.Inspecting {
+		t.Fatalf("final parity navigation domain = %+v", final.Domain)
+	}
+	for _, text := range []string{"WORK / TELEMETRY", "FLEET / LIVE ORG", "FLEET / INSTANCES", "FLEET / TOPOLOGY", "Inspecting"} {
+		if !strings.Contains(plain.String(), text) {
+			t.Errorf("PTY plain capture missing %q", text)
+		}
+	}
+}
+
 func TestTeatestTermDumbKeyboardCaptureHasNoControlBytes(t *testing.T) {
 	domain := smallFixtureModel(Capabilities{Dumb: true})
 	domain.Polling = false

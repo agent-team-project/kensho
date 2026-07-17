@@ -56,6 +56,48 @@ const (
 
 var routeOrder = []Route{RouteOverview, RouteWork, RouteFleet, RouteActivity, RouteLogs, RouteResearch, RouteRequirements, RouteRelease}
 
+// Screen is a logical route below the stable primary navigation. Parity
+// screens extend the one route/focus grammar; they are not separate programs.
+type Screen string
+
+const (
+	ScreenOverview       Screen = "overview"
+	ScreenWorkJobs       Screen = "work/jobs"
+	ScreenWorkTelemetry  Screen = "work/telemetry"
+	ScreenFleetOrg       Screen = "fleet/org"
+	ScreenFleetInstances Screen = "fleet/instances"
+	ScreenFleetTopology  Screen = "fleet/topology"
+)
+
+var parityScreens = []Screen{
+	ScreenOverview,
+	ScreenWorkJobs,
+	ScreenWorkTelemetry,
+	ScreenFleetOrg,
+	ScreenFleetInstances,
+	ScreenFleetTopology,
+}
+
+type TopologySection string
+
+const (
+	TopologyDeployments TopologySection = "deployments"
+	TopologyPipelines   TopologySection = "pipelines"
+	TopologyBudgets     TopologySection = "budgets"
+	TopologySchedules   TopologySection = "schedules"
+	TopologyDeadlines   TopologySection = "deadlines"
+	TopologyTeams       TopologySection = "teams"
+)
+
+var topologySections = []TopologySection{
+	TopologyDeployments,
+	TopologyPipelines,
+	TopologyBudgets,
+	TopologySchedules,
+	TopologyDeadlines,
+	TopologyTeams,
+}
+
 type Focus struct {
 	Region  string
 	ItemID  string
@@ -92,6 +134,9 @@ type Model struct {
 	Size              SizeClass
 	Capabilities      Capabilities
 	Route             Route
+	Screen            Screen
+	TopologySection   TopologySection
+	Inspecting        bool
 	Focus             Focus
 	FocusIndex        int
 	Connection        ConnectionState
@@ -126,16 +171,18 @@ func NewModel(now time.Time, capabilities Capabilities) Model {
 		now = time.Unix(0, 0).UTC()
 	}
 	return Model{
-		Width:        80,
-		Height:       24,
-		Size:         SizeCompact,
-		Capabilities: capabilities,
-		Route:        RouteOverview,
-		Focus:        focusRing[0],
-		Connection:   ConnectionConnecting,
-		Sources:      map[daemonclient.SnapshotSource]SourceState{},
-		Now:          now.UTC(),
-		Polling:      true,
+		Width:           80,
+		Height:          24,
+		Size:            SizeCompact,
+		Capabilities:    capabilities,
+		Route:           RouteOverview,
+		Screen:          ScreenOverview,
+		TopologySection: TopologyDeployments,
+		Focus:           focusRing[0],
+		Connection:      ConnectionConnecting,
+		Sources:         map[daemonclient.SnapshotSource]SourceState{},
+		Now:             now.UTC(),
+		Polling:         true,
 	}
 }
 

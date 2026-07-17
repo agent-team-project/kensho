@@ -9,14 +9,14 @@
 |                      | Topology    4 pipelines   2 budgets   5 schedules   3 deadlines                  |                                                    |
 |                      |                                                                                  |                                                    |
 |                      +-Attention--------------------------------------------------------------------------Live org-------------------------------------------+
-|                      |   job      job-03                   failed         frontend_ticket_to_pr         |   auditor          0 working  0 idle  0 crashed... |
-|                      |   job      job-08                   blocked        frontend_ticket_to_pr         |   comms            0 working  1 idle  0 crashed... |
-|                      |   job      release-2026-07          blocked        frontend_ticket_to_pr         |   manager          1 working  0 idle  0 crashed... |
+|                      |   job      job-03                   failed         release                       |   auditor          0 working  1 idle  0 crashed... |
+|                      |   job      job-08                   blocked        quality                       |   comms            0 working  1 idle  0 crashed... |
+|                      |   job      release-2026-07          blocked        platform_ticket_to_pr         |   manager          0 working  1 idle  0 crashed... |
 |                      |   instance verifier-2               crashed        exit 1                        |   reviewer         1 working  0 idle  0 crashed... |
-|                      |   job      gh383-tui-spec           running        frontend_ticket_to_pr         |   ticket-manager   0 working  0 idle  0 crashed... |
-|                      |   job      job-06                   running        frontend_ticket_to_pr         |   verifier         0 working  0 idle  1 crashed... |
-|                      |   job      job-11                   running        frontend_ticket_to_pr         |   worker           2 working  0 idle  0 crashed... |
-|                      |   job      job-04                   queued         frontend_ticket_to_pr         |                                                    |
+|                      |   job      gh383-tui-spec           running        frontend_ticket_to_pr         |   ticket-manager   0 working  1 idle  0 crashed... |
+|                      |   job      job-06                   running        platform_ticket_to_pr         |   verifier         0 working  0 idle  1 crashed... |
+|                      |   job      job-11                   running        release                       |   worker           2 working  0 idle  0 crashed... |
+|                      |   job      job-04                   queued         quality                       |                                                    |
 |                      |   job      job-09                   queued         frontend_ticket_to_pr         |                                                    |
 |                      |                                                                                  |                                                    |
 |                      |                                                                                  |                                                    |
@@ -45,6 +45,6 @@
 |                      |                                                                                  |                                                    |
 |                      |                                                                                  |                                                    |
 +--------------------------------------------------------------------------------------------------------------------------------------------------------------+
-|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 24/24 | focus summary/fleet                                                                 |
-| Tab focus  arrows/hjkl move  Enter inspect  / filter  g+key screen  r refresh  ? help  q quit                                                                |
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus summary/fleet                                                                 |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                                                         |
 +--------------------------------------------------------------------------------------------------------------------------------------------------------------+

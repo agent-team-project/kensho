@@ -50,17 +50,15 @@ func renderTooSmall(canvas *cellCanvas, model Model) {
 }
 
 func renderShell(canvas *cellCanvas, model Model) {
-	canvas.put(1, 0, " agent-team | "+strings.ToUpper(routeTitle(model.Route))+" ")
+	canvas.put(1, 0, " agent-team | "+strings.ToUpper(screenTitle(model.Screen))+" ")
 	canvas.putRight(2, 0, connectionLabel(model)+" "+clockText(model.Now)+" ")
 	canvas.put(2, 1, navigationText(model))
 	canvas.putRight(2, 1, "? Help ")
 	canvas.horizontal(0, 2, canvas.width)
 
-	if model.Route != RouteOverview {
-		renderPlaceholder(canvas, model)
-	} else if !model.HasSnapshot() {
+	if !model.HasSnapshot() {
 		renderEmpty(canvas, model)
-	} else {
+	} else if model.Screen == ScreenOverview {
 		switch model.Size {
 		case SizeCompact:
 			renderCompactOverview(canvas, model)
@@ -69,6 +67,8 @@ func renderShell(canvas *cellCanvas, model Model) {
 		case SizeWide:
 			renderWideOverview(canvas, model)
 		}
+	} else {
+		renderParityScreen(canvas, model)
 	}
 	renderStatus(canvas, model)
 	renderFooter(canvas, model)
@@ -78,7 +78,7 @@ func renderShell(canvas *cellCanvas, model Model) {
 }
 
 func renderEmpty(canvas *cellCanvas, model Model) {
-	canvas.put(2, 3, "Overview")
+	canvas.put(2, 3, screenTitle(model.Screen))
 	if model.Connection == ConnectionConnecting || model.Connection == ConnectionReconnecting {
 		canvas.put(4, 5, "Connecting to agent-teamd through shared daemon discovery...")
 	} else {
@@ -92,10 +92,10 @@ func renderEmpty(canvas *cellCanvas, model Model) {
 }
 
 func renderPlaceholder(canvas *cellCanvas, model Model) {
-	canvas.put(2, 3, routeTitle(model.Route))
-	canvas.put(4, 5, "This route is reserved by the global navigation grammar.")
-	canvas.put(4, 6, "Its read-only screen arrives in a later epic #153 slice.")
-	canvas.put(4, 8, "Press g o to return to Overview.")
+	canvas.put(2, 5, screenTitle(model.Screen))
+	canvas.put(4, 7, "This route is reserved by the global navigation grammar.")
+	canvas.put(4, 8, "Its read-only screen arrives after the dashboard parity cutover.")
+	canvas.put(4, 10, "Press g o to return to Overview.")
 }
 
 func renderCompactOverview(canvas *cellCanvas, model Model) {
@@ -222,14 +222,17 @@ func renderStatus(canvas *cellCanvas, model Model) {
 		}
 	}
 	line := fmt.Sprintf("%s Filter: %s | %s | collections %d/3 | resources %d/%d | focus %s", focusMarker(model, "status", "refresh"), query, freshnessText(model), successfulCollections(model), resources, requested, model.FocusLabel())
+	if model.Feedback != "" {
+		line += " | " + model.Feedback
+	}
 	canvas.putClipped(2, y, line, canvas.width-4)
 }
 
 func renderFooter(canvas *cellCanvas, model Model) {
 	y := canvas.height - 2
-	text := "Tab focus  arrows/hjkl move  Enter inspect  / filter  g+key screen  r refresh  ? help  q quit"
+	text := "Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit"
 	if model.Size == SizeCompact {
-		text = "Tab focus  Enter inspect  / filter  r refresh  ? help  q quit"
+		text = "Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit"
 	}
 	if !model.Polling {
 		text += "  [polling paused]"

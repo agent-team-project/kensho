@@ -6,19 +6,19 @@
 [36m| Telemetry  4 model tiers 4 bounce classes   2 deployments                    |[0m
 [36m| Capacity   4 pipelines   2 budgets   5 schedules  3 deadlines                |[0m
 [36m+ Attention -------------------------------------------------------------------+[0m
-[36m|   job      job-03                   failed         frontend_ticket_to_pr     |[0m
-[36m|   job      job-08                   blocked        frontend_ticket_to_pr     |[0m
-[36m|   job      release-2026-07          blocked        frontend_ticket_to_pr     |[0m
+[36m|   job      job-03                   failed         release                   |[0m
+[36m|   job      job-08                   blocked        quality                   |[0m
+[36m|   job      release-2026-07          blocked        platform_ticket_to_pr     |[0m
 [36m|   instance verifier-2               crashed        exit 1                    |[0m
 [36m+ Live org --------------------------------------------------------------------+[0m
-[36m|   auditor          0 working  0 idle  0 crashed  [0/1 running, 0 queued]     |[0m
+[36m|   auditor          0 working  1 idle  0 crashed  [0/1 running, 0 queued]     |[0m
 [36m|   comms            0 working  1 idle  0 crashed  [0/1 running, 0 queued]     |[0m
-[36m|   manager          1 working  0 idle  0 crashed  [1/1 running, 0 queued]     |[0m
+[36m|   manager          0 working  1 idle  0 crashed  [1/1 running, 0 queued]     |[0m
 [36m|   reviewer         1 working  0 idle  0 crashed  [1/2 running, 0 queued]     |[0m
-[36m|   ticket-manager   0 working  0 idle  0 crashed  [0/1 running, 0 queued]     |[0m
+[36m|   ticket-manager   0 working  1 idle  0 crashed  [0/1 running, 0 queued]     |[0m
 [36m|   verifier         0 working  0 idle  1 crashed  [0/2 running, 0 queued]     |[0m
-[36m|   worker           2 working  0 idle  0 crashed  [2/4 running, 1 queued]     |[0m
+[36m|   worker           2 working  0 idle  0 crashed  [3/4 running, 1 queued]     |[0m
 [36m+------------------------------------------------------------------------------+[0m
-[36m|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 24/24 | ... |[0m
-[36m| Tab focus  Enter inspect  / filter  r refresh  ? help  q quit                |[0m
+[36m|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |[0m
+[36m| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |[0m
 [36m+------------------------------------------------------------------------------+[0m

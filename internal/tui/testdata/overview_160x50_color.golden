@@ -9,14 +9,14 @@
 [36m|                      | Topology    4 pipelines   2 budgets   5 schedules   3 deadlines                  |                                                    |[0m
 [36m|                      |                                                                                  |                                                    |[0m
 [36m|                      +-Attention--------------------------------------------------------------------------Live org-------------------------------------------+[0m
-[36m|                      |   job      job-03                   failed         frontend_ticket_to_pr         |   auditor          0 working  0 idle  0 crashed... |[0m
-[36m|                      |   job      job-08                   blocked        frontend_ticket_to_pr         |   comms            0 working  1 idle  0 crashed... |[0m
-[36m|                      |   job      release-2026-07          blocked        frontend_ticket_to_pr         |   manager          1 working  0 idle  0 crashed... |[0m
+[36m|                      |   job      job-03                   failed         release                       |   auditor          0 working  1 idle  0 crashed... |[0m
+[36m|                      |   job      job-08                   blocked        quality                       |   comms            0 working  1 idle  0 crashed... |[0m
+[36m|                      |   job      release-2026-07          blocked        platform_ticket_to_pr         |   manager          0 working  1 idle  0 crashed... |[0m
 [36m|                      |   instance verifier-2               crashed        exit 1                        |   reviewer         1 working  0 idle  0 crashed... |[0m
-[36m|                      |   job      gh383-tui-spec           running        frontend_ticket_to_pr         |   ticket-manager   0 working  0 idle  0 crashed... |[0m
-[36m|                      |   job      job-06                   running        frontend_ticket_to_pr         |   verifier         0 working  0 idle  1 crashed... |[0m
-[36m|                      |   job      job-11                   running        frontend_ticket_to_pr         |   worker           2 working  0 idle  0 crashed... |[0m
-[36m|                      |   job      job-04                   queued         frontend_ticket_to_pr         |                                                    |[0m
+[36m|                      |   job      gh383-tui-spec           running        frontend_ticket_to_pr         |   ticket-manager   0 working  1 idle  0 crashed... |[0m
+[36m|                      |   job      job-06                   running        platform_ticket_to_pr         |   verifier         0 working  0 idle  1 crashed... |[0m
+[36m|                      |   job      job-11                   running        release                       |   worker           2 working  0 idle  0 crashed... |[0m
+[36m|                      |   job      job-04                   queued         quality                       |                                                    |[0m
 [36m|                      |   job      job-09                   queued         frontend_ticket_to_pr         |                                                    |[0m
 [36m|                      |                                                                                  |                                                    |[0m
 [36m|                      |                                                                                  |                                                    |[0m
@@ -45,6 +45,6 @@
 [36m|                      |                                                                                  |                                                    |[0m
 [36m|                      |                                                                                  |                                                    |[0m
 [36m+--------------------------------------------------------------------------------------------------------------------------------------------------------------+[0m
-[36m|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 24/24 | focus summary/fleet                                                                 |[0m
-[36m| Tab focus  arrows/hjkl move  Enter inspect  / filter  g+key screen  r refresh  ? help  q quit                                                                |[0m
+[36m|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus summary/fleet                                                                 |[0m
+[36m| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                                                         |[0m
 [36m+--------------------------------------------------------------------------------------------------------------------------------------------------------------+[0m

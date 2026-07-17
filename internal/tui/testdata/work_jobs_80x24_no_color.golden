@@ -1,0 +1,24 @@
++ agent-team | WORK / JOBS --------------------------------CONNECTED 12:04:05 -+
+| Overview [Work] Fleet Activity Logs More...                          ? Help  |
++------------------------------------------------------------------------------+
+| > [Jobs] Telemetry                                              Query: none  |
++------------------------------------------------------------------------------+
+| Jobs                                                                         |
+|   ID                   STATUS         MODEL/TIER                             |
+|   gh383-tui-spec       running        gpt-5.6 / T2                           |
+|   release-2026-07      blocked        gpt-5.5 / T1                           |
+|   job-03               failed         gpt-5.6 / T3                           |
+|   job-04               queued         gpt-5.6 / T2                           |
+|   job-05               done           gpt-5.5 / T1                           |
+|   job-06               running        gpt-5.6 / T3                           |
++ Model / tier ----------------------------------------------------------------+
+|   gpt-5.5 / T1             jobs 3   active 2   bounces 1                     |
+|   gpt-5.6 / T2             jobs 3   active 2   bounces 2                     |
+|   gpt-5.6 / T3             jobs 3   active 2   bounces 1                     |
+|   not reported             jobs 3   active 1   bounces 0                     |
++ Bounce classes --------------------------------------------------------------+
+| capability 1/1 jobs   infra 1/1 jobs   scope 1/1 jobs   spec-ambiguity 1/... |
++------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |
+| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |
++------------------------------------------------------------------------------+

@@ -1,0 +1,50 @@
+[36m+ agent-team | WORK / JOBS ----------------------------------------------------------------------------------------------------------------CONNECTED 12:04:05 -+[0m
+[36m| Overview  [Work]  Fleet  Activity  Logs  Research  Requirements  Release                                                                             ? Help  |[0m
+[36m+--------------------------------------------------------------------------------------------------------------------------------------------------------------+[0m
+[36m| > [Jobs] Telemetry                                                                                                                              Query: none  |[0m
+[36m+---------------------------------------------------------------------------------------------------------+----------------------------------------------------+[0m
+[36m| Jobs                                                                                                    | Detail                                             |[0m
+[36m|   ID                   TICKET   STATUS        PIPELINE          MODEL/TIER                              | gh383-tui-spec                                     |[0m
+[36m|   gh383-tui-spec       GH-380   running       frontend_ticket_to_pr gpt-5.6 / T2                        | ticket GH-380                                      |[0m
+[36m|   release-2026-07      GH-381   blocked       platform_ticket_to_pr gpt-5.5 / T1                        | status running                                     |[0m
+[36m|   job-03               GH-382   failed        release           gpt-5.6 / T3                            | pipeline frontend_ticket_to_pr                     |[0m
+[36m|   job-04               GH-383   queued        quality           gpt-5.6 / T2                            | instance -                                         |[0m
+[36m|   job-05               GH-384   done          frontend_ticket_to_pr gpt-5.5 / T1                        | model/tier gpt-5.6 / T2                            |[0m
+[36m|   job-06               GH-385   running       platform_ticket_to_pr gpt-5.6 / T3                        | runtime codex                                      |[0m
+[36m|   job-07               GH-386   done          release           gpt-5.6 / T2                            | bounces capability 1                               |[0m
+[36m|   job-08               GH-387   blocked       quality           gpt-5.5 / T1                            |                                                    |[0m
+[36m|                                                                                                         |                                                    |[0m
+[36m+ Model / tier ------------------------------------------------------------------------------------------------------------------------------------------------+[0m
+[36m|   gpt-5.5 / T1                     jobs 3   active 2   bounces 1                                                                                             |[0m
+[36m|   gpt-5.6 / T2                     jobs 3   active 2   bounces 2                                                                                             |[0m
+[36m|   gpt-5.6 / T3                     jobs 3   active 2   bounces 1                                                                                             |[0m
+[36m|   not reported                     jobs 3   active 1   bounces 0                                                                                             |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m+ Bounce classes ----------------------------------------------------------------------------------------------------------------------------------------------+[0m
+[36m| capability 1/1 jobs   infra 1/1 jobs   scope 1/1 jobs   spec-ambiguity 1/1 jobs                                                                              |[0m
+[36m|                                                                                                                                                              |[0m
+[36m+--------------------------------------------------------------------------------------------------------------------------------------------------------------+[0m
+[36m|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus screen/tabs | Opened Work / Jobs                                              |[0m
+[36m| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                                                         |[0m
+[36m+--------------------------------------------------------------------------------------------------------------------------------------------------------------+[0m

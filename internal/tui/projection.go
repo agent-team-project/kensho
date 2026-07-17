@@ -125,46 +125,19 @@ func projectOverview(model Model) OverviewProjection {
 }
 
 func projectOrg(snapshot *daemonclient.Snapshot) []OrgRow {
-	rows := map[string]*OrgRow{}
-	rowFor := func(role string) *OrgRow {
-		role = strings.TrimSpace(role)
-		if role == "" {
-			role = "unknown"
+	model := NewModel(time.Unix(0, 0).UTC(), Capabilities{})
+	model.Snapshot = snapshot
+	roles := projectLiveOrg(model)
+	out := make([]OrgRow, 0, len(roles))
+	for _, role := range roles {
+		row := OrgRow{Role: role.Role, Working: role.Working, Idle: role.Idle, Crashed: role.Crashed, Queued: role.Queued}
+		for _, lane := range role.Lanes {
+			row.Running += lane.Running
+			row.Capacity += lane.Capacity
+			row.Queued += lane.Queued
 		}
-		if rows[role] == nil {
-			rows[role] = &OrgRow{Role: role}
-		}
-		return rows[role]
+		out = append(out, row)
 	}
-	for _, instance := range snapshot.Instances {
-		if instance == nil {
-			continue
-		}
-		row := rowFor(instance.Agent)
-		switch instance.Status {
-		case daemonclient.InstanceRunning:
-			row.Working++
-			row.Running++
-		case daemonclient.InstanceCrashed:
-			row.Crashed++
-		default:
-			row.Idle++
-		}
-	}
-	if snapshot.Topology != nil {
-		for _, declaration := range snapshot.Topology.Instances {
-			row := rowFor(declaration.Agent)
-			row.Queued += declaration.Queued
-			if declaration.Replicas > 0 {
-				row.Capacity += declaration.Replicas
-			}
-		}
-	}
-	out := make([]OrgRow, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, *row)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Role < out[j].Role })
 	return out
 }
 
@@ -381,91 +354,9 @@ func distinctBounceClasses(snapshot *daemonclient.Snapshot) int {
 }
 
 func bounceClassesForJob(snapshot *daemonclient.Snapshot, job *daemonclient.Job) map[string]bool {
-	if snapshot == nil || job == nil {
-		return map[string]bool{}
-	}
-	outcome := resourceMap(snapshot.Resources[job.OutcomeURI])
-	classes := firstBounceClasses(bounceTelemetrySources(outcome), "bounce_classes", "BounceClasses", "bounceClasses")
-	if len(classes) == 0 {
-		classes = firstBounceClasses(bounceTelemetrySources(outcome), "bounces", "Bounces")
-	}
-	data := resourceMap(snapshot.Resources[job.URI])
-	if len(classes) == 0 {
-		classes = firstBounceClasses(bounceTelemetrySources(data), "bounce_classes", "BounceClasses", "bounceClasses")
-	}
-	if len(classes) == 0 {
-		collectKickoffBounceClasses(recursiveString(data, "kickoff"), classes)
-	}
-	return classes
-}
-
-func collectKickoffBounceClasses(kickoff string, classes map[string]bool) {
-	lower := strings.ToLower(kickoff)
-	if !strings.Contains(lower, "review findings (bounce") {
-		return
-	}
-	for class, phrases := range map[string][]string{
-		"capability":     {"capability", "logic error", "missing test", "incorrect", "regression"},
-		"spec-ambiguity": {"spec ambiguity", "spec-ambiguity", "ambiguous", "underspecified", "clarify"},
-		"scope":          {"scope", "drive-by", "unrelated", "too broad", "owned path"},
-		"infra":          {"infra", "flake", "timeout", "rate limit", "credential", "network", "runner"},
-	} {
-		for _, phrase := range phrases {
-			if strings.Contains(lower, phrase) {
-				classes[class] = true
-				break
-			}
-		}
-	}
-}
-
-func bounceTelemetrySources(value map[string]any) []map[string]any {
-	return telemetrySources(value)
-}
-
-func firstBounceClasses(sources []map[string]any, names ...string) map[string]bool {
-	for _, source := range sources {
-		for _, name := range names {
-			value, ok := source[name]
-			if !ok {
-				continue
-			}
-			classes := bounceClassesFromValue(value)
-			if len(classes) > 0 {
-				return classes
-			}
-		}
-	}
-	return map[string]bool{}
-}
-
-func bounceClassesFromValue(value any) map[string]bool {
 	classes := map[string]bool{}
-	switch typed := value.(type) {
-	case map[string]any:
-		for class, count := range typed {
-			if numberPositive(count) && strings.TrimSpace(class) != "" {
-				classes[strings.TrimSpace(class)] = true
-			}
-		}
-	case []any:
-		for _, item := range typed {
-			switch found := item.(type) {
-			case string:
-				if class := strings.TrimSpace(found); class != "" {
-					classes[class] = true
-				}
-			case map[string]any:
-				for _, name := range []string{"classes", "Classes"} {
-					values, _ := found[name].([]any)
-					for _, value := range values {
-						if class, ok := value.(string); ok && strings.TrimSpace(class) != "" {
-							classes[strings.TrimSpace(class)] = true
-						}
-					}
-				}
-			}
-		}
+	for class := range bounceCountsForJob(snapshot, job) {
+		classes[class] = true
 	}
 	return classes
 }

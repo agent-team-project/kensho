@@ -1,0 +1,24 @@
+[36m+ agent-team | FLEET / INSTANCES --------------------------CONNECTED 12:04:05 -+[0m
+[36m| Overview Work [Fleet] Activity Logs More...                          ? Help  |[0m
+[36m+------------------------------------------------------------------------------+[0m
+[36m| > Org [Instances] Topology                                      Query: none  |[0m
+[36m+------------------------------------------------------------------------------+[0m
+[36m| Instances                                                                    |[0m
+[36m|   NAME                     AGENT          STATUS       PHASE       MODEL/... |[0m
+[36m|   comms                    stopped      -                                    |[0m
+[36m|   frontend-worker-1        running      gh383-tui-spec                       |[0m
+[36m|   manager                  running      -                                    |[0m
+[36m|   platform-worker-2        running      gh381-research                       |[0m
+[36m|   reviewer-gh382           running      gh382-discord                        |[0m
+[36m|   verifier-2               crashed      -                                    |[0m
+[36m|                                                                              |[0m
+[36m|                                                                              |[0m
+[36m|                                                                              |[0m
+[36m|                                                                              |[0m
+[36m|                                                                              |[0m
+[36m|                                                                              |[0m
+[36m|                                                                              |[0m
+[36m+------------------------------------------------------------------------------+[0m
+[36m|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |[0m
+[36m| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |[0m
+[36m+------------------------------------------------------------------------------+[0m

@@ -1,0 +1,24 @@
++ agent-team | FLEET / TOPOLOGY ---------------------------CONNECTED 12:04:05 -+
+| Overview Work [Fleet] Activity Logs More...                          ? Help  |
++------------------------------------------------------------------------------+
+| > Org Instances [Topology]                                      Query: none  |
++------------------------------------------------------------------------------+
+|   [deployments] pipelines budgets schedules deadlines teams                  |
++------------------------------------------------------------------------------+
+|   project/child                parent project/root       1 inst / 1 jobs ... |
+|   project/root                 parent root               5 inst / 11 jobs... |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |
+| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |
++------------------------------------------------------------------------------+

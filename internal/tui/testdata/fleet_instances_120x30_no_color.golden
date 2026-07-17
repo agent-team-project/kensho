@@ -1,0 +1,30 @@
++ agent-team | FLEET / INSTANCES ------------------------------------------------------------------CONNECTED 12:04:05 -+
+| Overview  Work  [Fleet]  Activity  Logs  Research  Requirements  Release                                     ? Help  |
++----------------------------------------------------------------------------------------------------------------------+
+| > Org [Instances] Topology                                                                              Query: none  |
++---------------------------------------------------------------------+------------------------------------------------+
+| Instances                                                           | Detail                                         |
+|   NAME                     AGENT          STATUS       PHASE   ...  | comms                                          |
+|   comms                    comms          stopped      idle    ...  | agent comms                                    |
+|   frontend-worker-1        worker         running      implemen...  | lifecycle stopped                              |
+|   manager                  manager        running      idle    ...  | phase idle                                     |
+|   platform-worker-2        worker         running      implemen...  | job -                                          |
+|   reviewer-gh382           reviewer       running      implemen...  | ticket -                                       |
+|   verifier-2               verifier       crashed      idle    ...  | model/tier not reported                        |
+|                                                                     | runtime codex                                  |
+|                                                                     | description waiting                            |
+|                                                                     |                                                |
+|                                                                     |                                                |
+|                                                                     |                                                |
+|                                                                     |                                                |
+|                                                                     |                                                |
+|                                                                     |                                                |
+|                                                                     |                                                |
+|                                                                     |                                                |
+|                                                                     |                                                |
+|                                                                     |                                                |
+|                                                                     |                                                |
++----------------------------------------------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus screen/tabs | Opened Fleet / Insta... |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                 |
++----------------------------------------------------------------------------------------------------------------------+

@@ -1,0 +1,24 @@
+[36m+ agent-team | WORK / JOBS --------------------------------CONNECTED 12:04:05 -+[0m
+[36m| Overview [Work] Fleet Activity Logs More...                          ? Help  |[0m
+[36m+------------------------------------------------------------------------------+[0m
+[36m| > [Jobs] Telemetry                                              Query: none  |[0m
+[36m+------------------------------------------------------------------------------+[0m
+[36m| Jobs                                                                         |[0m
+[36m|   ID                   STATUS         MODEL/TIER                             |[0m
+[36m|   gh383-tui-spec       running        gpt-5.6 / T2                           |[0m
+[36m|   release-2026-07      blocked        gpt-5.5 / T1                           |[0m
+[36m|   job-03               failed         gpt-5.6 / T3                           |[0m
+[36m|   job-04               queued         gpt-5.6 / T2                           |[0m
+[36m|   job-05               done           gpt-5.5 / T1                           |[0m
+[36m|   job-06               running        gpt-5.6 / T3                           |[0m
+[36m+ Model / tier ----------------------------------------------------------------+[0m
+[36m|   gpt-5.5 / T1             jobs 3   active 2   bounces 1                     |[0m
+[36m|   gpt-5.6 / T2             jobs 3   active 2   bounces 2                     |[0m
+[36m|   gpt-5.6 / T3             jobs 3   active 2   bounces 1                     |[0m
+[36m|   not reported             jobs 3   active 1   bounces 0                     |[0m
+[36m+ Bounce classes --------------------------------------------------------------+[0m
+[36m| capability 1/1 jobs   infra 1/1 jobs   scope 1/1 jobs   spec-ambiguity 1/... |[0m
+[36m+------------------------------------------------------------------------------+[0m
+[36m|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |[0m
+[36m| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |[0m
+[36m+------------------------------------------------------------------------------+[0m

@@ -1,0 +1,24 @@
++ agent-team | FLEET / TOPOLOGY ---------------------------CONNECTED 12:04:05 -+
+| Overview Work [Fleet] Activity Logs More...                          ? Help  |
++------------------------------------------------------------------------------+
+|   Org Instances [Topology]                                      Query: none  |
++------------------------------------------------------------------------------+
+|   deployments pipelines budgets schedules [deadlines] teams                  |
++------------------------------------------------------------------------------+
+| > frontend-worker-1            2026-07-10 13:04:05 UTC  runtime    runtim... |
+|   outcome/job-03               2026-07-10 14:04:05 UTC  set        outcom... |
+|   outcome/job-08               2026-07-10 15:04:05 UTC  runtime    outcom... |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
+|                                                                              |
++------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | ... |
+| Tab focus  Enter inspect  [/] section  / filter  r refresh  ? help  q quit   |
++------------------------------------------------------------------------------+

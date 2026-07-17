@@ -91,6 +91,9 @@ type Command struct {
 // Update is the framework-free transition function. It performs no I/O and
 // reads neither the wall clock nor terminal state.
 func Update(model Model, msg Msg) (Model, []Command) {
+	if routeForScreen(model.Screen) != model.Route {
+		model.Screen = defaultScreenForRoute(model.Route)
+	}
 	switch value := msg.(type) {
 	case Boot:
 		if model.Booted {
@@ -215,12 +218,12 @@ func Update(model Model, msg Msg) (Model, []Command) {
 		return model, append([]Command{{Kind: CommandRefresh}}, pollCommands...)
 	case QueryChanged:
 		model.Query = value.Value
-		model.QueryError = validateOverviewQuery(value.Value)
+		model.QueryError = validateCurrentQuery(model, value.Value)
 		model = preserveFocus(model)
 		return model, nil
 	case QueryCommit:
 		model.QueryActive = false
-		model.QueryError = validateOverviewQuery(model.Query)
+		model.QueryError = validateCurrentQuery(model, model.Query)
 		if model.QueryError == "" {
 			model.Feedback = "Filter applied"
 		}
@@ -271,12 +274,7 @@ func updateKey(model Model, key Key) (Model, []Command) {
 			return model, nil
 		}
 		if route, ok := goRoute(name); ok {
-			model.Route = route
-			model.FocusIndex = 0
-			model.Focus = focusRing[0]
-			if route != RouteOverview {
-				model.Feedback = routeTitle(route) + " arrives in a later read-only slice"
-			}
+			model = navigateTo(model, route, defaultScreenForRoute(route))
 			return model, nil
 		}
 		model.Feedback = "Unknown screen chord"
@@ -315,36 +313,50 @@ func updateKey(model Model, key Key) (Model, []Command) {
 		return Update(model, OpenOverlay{Overlay: OverlayPalette})
 	case "/":
 		model.QueryActive = true
-		model.Feedback = "Type to filter Overview"
+		model.Feedback = "Type to filter " + screenTitle(model.Screen)
 	case "esc":
 		if model.Query != "" {
 			model.Query = ""
 			model.QueryError = ""
+		} else if model.Inspecting {
+			model.Inspecting = false
+			model.Feedback = "Closed detail"
 		} else {
-			model.Feedback = "Already at Overview"
+			model.Feedback = "Already at " + screenTitle(model.Screen)
 		}
 	case "tab":
 		moveFocus(&model, 1)
 	case "shift+tab":
 		moveFocus(&model, -1)
 	case "up", "k":
-		moveFocusedItem(&model, -1)
+		moveWithinFocus(&model, -1)
 	case "down", "j":
-		moveFocusedItem(&model, 1)
+		moveWithinFocus(&model, 1)
 	case "left", "h":
-		moveFocus(&model, -1)
+		if model.Focus.Region == "screen" || model.Focus.Region == "section" {
+			moveWithinFocus(&model, -1)
+		} else {
+			moveFocus(&model, -1)
+		}
 	case "right", "l":
-		moveFocus(&model, 1)
+		if model.Focus.Region == "screen" || model.Focus.Region == "section" {
+			moveWithinFocus(&model, 1)
+		} else {
+			moveFocus(&model, 1)
+		}
 	case "enter":
+		model.Inspecting = inspectableFocus(model)
 		model.Feedback = inspectFeedback(model)
 	case "space":
-		model.Feedback = "No selection toggle on read-only Overview"
+		model.Feedback = "No mutation is available on this read-only screen"
 	case "pgup", "home":
-		moveFocusedItem(&model, -1000)
+		moveWithinFocus(&model, -1000)
 	case "pgdown", "end":
-		moveFocusedItem(&model, 1000)
-	case "[", "]":
-		model.Feedback = "Overview has no local subsections"
+		moveWithinFocus(&model, 1000)
+	case "[":
+		moveLocalSection(&model, -1)
+	case "]":
+		moveLocalSection(&model, 1)
 	case "r":
 		if model.RefreshInFlight {
 			model.Feedback = "Refresh already in flight"
@@ -470,11 +482,11 @@ func updateOverlayKey(model Model, name string) (Model, []Command) {
 		switch name {
 		case "ctrl+k", "esc", "ctrl+c":
 			return closeOverlay(model), nil
-		case "up", "k":
+		case "up":
 			if len(items) > 0 {
 				model.PaletteIndex = (model.PaletteIndex - 1 + len(items)) % len(items)
 			}
-		case "down", "j", "tab":
+		case "down", "tab":
 			if len(items) > 0 {
 				model.PaletteIndex = (model.PaletteIndex + 1) % len(items)
 			}
@@ -492,13 +504,8 @@ func updateOverlayKey(model Model, name string) (Model, []Command) {
 			}
 			selected := items[min(model.PaletteIndex, len(items)-1)]
 			model = closeOverlay(model)
-			if selected.Route != "" {
-				model.Route = selected.Route
-				model.FocusIndex = 0
-				model = preserveFocus(model)
-				if selected.Route != RouteOverview {
-					model.Feedback = routeTitle(selected.Route) + " arrives in a later read-only slice"
-				}
+			if selected.Screen != "" || selected.Route != "" {
+				model = navigateTo(model, selected.Route, selected.Screen)
 				return model, nil
 			}
 			var commands []Command
@@ -526,15 +533,22 @@ func updateOverlayKey(model Model, name string) (Model, []Command) {
 }
 
 type paletteItem struct {
-	Label string
-	Key   string
-	Route Route
+	Label  string
+	Key    string
+	Route  Route
+	Screen Screen
 }
 
 func paletteItems() []paletteItem {
-	items := make([]paletteItem, 0, len(routeOrder)+len(Bindings()))
+	items := make([]paletteItem, 0, len(parityScreens)+len(routeOrder)+len(Bindings()))
+	for _, screen := range parityScreens {
+		items = append(items, paletteItem{Label: screenTitle(screen) + " screen", Route: routeForScreen(screen), Screen: screen})
+	}
 	for _, route := range routeOrder {
-		items = append(items, paletteItem{Label: routeTitle(route) + " route", Route: route})
+		if route == RouteOverview || route == RouteWork || route == RouteFleet {
+			continue
+		}
+		items = append(items, paletteItem{Label: routeTitle(route) + " route (later)", Route: route, Screen: defaultScreenForRoute(route)})
 	}
 	for _, binding := range Bindings() {
 		key := ""
@@ -656,58 +670,72 @@ func cloneSnapshot(snapshot *daemonclient.Snapshot) *daemonclient.Snapshot {
 }
 
 func preserveFocus(model Model) Model {
+	ring := focusRingFor(model)
+	if len(ring) == 0 {
+		model.Focus = Focus{}
+		model.FocusIndex = 0
+		return model
+	}
 	itemID := model.Focus.ItemID
-	if model.FocusIndex < 0 || model.FocusIndex >= len(focusRing) {
+	if model.FocusIndex < 0 || model.FocusIndex >= len(ring) {
 		model.FocusIndex = 0
 	}
-	model.Focus = focusRing[model.FocusIndex]
+	model.Focus = ring[model.FocusIndex]
 	model.Focus.ItemID = itemID
-	if model.Focus.Region == "attention" {
-		rows := projectOverview(model).Attention
-		if len(rows) == 0 {
-			model.Focus.ItemID = ""
-		} else if !containsAttention(rows, model.Focus.ItemID) {
-			model.Focus.ItemID = rows[0].ID
-		}
+	items := focusItemIDs(model)
+	if len(items) == 0 {
+		model.Focus.ItemID = ""
+	} else if !containsString(items, model.Focus.ItemID) {
+		model.Focus.ItemID = items[0]
 	}
 	return model
 }
 
 func moveFocus(model *Model, delta int) {
-	model.FocusIndex = (model.FocusIndex + delta + len(focusRing)) % len(focusRing)
+	ring := focusRingFor(*model)
+	if len(ring) == 0 {
+		return
+	}
+	model.FocusIndex = (model.FocusIndex + delta + len(ring)) % len(ring)
+	model.Focus = ring[model.FocusIndex]
+	model.Focus.ItemID = ""
 	*model = preserveFocus(*model)
 }
 
-func moveFocusedItem(model *Model, delta int) {
-	if model.Focus.Region != "attention" {
-		model.Feedback = "Move applies within the focused list"
+func moveWithinFocus(model *Model, delta int) {
+	switch model.Focus.Region {
+	case "screen":
+		moveLocalScreen(model, delta)
+		return
+	case "section":
+		moveTopologySection(model, delta)
 		return
 	}
-	rows := projectOverview(*model).Attention
-	if len(rows) == 0 {
-		model.Feedback = "No attention items"
+	items := focusItemIDs(*model)
+	if len(items) == 0 {
+		model.Feedback = "No items in the focused region"
 		return
 	}
 	index := 0
-	for i, row := range rows {
-		if row.ID == model.Focus.ItemID {
+	for i, item := range items {
+		if item == model.Focus.ItemID {
 			index = i
 			break
 		}
 	}
-	if delta < -len(rows) {
+	if delta < -len(items) {
 		index = 0
-	} else if delta > len(rows) {
-		index = len(rows) - 1
+	} else if delta > len(items) {
+		index = len(items) - 1
 	} else {
-		index = max(0, min(len(rows)-1, index+delta))
+		index = max(0, min(len(items)-1, index+delta))
 	}
-	model.Focus.ItemID = rows[index].ID
+	model.Focus.ItemID = items[index]
 }
 
-func containsAttention(rows []AttentionRow, id string) bool {
-	for _, row := range rows {
-		if row.ID == id {
+func containsString(values []string, value string) bool {
+	for _, current := range values {
+		if current == value {
 			return true
 		}
 	}
@@ -716,28 +744,257 @@ func containsAttention(rows []AttentionRow, id string) bool {
 
 func inspectFeedback(model Model) string {
 	switch model.Focus.Region {
-	case "attention":
+	case "attention", "jobs", "instances", "org", "models", "bounces", "topology":
 		if model.Focus.ItemID == "" {
-			return "No attention item to inspect"
+			return "No item to inspect"
 		}
-		return "Focused " + model.Focus.ItemID + "; full detail arrives in a later read-only slice"
+		return "Inspecting " + model.Focus.ItemID
 	case "summary":
 		return "Use g w for Work or g f for Fleet"
-	case "org":
-		return "Use g f for Fleet"
+	case "screen":
+		return "Selected " + screenTitle(model.Screen)
+	case "section":
+		return "Selected " + string(model.TopologySection)
 	default:
-		return "Read-only Overview"
+		return "Read-only " + screenTitle(model.Screen)
 	}
 }
 
 func validateOverviewQuery(query string) string {
-	allowed := map[string]bool{"id": true, "status": true, "type": true, "role": true, "ticket": true}
-	for _, term := range strings.Fields(query) {
-		if i := strings.IndexByte(term, ':'); i > 0 && !allowed[strings.ToLower(term[:i])] {
-			return "unknown filter field: " + term[:i]
+	return validateQuery(query, allowedQueryFields(ScreenOverview))
+}
+
+func validateCurrentQuery(model Model, query string) string {
+	return validateQuery(query, allowedQueryFields(model.Screen))
+}
+
+func focusRingFor(model Model) []Focus {
+	switch model.Screen {
+	case ScreenOverview:
+		return focusRing
+	case ScreenWorkJobs:
+		return []Focus{{Region: "screen", Control: "tabs"}, {Region: "jobs", Control: "list"}, {Region: "models", Control: "list"}, {Region: "bounces", Control: "list"}, {Region: "status", Control: "refresh"}}
+	case ScreenWorkTelemetry:
+		return []Focus{{Region: "screen", Control: "tabs"}, {Region: "models", Control: "list"}, {Region: "bounces", Control: "list"}, {Region: "status", Control: "refresh"}}
+	case ScreenFleetOrg:
+		return []Focus{{Region: "screen", Control: "tabs"}, {Region: "org", Control: "list"}, {Region: "status", Control: "refresh"}}
+	case ScreenFleetInstances:
+		return []Focus{{Region: "screen", Control: "tabs"}, {Region: "instances", Control: "list"}, {Region: "status", Control: "refresh"}}
+	case ScreenFleetTopology:
+		return []Focus{{Region: "screen", Control: "tabs"}, {Region: "section", Control: "tabs"}, {Region: "topology", Control: "list"}, {Region: "status", Control: "refresh"}}
+	default:
+		return []Focus{{Region: "screen", Control: "tabs"}, {Region: "status", Control: "refresh"}}
+	}
+}
+
+func focusItemIDs(model Model) []string {
+	items := []string{}
+	switch model.Focus.Region {
+	case "attention":
+		for _, row := range projectOverview(model).Attention {
+			items = append(items, row.ID)
+		}
+	case "org":
+		if model.Screen == ScreenOverview {
+			for _, row := range projectOverview(model).Org {
+				items = append(items, row.Role)
+			}
+		} else {
+			for _, role := range projectLiveOrg(model) {
+				for _, lane := range role.Lanes {
+					items = append(items, lane.Name)
+				}
+			}
+		}
+	case "jobs":
+		for _, row := range projectJobs(model) {
+			items = append(items, row.ID)
+		}
+	case "instances":
+		for _, row := range projectInstances(model) {
+			items = append(items, row.Name)
+		}
+	case "models":
+		for _, row := range projectTelemetry(model).Models {
+			items = append(items, row.Label)
+		}
+	case "bounces":
+		for _, row := range projectTelemetry(model).Bounces {
+			items = append(items, row.Class)
+		}
+	case "topology":
+		items = topologyItemIDs(model)
+	}
+	return items
+}
+
+func topologyItemIDs(model Model) []string {
+	projection := projectTopology(model)
+	items := []string{}
+	switch model.TopologySection {
+	case TopologyDeployments:
+		for _, row := range projection.Deployments {
+			items = append(items, row.URI)
+		}
+	case TopologyPipelines:
+		for _, row := range projection.Pipelines {
+			items = append(items, row.Name)
+		}
+	case TopologyBudgets:
+		for _, row := range projection.Budgets {
+			items = append(items, row.Team)
+		}
+	case TopologySchedules:
+		for _, row := range projection.Schedules {
+			items = append(items, row.Name)
+		}
+	case TopologyDeadlines:
+		for _, row := range projection.Deadlines {
+			items = append(items, row.Label)
+		}
+	case TopologyTeams:
+		for _, row := range projection.Teams {
+			items = append(items, row.Name)
 		}
 	}
-	return ""
+	return items
+}
+
+func inspectableFocus(model Model) bool {
+	switch model.Focus.Region {
+	case "attention", "jobs", "instances", "org", "models", "bounces", "topology":
+		return model.Focus.ItemID != ""
+	default:
+		return false
+	}
+}
+
+func navigateTo(model Model, route Route, screen Screen) Model {
+	if route == "" {
+		route = routeForScreen(screen)
+	}
+	if screen == "" {
+		screen = defaultScreenForRoute(route)
+	}
+	changed := model.Screen != screen
+	model.Route, model.Screen = route, screen
+	model.FocusIndex, model.Focus, model.Inspecting = 0, Focus{}, false
+	if changed {
+		model.Query, model.QueryError, model.QueryActive = "", "", false
+	}
+	model = preserveFocus(model)
+	if changed {
+		model.Feedback = "Opened " + screenTitle(screen)
+	}
+	return model
+}
+
+func defaultScreenForRoute(route Route) Screen {
+	switch route {
+	case RouteOverview:
+		return ScreenOverview
+	case RouteWork:
+		return ScreenWorkJobs
+	case RouteFleet:
+		return ScreenFleetOrg
+	default:
+		return Screen(route)
+	}
+}
+
+func routeForScreen(screen Screen) Route {
+	value := string(screen)
+	switch {
+	case screen == ScreenOverview:
+		return RouteOverview
+	case strings.HasPrefix(value, "work/"):
+		return RouteWork
+	case strings.HasPrefix(value, "fleet/"):
+		return RouteFleet
+	default:
+		return Route(value)
+	}
+}
+
+func screenTitle(screen Screen) string {
+	switch screen {
+	case ScreenOverview:
+		return "Overview"
+	case ScreenWorkJobs:
+		return "Work / Jobs"
+	case ScreenWorkTelemetry:
+		return "Work / Telemetry"
+	case ScreenFleetOrg:
+		return "Fleet / Live org"
+	case ScreenFleetInstances:
+		return "Fleet / Instances"
+	case ScreenFleetTopology:
+		return "Fleet / Topology"
+	default:
+		return routeTitle(routeForScreen(screen))
+	}
+}
+
+func moveLocalScreen(model *Model, delta int) {
+	var screens []Screen
+	switch model.Route {
+	case RouteWork:
+		screens = []Screen{ScreenWorkJobs, ScreenWorkTelemetry}
+	case RouteFleet:
+		screens = []Screen{ScreenFleetOrg, ScreenFleetInstances, ScreenFleetTopology}
+	default:
+		model.Feedback = screenTitle(model.Screen) + " has no sibling screens"
+		return
+	}
+	index := 0
+	for current, screen := range screens {
+		if screen == model.Screen {
+			index = current
+			break
+		}
+	}
+	if delta < -len(screens) {
+		index = 0
+	} else if delta > len(screens) {
+		index = len(screens) - 1
+	} else {
+		index = (index + delta + len(screens)) % len(screens)
+	}
+	*model = navigateTo(*model, model.Route, screens[index])
+}
+
+func moveTopologySection(model *Model, delta int) {
+	index := 0
+	for current, section := range topologySections {
+		if section == model.TopologySection {
+			index = current
+			break
+		}
+	}
+	if delta < -len(topologySections) {
+		index = 0
+	} else if delta > len(topologySections) {
+		index = len(topologySections) - 1
+	} else {
+		index = (index + delta + len(topologySections)) % len(topologySections)
+	}
+	model.TopologySection = topologySections[index]
+	model.Focus.ItemID = ""
+	model.Inspecting = false
+	*model = preserveFocus(*model)
+	model.Feedback = "Topology section: " + string(model.TopologySection)
+}
+
+func moveLocalSection(model *Model, delta int) {
+	if model.Screen == ScreenFleetTopology {
+		moveTopologySection(model, delta)
+		return
+	}
+	if model.Route == RouteWork || model.Route == RouteFleet {
+		moveLocalScreen(model, delta)
+		return
+	}
+	model.Feedback = screenTitle(model.Screen) + " has no local subsections"
 }
 
 func goRoute(key string) (Route, bool) {

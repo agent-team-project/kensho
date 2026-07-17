@@ -1,0 +1,30 @@
++ agent-team | FLEET / TOPOLOGY -------------------------------------------------------------------CONNECTED 12:04:05 -+
+| Overview  Work  [Fleet]  Activity  Logs  Research  Requirements  Release                                     ? Help  |
++----------------------------------------------------------------------------------------------------------------------+
+|   Org Instances [Topology]                                                                              Query: none  |
++----------------------------------------------------------------------------------------------------------------------+
+|   deployments pipelines budgets schedules [deadlines] teams                                                          |
++---------------------------------------------------------------------------+------------------------------------------+
+| > frontend-worker-1            2026-07-10 13:04:05 UTC  runtime    ru...  | Detail                                   |
+|   outcome/job-03               2026-07-10 14:04:05 UTC  set        ou...  | frontend-worker-1                        |
+|   outcome/job-08               2026-07-10 15:04:05 UTC  runtime    ou...  | deadline 2026-07-10 13:04:05 UTC         |
+|                                                                           | state runtime                            |
+|                                                                           | source runtime watchdog                  |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
+|                                                                           |                                          |
++----------------------------------------------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus topology/list | Opened Fleet / Top... |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                 |
++----------------------------------------------------------------------------------------------------------------------+

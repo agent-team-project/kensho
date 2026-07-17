@@ -1,0 +1,30 @@
++ agent-team | WORK / JOBS ------------------------------------------------------------------------CONNECTED 12:04:05 -+
+| Overview  [Work]  Fleet  Activity  Logs  Research  Requirements  Release                                     ? Help  |
++----------------------------------------------------------------------------------------------------------------------+
+| > [Jobs] Telemetry                                                                                      Query: none  |
++---------------------------------------------------------------------+------------------------------------------------+
+| Jobs                                                                | Detail                                         |
+|   ID                   TICKET   STATUS        PIPELINE         ...  | gh383-tui-spec                                 |
+|   gh383-tui-spec       GH-380   running       frontend_ticket_t...  | ticket GH-380                                  |
+|   release-2026-07      GH-381   blocked       platform_ticket_t...  | status running                                 |
+|   job-03               GH-382   failed        release          ...  | pipeline frontend_ticket_to_pr                 |
+|   job-04               GH-383   queued        quality          ...  | instance -                                     |
+|   job-05               GH-384   done          frontend_ticket_t...  | model/tier gpt-5.6 / T2                        |
+|   job-06               GH-385   running       platform_ticket_t...  | runtime codex                                  |
+|   job-07               GH-386   done          release          ...  | bounces capability 1                           |
+|   job-08               GH-387   blocked       quality          ...  |                                                |
+|                                                                     |                                                |
++ Model / tier --------------------------------------------------------------------------------------------------------+
+|   gpt-5.5 / T1                     jobs 3   active 2   bounces 1                                                     |
+|   gpt-5.6 / T2                     jobs 3   active 2   bounces 2                                                     |
+|   gpt-5.6 / T3                     jobs 3   active 2   bounces 1                                                     |
+|   not reported                     jobs 3   active 1   bounces 0                                                     |
+|                                                                                                                      |
+|                                                                                                                      |
++ Bounce classes ------------------------------------------------------------------------------------------------------+
+| capability 1/1 jobs   infra 1/1 jobs   scope 1/1 jobs   spec-ambiguity 1/1 jobs                                      |
+|                                                                                                                      |
++----------------------------------------------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus screen/tabs | Opened Work / Jobs      |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                 |
++----------------------------------------------------------------------------------------------------------------------+

@@ -255,15 +255,15 @@ func TestCanonicalRendersAreExactStableFrames(t *testing.T) {
 
 func TestCanonicalGoldenHashes(t *testing.T) {
 	want := map[string]string{
-		"80x24/color":      "6fc69d96048c2e53be14f721f5634f5e15b0de5c51b0e5ec160342149abb77c1",
-		"80x24/NO_COLOR":   "88a1ac3e982bd240da91b54300548b67462c7884415c76ccc7aa09e0b6e65bdd",
-		"80x24/TERM=dumb":  "88a1ac3e982bd240da91b54300548b67462c7884415c76ccc7aa09e0b6e65bdd",
-		"120x30/color":     "cbbf9ce369e711effe29f74494d8a209b209c158f0cf4aa0d7c7edeb7a2914ed",
-		"120x30/NO_COLOR":  "66db77dadb1f588a6fb080f411eab45f10f4ee1903cb44095b01bc8def5d1b32",
-		"120x30/TERM=dumb": "66db77dadb1f588a6fb080f411eab45f10f4ee1903cb44095b01bc8def5d1b32",
-		"160x50/color":     "d0725c00adddf09fbe1523c9b0fed6174000316c5d0b9bd1029ab37af16c43f4",
-		"160x50/NO_COLOR":  "504720ff6b61e308de9ca3e17b720be9e33d0d819c2707feb9e298f38933bc63",
-		"160x50/TERM=dumb": "504720ff6b61e308de9ca3e17b720be9e33d0d819c2707feb9e298f38933bc63",
+		"80x24/color":      "a3b201738b852945476aa34196ce0cb51a487f52aef2e77f187f17842ed23166",
+		"80x24/NO_COLOR":   "361755bcdb9261efed52ccdaeef67bac6764c0cdf465dc918774f15c2e69f581",
+		"80x24/TERM=dumb":  "361755bcdb9261efed52ccdaeef67bac6764c0cdf465dc918774f15c2e69f581",
+		"120x30/color":     "d8d56aea8ad44427903b78dcb047d9edcba9df12c59003f861215999370b5806",
+		"120x30/NO_COLOR":  "bf4fbe1454d7d98d1d8d7bf6a91a1033c847a52d37207cd60e10f96847daa28a",
+		"120x30/TERM=dumb": "bf4fbe1454d7d98d1d8d7bf6a91a1033c847a52d37207cd60e10f96847daa28a",
+		"160x50/color":     "f09577e1e49210a4bd20fc077e93066eef26fa2d6a9b00199fe58dd0023cfc58",
+		"160x50/NO_COLOR":  "f4ed7dfbca378a49d55a03991783d8132dd65930f1735e716f992e3306903cd8",
+		"160x50/TERM=dumb": "f4ed7dfbca378a49d55a03991783d8132dd65930f1735e716f992e3306903cd8",
 	}
 	modes := []struct {
 		name string

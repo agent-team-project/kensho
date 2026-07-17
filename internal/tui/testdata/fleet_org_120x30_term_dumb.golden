@@ -1,0 +1,30 @@
++ agent-team | FLEET / LIVE ORG -------------------------------------------------------------------CONNECTED 12:04:05 -+
+| Overview  Work  [Fleet]  Activity  Logs  Research  Requirements  Release                                     ? Help  |
++----------------------------------------------------------------------------------------------------------------------+
+| > [Org] Instances Topology                                                                              Query: none  |
++-----------------------------------------------------------------------------+----------------------------------------+
+| Live org                                                                    | Context                                |
+| Auditor: 0 working  1 idle  0 queued  0 crashed                             | auditor                                |
+|   auditor                  idle       0/1 running                           | role auditor                           |
+| Comms: 0 working  1 idle  0 queued  0 crashed                               | state idle                             |
+|   comms                    idle       0/1 running / persistent              | capacity 0/1 running                   |
+| Manager: 0 working  1 idle  0 queued  0 crashed                             | idle - no runtime instance             |
+|   manager                  idle       1/1 running / persistent              |                                        |
+| Reviewer: 1 working  0 idle  0 queued  0 crashed                            |                                        |
+|   reviewer                 working    1/2 running                           |                                        |
+| Ticket-manager: 0 working  1 idle  0 queued  0 crashed                      |                                        |
+|   ticket-manager           idle       0/1 running                           |                                        |
+| Verifier: 0 working  0 idle  0 queued  1 crashed                            |                                        |
+|   verifier                 crashed    0/2 running                           |                                        |
+| Worker: 2 working  0 idle  0 queued  0 crashed                              |                                        |
+|   frontend-worker          working    2/2 running / 1 queued                |                                        |
+|   platform-worker          working    1/2 running                           |                                        |
+|                                                                             |                                        |
+|                                                                             |                                        |
+|                                                                             |                                        |
+|                                                                             |                                        |
+|                                                                             |                                        |
++----------------------------------------------------------------------------------------------------------------------+
+|   Filter: none | Snapshot 12:04:05 | collections 3/3 | resources 38/38 | focus screen/tabs | Opened Fleet / Live org |
+| Tab focus  arrows/hjkl move  Enter inspect  [/] section  / filter  p poll  r refresh  ? help  q quit                 |
++----------------------------------------------------------------------------------------------------------------------+
