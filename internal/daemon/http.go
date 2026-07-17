@@ -416,7 +416,7 @@ func handlerWithLogAndPolicy(m *InstanceManager, channels *ChannelStore, events 
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		list := m.List()
+		list := InstanceMetadataForInventory(teamDir, m.List())
 		// Marshal as `[]` not `null` when empty — friendlier for clients.
 		if list == nil {
 			list = []*Metadata{}

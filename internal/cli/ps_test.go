@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"github.com/agent-team-project/agent-team/internal/daemon"
+	jobstore "github.com/agent-team-project/agent-team/internal/job"
 )
 
 func TestPs_NoInstancesNoDaemon(t *testing.T) {
@@ -229,6 +233,132 @@ func TestPsMergesLocalDaemonMetadataWhenDaemonStopped(t *testing.T) {
 	}
 	if got.HasStatus {
 		t.Fatalf("daemon-only row should not report status.toml: %+v", got)
+	}
+}
+
+func TestPsAndInstancesAPISharePersistentManagerJobAttribution(t *testing.T) {
+	tmp := t.TempDir()
+	initInto(t, tmp)
+	teamDir := filepath.Join(tmp, ".agent_team")
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+
+	fixtures := []struct {
+		instance string
+		job      string
+		status   daemon.Status
+	}{
+		{instance: "frontend-manager", job: "gh-515", status: daemon.StatusExited},
+		{instance: "manager", job: "gh-430", status: daemon.StatusRunning},
+		{instance: "research-manager", job: "workplane-m2-work-dependencies", status: daemon.StatusCrashed},
+		{instance: "idle-manager", job: "", status: daemon.StatusStopped},
+	}
+	metadataPaths := make([]string, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		stateDir := filepath.Join(teamDir, "state", fixture.instance)
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		statusBody := "[status]\nphase = \"planning\"\n\n[work]\njob = \"" + fixture.job + "\"\n"
+		if err := os.WriteFile(filepath.Join(stateDir, "status.toml"), []byte(statusBody), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		meta := &daemon.Metadata{
+			Instance:  fixture.instance,
+			Agent:     "manager",
+			Ticket:    "unrelated-" + fixture.instance,
+			Branch:    "branch-" + fixture.instance,
+			Runtime:   "codex",
+			Workspace: "/workspace/" + fixture.instance,
+			StartedAt: now,
+			Status:    fixture.status,
+		}
+		if err := daemon.WriteMetadata(daemon.DaemonRoot(teamDir), meta); err != nil {
+			t.Fatalf("write %s metadata: %v", fixture.instance, err)
+		}
+		metadataPaths = append(metadataPaths, filepath.Join(daemon.DaemonRoot(teamDir), fixture.instance, "meta.json"))
+	}
+
+	unrelatedJob, err := jobstore.New("GH-999", "worker", "unrelated fixture", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unrelatedJob.Pipeline = "ticket_to_pr"
+	if err := jobstore.Write(teamDir, unrelatedJob); err != nil {
+		t.Fatalf("write unrelated job: %v", err)
+	}
+	unchangedPaths := append(metadataPaths,
+		jobstore.Path(teamDir, unrelatedJob.ID),
+		filepath.Join(teamDir, "instances.toml"),
+	)
+	before := readFixtureFiles(t, unchangedPaths)
+
+	mgr := daemon.NewInstanceManager(daemon.DaemonRoot(teamDir), nil)
+	if err := mgr.LoadFromDisk(); err != nil {
+		t.Fatalf("load daemon metadata: %v", err)
+	}
+	server := httptest.NewServer(daemon.Handler(mgr, nil, nil, teamDir))
+	defer server.Close()
+	response, err := server.Client().Get(server.URL + "/v1/instances")
+	if err != nil {
+		t.Fatalf("GET /v1/instances: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("GET /v1/instances status = %d: %s", response.StatusCode, body)
+	}
+	apiBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read /v1/instances: %v", err)
+	}
+	apiRows := jsonObjectsByInstance(t, apiBody)
+
+	cliRows, err := collectPsRows(teamDir, now)
+	if err != nil {
+		t.Fatalf("collect ps rows: %v", err)
+	}
+	cliBody, err := json.Marshal(psJSONRows(cliRows))
+	if err != nil {
+		t.Fatalf("marshal ps rows: %v", err)
+	}
+	cliObjects := jsonObjectsByInstance(t, cliBody)
+
+	for _, fixture := range fixtures {
+		apiRow := apiRows[fixture.instance]
+		cliRow := cliObjects[fixture.instance]
+		if apiRow == nil || cliRow == nil {
+			t.Fatalf("missing %s row: api=%v cli=%v", fixture.instance, apiRow, cliRow)
+		}
+		apiJob, apiHasJob := apiRow["job"]
+		cliJob, cliHasJob := cliRow["job"]
+		if !apiHasJob || !cliHasJob {
+			t.Fatalf("%s job must be explicit on both surfaces: api=%v cli=%v", fixture.instance, apiRow, cliRow)
+		}
+		if apiJob != fixture.job || cliJob != fixture.job {
+			t.Errorf("%s job attribution: api=%v cli=%v want=%q", fixture.instance, apiJob, cliJob, fixture.job)
+		}
+		for field, want := range map[string]any{
+			"agent":     "manager",
+			"status":    string(fixture.status),
+			"runtime":   "codex",
+			"ticket":    "unrelated-" + fixture.instance,
+			"branch":    "branch-" + fixture.instance,
+			"workspace": "/workspace/" + fixture.instance,
+		} {
+			if got := apiRow[field]; got != want {
+				t.Errorf("API %s.%s = %v, want %v", fixture.instance, field, got, want)
+			}
+			if got := cliRow[field]; got != want {
+				t.Errorf("CLI %s.%s = %v, want %v", fixture.instance, field, got, want)
+			}
+		}
+	}
+
+	after := readFixtureFiles(t, unchangedPaths)
+	for path, want := range before {
+		if got := after[path]; !bytes.Equal(got, want) {
+			t.Errorf("inventory projection mutated unrelated fixture %s", path)
+		}
 	}
 }
 
@@ -1258,6 +1388,35 @@ func rowInstances(rows []psJSONRow) []string {
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, row.Instance)
+	}
+	return out
+}
+
+func jsonObjectsByInstance(t *testing.T, body []byte) map[string]map[string]any {
+	t.Helper()
+	var rows []map[string]any
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("decode instance rows: %v\n%s", err, body)
+	}
+	out := make(map[string]map[string]any, len(rows))
+	for _, row := range rows {
+		instance, _ := row["instance"].(string)
+		if instance != "" {
+			out[instance] = row
+		}
+	}
+	return out
+}
+
+func readFixtureFiles(t *testing.T, paths []string) map[string][]byte {
+	t.Helper()
+	out := make(map[string][]byte, len(paths))
+	for _, path := range paths {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read fixture %s: %v", path, err)
+		}
+		out[path] = body
 	}
 	return out
 }

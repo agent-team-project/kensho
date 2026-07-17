@@ -497,7 +497,7 @@ type Instance struct {
 	CharterURI          string          `json:"charter_uri,omitempty"`
 	CapabilityURI       string          `json:"capability_uri,omitempty"`
 	Agent               string          `json:"agent"`
-	Job                 string          `json:"job,omitempty"`
+	Job                 string          `json:"job"`
 	JobURI              string          `json:"job_uri,omitempty"`
 	Ticket              string          `json:"ticket,omitempty"`
 	Branch              string          `json:"branch,omitempty"`

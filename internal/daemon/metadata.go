@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/agent-team-project/agent-team/internal/origin"
 	"github.com/agent-team-project/agent-team/internal/resource"
 	"github.com/agent-team-project/agent-team/internal/usage"
@@ -39,7 +40,7 @@ type Metadata struct {
 	CharterURI          string          `json:"charter_uri,omitempty"`
 	CapabilityURI       string          `json:"capability_uri,omitempty"`
 	Agent               string          `json:"agent"`
-	Job                 string          `json:"job,omitempty"`
+	Job                 string          `json:"job"`
 	JobURI              string          `json:"job_uri,omitempty"`
 	Attempt             int             `json:"attempt,omitempty"`
 	Ticket              string          `json:"ticket,omitempty"`
@@ -167,6 +168,53 @@ func ListMetadata(daemonRoot string) ([]*Metadata, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Instance < out[j].Instance })
 	return out, nil
+}
+
+// InstanceMetadataForInventory returns defensive copies with the canonical
+// read-side job attribution used by every instance inventory surface. A
+// non-empty status.toml [work].job is the current persistent-instance
+// assignment and takes precedence over the job captured when the runtime was
+// launched. Runtime metadata remains the fallback for instances that do not
+// report a work job.
+func InstanceMetadataForInventory(teamDir string, metas []*Metadata) []*Metadata {
+	out := make([]*Metadata, 0, len(metas))
+	for _, meta := range metas {
+		if meta == nil {
+			continue
+		}
+		projected := *meta
+		metadataJob := strings.TrimSpace(projected.Job)
+		projected.Job = metadataJob
+		if statusJob := inventoryStatusJob(teamDir, projected.Instance); statusJob != "" {
+			projected.Job = statusJob
+		}
+		if projected.Job != metadataJob {
+			projected.JobURI = ""
+		}
+		if projected.Job == "" {
+			projected.JobURI = ""
+		} else if projected.JobURI == "" {
+			backfillMetadataResourceURIs(DaemonRoot(teamDir), &projected)
+		}
+		out = append(out, &projected)
+	}
+	return out
+}
+
+func inventoryStatusJob(teamDir, instance string) string {
+	if strings.TrimSpace(teamDir) == "" || strings.TrimSpace(instance) == "" {
+		return ""
+	}
+	var status struct {
+		Work *struct {
+			Job string `toml:"job"`
+		} `toml:"work"`
+	}
+	path := filepath.Join(teamDir, "state", instance, "status.toml")
+	if _, err := toml.DecodeFile(path, &status); err != nil || status.Work == nil {
+		return ""
+	}
+	return strings.TrimSpace(status.Work.Job)
 }
 
 // RemoveInstance deletes all metadata for a given instance. Used on terminal

@@ -837,6 +837,7 @@ func collectPsRows(teamDir string, now time.Time) ([]instanceRow, error) {
 }
 
 func mergeDaemonRows(teamDir string, rows []instanceRow, insts []*daemon.Metadata, agentNames map[string]bool, now time.Time) []instanceRow {
+	insts = daemon.InstanceMetadataForInventory(teamDir, insts)
 	rowByInstance := map[string]int{}
 	for i := range rows {
 		rowByInstance[rows[i].Instance] = i
@@ -867,7 +868,7 @@ func mergeDaemonRows(teamDir string, rows []instanceRow, insts []*daemon.Metadat
 		activity := runtimeActivityForInstance(teamDir, m.Instance, m, now)
 		rows[idx].LastActivityAt = activity.LastActivityAt
 		rows[idx].Activity = activity.Activity
-		rows[idx].Job = firstNonEmpty(rows[idx].Job, m.Job)
+		rows[idx].Job = m.Job
 		if rows[idx].Attempt <= 0 {
 			rows[idx].Attempt = m.Attempt
 		}
@@ -973,7 +974,7 @@ type psJSONRow struct {
 	FreshFallbacks   int    `json:"fresh_fallback_count,omitempty"`
 	LastActivityAt   string `json:"last_activity_at,omitempty"`
 	Activity         string `json:"activity,omitempty"`
-	Job              string `json:"job,omitempty"`
+	Job              string `json:"job"`
 	Ticket           string `json:"ticket,omitempty"`
 	Branch           string `json:"branch,omitempty"`
 	PR               string `json:"pr,omitempty"`
